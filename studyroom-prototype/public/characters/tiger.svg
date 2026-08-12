@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="호랑이 캐릭터">
+  <g stroke="#4A1D12" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+    <!-- tail -->
+    <path d="M152 150 C186 146 190 112 172 100" fill="none" stroke-width="9"/>
+    <!-- legs -->
+    <path d="M80 172 v14" fill="none" stroke-width="11"/>
+    <path d="M120 172 v14" fill="none" stroke-width="11"/>
+    <!-- body -->
+    <path d="M100 96 C132 96 152 120 152 146 C152 168 130 178 100 178 C70 178 48 168 48 146 C48 120 68 96 100 96 Z" fill="#F5A02A"/>
+    <!-- belly shield -->
+    <path d="M100 108 h22 v26 c0 14 -12 22 -22 26 c-10 -4 -22 -12 -22 -26 v-26 Z" fill="#F2EBDD" stroke-width="5"/>
+    <!-- ears -->
+    <circle cx="64" cy="44" r="15" fill="#E8862A"/>
+    <circle cx="136" cy="44" r="15" fill="#E8862A"/>
+    <!-- head -->
+    <ellipse cx="100" cy="64" rx="45" ry="40" fill="#F5A02A"/>
+    <!-- muzzle -->
+    <ellipse cx="100" cy="78" rx="24" ry="16" fill="#F2EBDD" stroke-width="5"/>
+  </g>
+  <!-- K on shield -->
+  <path d="M92 116 v30 M92 131 l14 -15 M92 131 l14 15" fill="none" stroke="#8C1D3F" stroke-width="7" stroke-linecap="round"/>
+  <!-- stripes -->
+  <g stroke="#4A1D12" stroke-width="6" stroke-linecap="round" fill="none">
+    <path d="M78 34 l-6 12"/>
+    <path d="M100 30 v13"/>
+    <path d="M122 34 l6 12"/>
+    <path d="M58 118 l-8 10"/>
+    <path d="M62 140 l-10 7"/>
+    <path d="M142 118 l8 10"/>
+    <path d="M138 140 l10 7"/>
+  </g>
+  <!-- eyes: cool half-lidded -->
+  <g fill="#1B0D08">
+    <ellipse cx="84" cy="60" rx="8" ry="9"/>
+    <ellipse cx="116" cy="60" rx="8" ry="9"/>
+  </g>
+  <g fill="none" stroke="#4A1D12" stroke-width="6" stroke-linecap="round">
+    <path d="M74 48 q10 -6 20 -2"/>
+    <path d="M126 48 q-10 -6 -20 -2"/>
+    <path d="M100 74 q-8 8 -15 2"/>
+    <path d="M100 74 q8 8 15 2"/>
+  </g>
+  <path d="M100 70 l-6 4 h12 Z" fill="#4A1D12"/>
+</svg>
