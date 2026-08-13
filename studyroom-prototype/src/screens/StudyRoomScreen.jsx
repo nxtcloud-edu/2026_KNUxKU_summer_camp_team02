@@ -549,6 +549,14 @@ export default function StudyRoomScreen() {
     enabled: visionOn,
     onSignal: onVisionSignal,
     onAlert: onVisionAlert,
+    // 느려서 판정이 굼떠지면 알린다. 조용히 두면 "인식을 못 한다"로만 보인다
+    onDegrade: (info) =>
+      toast(
+        info?.kind === 'off'
+          ? '이 기기에서 집중 감지가 버거워서 껐어요.'
+          : `집중 감지가 느려서 주기를 ${info?.intervalMs ?? ''}ms로 늘렸어요.`,
+        'danger',
+      ),
   })
 
   /* ── 자율 행동 (§7-3 3순위) ──────────────────────────────
