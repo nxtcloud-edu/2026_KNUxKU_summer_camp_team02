@@ -93,6 +93,45 @@ async function readPdf(file, onProgress) {
   return { raw: parts.join('\n\n'), pages: doc.numPages }
 }
 
+/** 그림으로 읽을 때 최대 몇 쪽까지. 쪽당 약 1,100토큰이라 8쪽이면 9,000토큰쯤 된다 */
+export const MAX_IMAGE_PAGES = 8
+
+/** 글자를 알아볼 만큼의 해상도. 너무 키우면 용량만 커지고 인식률은 안 오른다 */
+const RENDER_WIDTH = 1400
+
+/**
+ * PDF 쪽을 그림으로 만든다.
+ *
+ * 글자층이 깨진 PDF 라도 **사람 눈에는 멀쩡히 보인다.** 모델도 마찬가지다.
+ * 실측: 이 방식으로 깨졌던 한글 문서를 표 안의 값까지 정확히 읽어냈다.
+ * 글자 추출이 실패했을 때만 쓴다 — 토큰이 훨씬 많이 든다.
+ */
+export async function renderPages(file, { maxPages = MAX_IMAGE_PAGES, onProgress } = {}) {
+  const pdfjs = await import('pdfjs-dist')
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href
+
+  const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise
+  const n = Math.min(doc.numPages, maxPages)
+  const images = []
+
+  for (let i = 1; i <= n; i++) {
+    const page = await doc.getPage(i)
+    const base = page.getViewport({ scale: 1 })
+    const viewport = page.getViewport({ scale: RENDER_WIDTH / base.width })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(viewport.width)
+    canvas.height = Math.round(viewport.height)
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport, canvas }).promise
+    // JPEG 로 줄인다. 글자 문서는 0.85 면 알아보는 데 지장이 없다
+    const url = canvas.toDataURL('image/jpeg', 0.85)
+    images.push({ mimeType: 'image/jpeg', data: url.slice(url.indexOf(',') + 1) })
+    canvas.width = canvas.height = 0 // 메모리를 즉시 놓아준다
+    onProgress?.(i, n)
+  }
+  await doc.destroy()
+  return { images, pages: doc.numPages, rendered: n }
+}
+
 /**
  * @returns {Promise<{ok:true, kind:string, text:string, chars:number, pages?:number, truncated:boolean}
  *                 | {ok:false, kind:string, reason:string}>}

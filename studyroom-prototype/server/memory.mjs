@@ -47,7 +47,8 @@ export function assemble({ system, knowledge = '', summary = '', turns = [] }) {
   if (knowledge) head.push(knowledge)
   if (summary) head.push(`[지금까지의 대화 요약]\n${summary}`)
 
-  const messages = turns.map((t) => ({ role: t.role, text: t.text }))
+  // 그림이 붙은 턴은 그림도 함께 넘긴다 (글자층이 깨진 PDF 를 쪽 그림으로 읽힐 때)
+  const messages = turns.map((t) => (t.images?.length ? { role: t.role, text: t.text, images: t.images } : { role: t.role, text: t.text }))
   const systemText = head.join('\n\n')
   const total = estTokens(systemText) + messages.reduce((a, m) => a + estTokens(m.text), 0)
 
