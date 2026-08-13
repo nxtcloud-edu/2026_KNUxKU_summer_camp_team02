@@ -198,6 +198,7 @@ export async function handleChat(body) {
          * 그래서 상위 모델로 올라간 호출에만 붙인다.
          */
         search: spec.useSearch && wantsPro && hits.length === 0,
+        jsonSchema: spec.json || null,
       }
       let r = await call(opts)
 
@@ -217,7 +218,9 @@ export async function handleChat(body) {
 
       // 지시로 못 막는 것만 코드가 확인한다 — 이모지·웃음표기·길이 상한.
       // 실측에서 상한 120자짜리 기능이 184자로 나왔다. 예산으로는 막을 수 없다
-      const cleaned = postprocess(r.text, spec, toneOf(seat || {}))
+      // JSON 을 받기로 한 호출은 손대지 않는다. 이모지 제거가 문자열 값 안을 건드리면
+      // 파싱은 되는데 내용이 달라진다 — 눈에 안 띄는 종류의 고장이다
+      const cleaned = spec.json ? { text: r.text, changed: [] } : postprocess(r.text, spec, toneOf(seat || {}))
 
       return {
         text: cleaned.text,

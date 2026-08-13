@@ -141,6 +141,36 @@ export const SYS_SPEC = {
     toneIntensity: 'none',
     stateKeys: [],
   },
+  /**
+   * 기습 질문 — **별도 창에서 눌러서 답한다.**
+   *
+   * 예전엔 캐릭터가 채팅으로 문제를 내고, 사용자의 **다음 메시지가 무엇이든** 답안으로
+   * 채점했다. "이 자료 요약해줘"라고 물어도 퀴즈 답으로 처리되고 원래 질문은 사라졌다.
+   * 창을 따로 띄우면 답이 채팅 입력창을 지나가지 않으므로 그 버그가 구조적으로 없어진다.
+   *
+   * 클릭으로 답하려면 선택지가 필요하고, 선택지를 받으려면 모양이 정해진 JSON 이어야 한다.
+   */
+  'sys:quiz': {
+    maxChars: 0,
+    maxTokens: 1200,
+    thinking: 'medium',
+    useKnowledge: true,
+    useSearch: false,
+    wantsPro: true,
+    toneIntensity: 'none',
+    stateKeys: ['goalText', 'recentTopics'],
+    json: {
+      type: 'OBJECT',
+      properties: {
+        question: { type: 'STRING' },
+        choices: { type: 'ARRAY', items: { type: 'STRING' } },
+        answerIndex: { type: 'INTEGER' },
+        explanation: { type: 'STRING' },
+      },
+      required: ['question', 'choices', 'answerIndex', 'explanation'],
+    },
+  },
+
   'sys:docIntro': {
     maxChars: 200,
     maxTokens: 900,

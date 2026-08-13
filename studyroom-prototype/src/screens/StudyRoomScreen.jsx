@@ -22,8 +22,6 @@ import {
   interventionLine,
   routeReply,
   generateReply,
-  makeQuiz,
-  judgeQuiz,
   takeLastError,
 } from '../lib/mockAgent'
 import {
@@ -42,6 +40,8 @@ import { wakeChime } from '../lib/chime'
 import { planDocument, toPrompt, asInlineFile } from '../lib/docReader'
 import { rememberDocument, searchUserDocs, toUserDocContext } from '../lib/userDocs'
 import { routeFunction } from '../lib/agent/functions'
+import { makeQuiz as generateQuiz } from '../lib/agent/quiz'
+import QuizPanel from '../components/QuizPanel'
 import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
 
 /* ── 지역 헬퍼 (새 의존 파일을 만들지 않는다) ─────────────────── */
@@ -388,7 +388,14 @@ export default function StudyRoomScreen() {
   const restStartRef = useRef(null)
   const restTimerRef = useRef(null)
   const quizCountRef = useRef(0)
-  const pendingQuizRef = useRef(null) // {quiz, slotNo}
+  /**
+   * 지금 떠 있는 문제. `null` 이면 창이 닫혀 있다.
+   *
+   * ref 가 아니라 state 다 — 화면이 이 값으로 그려진다.
+   * 예전 pendingQuizRef 는 "채팅으로 답을 기다리는 중"이라는 뜻이었고, 그게 사용자의
+   * 다음 질문을 삼키는 원인이었다.
+   */
+  const [quiz, setQuiz] = useState(null) // { q, seat }
   const fileRef = useRef(null)
   const inputRef = useRef(null)
   const listEndRef = useRef(null)
@@ -613,6 +620,29 @@ export default function StudyRoomScreen() {
     }, REST_HINT_MS)
   }, [])
 
+  /**
+   * 문제를 만들어 창을 띄운다.
+   *
+   * 만들지 못하면 **조용히 넘어간다.** "문제를 못 만들었어요" 같은 말풍선은
+   * 아무에게도 도움이 안 되고, 실패를 사용자에게 떠넘기는 꼴이다.
+   */
+  const openQuiz = useCallback(async (speaker) => {
+    const st = useStore.getState().settings
+    const sid = sidRef.current
+    const q = await generateQuiz({
+      seat: speaker,
+      settings: st,
+      goalText: goalRef.current || '',
+      // 목표를 안 적었으면 방금 나눈 얘기에서 낸다
+      recentTopics: docRef.current?.name ? [docRef.current.name] : [],
+      history: historyRef.current.slice(-6),
+    })
+    if (!q || !aliveRef.current) return
+    quizCountRef.current += 1
+    db.logEvent(sid, 'quiz', { question: q.question, slot_no: speaker.slotNo })
+    setQuiz({ q, seat: speaker })
+  }, [])
+
   /* ── 개입 엔진 (§7-3) + 기습 질문 (§7-5) ────────────────── */
   useEffect(() => {
     const markIntervention = (now) => {
@@ -697,22 +727,12 @@ export default function StudyRoomScreen() {
         st.memoryFlags.makeQuiz &&
         st.interventionStyles.ask &&
         quizCountRef.current < QUIZ_MAX &&
-        !pendingQuizRef.current &&
+        !quiz && // 창이 이미 떠 있으면 새로 내지 않는다
         s.studySec >= QUIZ_AFTER_SEC
       if (quizReady && Math.random() < 0.5) {
-        const quiz = makeQuiz()
-        pendingQuizRef.current = { quiz, slotNo: speaker.slotNo }
-        quizCountRef.current += 1
         markIntervention(now)
-        db.logEvent(sid, 'quiz', { question: quiz.q, slot_no: speaker.slotNo })
-        mateSay(
-          speaker,
-          async () => {
-            await sleep(700 + Math.random() * 700)
-            return quiz.q
-          },
-          'quiz',
-        )
+        // 문제를 **창으로** 띄운다. 채팅으로 내면 그다음 메시지가 무엇이든 답안이 된다
+        openQuiz(speaker)
         return
       }
 
@@ -756,27 +776,14 @@ export default function StudyRoomScreen() {
       if (REST_WORDS.test(text)) startRest()
       else restStartRef.current = null
 
-      // 기습 질문 채점 — 바로 다음 사용자 메시지를 채점한다 (§7-5)
-      const pending = pendingQuizRef.current
-      if (pending) {
-        pendingQuizRef.current = null
-        const correct = judgeQuiz(pending.quiz, text)
-        db.addQuizResult(sidRef.current, {
-          question: pending.quiz.q,
-          user_answer: text,
-          is_correct: correct,
-        })
-        const seat = useStore.getState().seats.find((x) => x.slotNo === pending.slotNo)
-        if (seat) {
-          await mateSay(seat, async () => {
-            await sleep(600 + Math.random() * 600)
-            return correct
-              ? '맞아요. 그 부분은 확실히 잡은 것 같네요.'
-              : '음, 조금 달라요. 그 부분은 이따 한 번 더 짚고 갈게요.'
-          })
-        }
-        return
-      }
+      /**
+       * 예전에는 여기서 기습 질문을 채점했다.
+       *
+       * 대기 중인 문제가 있으면 사용자의 **다음 메시지가 무엇이든** 답안으로 처리하고
+       * 곧바로 반환했다. "이 자료 요약해줘"라고 물어도 "음, 조금 달라요"가 돌아오고
+       * 원래 질문은 사라졌다. 이제 문제는 창에서 눌러서 답하므로(QuizPanel)
+       * 답이 이 경로를 지나가지 않는다. 채점 분기 자체가 필요 없어졌다.
+       */
 
       const st = useStore.getState().settings
       const allSeats = useStore.getState().seats
@@ -820,6 +827,14 @@ export default function StudyRoomScreen() {
           })
           if (import.meta.env.DEV) console.debug('[route]', funcId, rule, text.slice(0, 30))
 
+          // 문제를 달라고 했으면 말풍선이 아니라 창으로 낸다
+          if (funcId === 'F3') {
+            const asker = repliers[0] || useStore.getState().seats.find((x) => x.enabled)
+            if (asker) await openQuiz(asker)
+            lastTurnRef.current = { funcId, at: Date.now(), text: '' }
+            return
+          }
+
           for (const seat of repliers) {
             if (!aliveRef.current) return
             // 답변자마다 순차로: 타이핑 인디케이터 → 생성 → 말풍선 → 읽어주기
@@ -859,6 +874,15 @@ export default function StudyRoomScreen() {
     },
     [mateSay, pushMsg, startRest, compactIfNeeded],
   )
+
+  /** 눌러서 답했을 때 */
+  const onQuizAnswered = useCallback(({ index, correct, quiz: q }) => {
+    db.addQuizResult(sidRef.current, {
+      question: q.question,
+      user_answer: q.choices[index],
+      is_correct: correct,
+    })
+  }, [])
 
   /* ── 문서 업로드 (§6-3, §7-5) ──────────────────────────── */
 

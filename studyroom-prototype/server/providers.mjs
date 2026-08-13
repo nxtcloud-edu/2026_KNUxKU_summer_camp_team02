@@ -64,6 +64,14 @@ export async function callGemini({
    * 켤지 말지는 호출부(chat.mjs)가 정한다 — 상위 모델로 올라간 요청에만 붙인다.
    */
   search = false,
+  /**
+   * 정해진 모양의 JSON 만 받고 싶을 때 스키마를 넘긴다.
+   *
+   * 프롬프트로 "JSON 으로 답해"라고 부탁하면 대체로 지키지만 가끔 앞뒤에 설명을 붙이거나
+   * 코드펜스로 감싼다. 그러면 파싱이 깨지고, 그게 하필 시연 중에 터진다.
+   * 모델이 문법을 강제로 지키게 하는 쪽이 확실하다.
+   */
+  jsonSchema = null,
 }) {
   const t0 = Date.now()
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
@@ -80,12 +88,14 @@ export async function callGemini({
         ...(m.text ? [{ text: m.text }] : []),
       ],
     })),
-    ...(search ? { tools: [{ google_search: {} }] } : {}),
+    // 검색과 스키마 강제는 같이 못 쓴다. 스키마가 있으면 검색을 포기한다
+    ...(search && !jsonSchema ? { tools: [{ google_search: {} }] } : {}),
     generationConfig: {
       // 답변 몫 + 사고 몫. 사고 몫을 안 얹으면 답이 잘린다 (위 주석 참고)
       maxOutputTokens: maxTokens + (THINK_ALLOWANCE[thinking] ?? 0),
       temperature,
       thinkingConfig: { thinkingLevel: thinking },
+      ...(jsonSchema ? { responseMimeType: 'application/json', responseSchema: jsonSchema } : {}),
     },
   })
 
