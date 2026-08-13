@@ -9,8 +9,20 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ChevronDown, ChevronUp, Settings, Timer, DoorOpen, TrendingUp, TrendingDown,
-  Minus, Flame, Users, Trophy, HelpCircle, Lightbulb, Info,
+  ChevronDown,
+  ChevronUp,
+  Settings,
+  Timer,
+  DoorOpen,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Flame,
+  Users,
+  Trophy,
+  HelpCircle,
+  Lightbulb,
+  Info,
 } from 'lucide-react'
 
 import { useStore } from '../store/useStore'
@@ -313,7 +325,10 @@ export default function EndingScreen() {
     return (
       <div className="relative h-full w-full overflow-hidden bg-warm">
         <div className="blob bg-sage" style={{ width: 460, height: 460, left: '8%', top: '12%' }} />
-        <div className="blob blob-delayed bg-peach" style={{ width: 420, height: 420, right: '10%', bottom: '8%' }} />
+        <div
+          className="blob blob-delayed bg-peach"
+          style={{ width: 420, height: 420, right: '10%', bottom: '8%' }}
+        />
         <div className="relative flex h-full items-center justify-center">
           <div className="glass-read enter-up w-[520px] rounded-lg p-9 text-center">
             <h1 className="t-section">보여드릴 학습 기록이 없어요</h1>
@@ -355,12 +370,21 @@ export default function EndingScreen() {
         <section ref={stage1Ref} className="relative h-1/2 w-full overflow-hidden" aria-label="학습 요약">
           {/* 존 A: 배경 블롭 허용 (§4-3) */}
           <div className="blob bg-sage" style={{ width: 520, height: 520, left: '4%', top: '6%' }} />
-          <div className="blob blob-delayed bg-lavender" style={{ width: 460, height: 460, right: '6%', bottom: '4%' }} />
+          <div
+            className="blob blob-delayed bg-lavender"
+            style={{ width: 460, height: 460, right: '6%', bottom: '4%' }}
+          />
 
           {/* 캐릭터 — 좌측 하단 고정 (§6-4) */}
           <div className="absolute left-12 bottom-8 z-10 enter-up d1 flex flex-col items-center gap-1">
-            <CharacterSprite imageKey={mate?.imageKey || PRESETS[preset].imageKey} size={280} state="studying" />
-            <span className="t-caption rounded-full bg-surface border border-hairline px-3 py-1">{mateName}</span>
+            <CharacterSprite
+              imageKey={mate?.imageKey || PRESETS[preset].imageKey}
+              size={280}
+              state="studying"
+            />
+            <span className="t-caption rounded-full bg-surface border border-hairline px-3 py-1">
+              {mateName}
+            </span>
           </div>
 
           {/* 말풍선 — 캐릭터를 제외한 화면 대부분 */}
@@ -371,7 +395,10 @@ export default function EndingScreen() {
                 aria-hidden="true"
                 className="absolute"
                 style={{
-                  left: -27, bottom: 78, width: 0, height: 0,
+                  left: -27,
+                  bottom: 78,
+                  width: 0,
+                  height: 0,
                   borderTop: '19px solid transparent',
                   borderBottom: '19px solid transparent',
                   borderRight: '27px solid rgba(255,255,255,.8)',
@@ -381,7 +408,10 @@ export default function EndingScreen() {
                 aria-hidden="true"
                 className="absolute"
                 style={{
-                  left: -25, bottom: 79, width: 0, height: 0,
+                  left: -25,
+                  bottom: 79,
+                  width: 0,
+                  height: 0,
                   borderTop: '18px solid transparent',
                   borderBottom: '18px solid transparent',
                   borderRight: '25px solid rgba(255,255,255,.94)',
@@ -431,11 +461,17 @@ export default function EndingScreen() {
                         </div>
                         <div className="mt-2 flex items-center gap-5 t-caption">
                           <span className="inline-flex items-center gap-1.5">
-                            <span className="inline-block h-2.5 w-2.5 rounded-full bg-chart-focus" aria-hidden="true" />
+                            <span
+                              className="inline-block h-2.5 w-2.5 rounded-full bg-chart-focus"
+                              aria-hidden="true"
+                            />
                             집중 시간 {focusPct}%
                           </span>
                           <span className="inline-flex items-center gap-1.5">
-                            <span className="inline-block h-2.5 w-2.5 rounded-full bg-chart-track" aria-hidden="true" />
+                            <span
+                              className="inline-block h-2.5 w-2.5 rounded-full bg-chart-track"
+                              aria-hidden="true"
+                            />
                             전체 공부 시간
                           </span>
                         </div>
@@ -477,9 +513,7 @@ export default function EndingScreen() {
 
                 {/* CTA — 말풍선 제일 하단 */}
                 <div className="border-t border-hairline px-12 py-5 flex items-center justify-between">
-                  <span className="t-help">
-                    아래 화살표(또는 ↓ 키)로 더 자세한 기록을 볼 수 있어요.
-                  </span>
+                  <span className="t-help">아래 화살표(또는 ↓ 키)로 더 자세한 기록을 볼 수 있어요.</span>
                   <Button variant="primary" onClick={() => go('home')}>
                     홈 화면으로 돌아가기
                   </Button>
@@ -518,7 +552,10 @@ export default function EndingScreen() {
                   <h2 className="t-screen">세부 요약</h2>
                   <p className="t-help mt-1">
                     {new Date(session.started_at).toLocaleString('ko-KR', {
-                      month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                      month: 'long',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
                     })}{' '}
                     시작한 세션 · 총 {fmtShort(studySec)}
                   </p>
@@ -541,8 +578,12 @@ export default function EndingScreen() {
 
               <div className="grid grid-cols-3 gap-4">
                 {/* 1 최장 집중 시간 */}
-                <StatCard icon={<Timer size={17} />} label="최장 집중 시간" delay="d1"
-                  note={measured ? '이탈로 끊기지 않은 가장 긴 구간이에요.' : null}>
+                <StatCard
+                  icon={<Timer size={17} />}
+                  label="최장 집중 시간"
+                  delay="d1"
+                  note={measured ? '이탈로 끊기지 않은 가장 긴 구간이에요.' : null}
+                >
                   {measured ? (
                     <Metric value={fmtShort(snapshot.bestStreakSec || 0)} />
                   ) : (
@@ -554,8 +595,12 @@ export default function EndingScreen() {
                 </StatCard>
 
                 {/* 2 집중 이탈 횟수 */}
-                <StatCard icon={<DoorOpen size={17} />} label="집중 이탈 횟수" delay="d2"
-                  note={measured ? '60초 이상 자리를 비운 경우만 셌어요. 휴식은 빼고요.' : null}>
+                <StatCard
+                  icon={<DoorOpen size={17} />}
+                  label="집중 이탈 횟수"
+                  delay="d2"
+                  note={measured ? '60초 이상 자리를 비운 경우만 셌어요. 휴식은 빼고요.' : null}
+                >
                   {measured ? (
                     <Metric value={snapshot.awayCount || 0} unit="회" />
                   ) : (
@@ -570,7 +615,9 @@ export default function EndingScreen() {
                 <StatCard icon={<HelpCircle size={17} />} label="기습 질문 응답 결과" delay="d3">
                   {data.quiz.length ? (
                     <>
-                      <Metric value={`성공 ${data.quiz.filter((q) => q.is_correct).length} / 전체 ${data.quiz.length}`} />
+                      <Metric
+                        value={`성공 ${data.quiz.filter((q) => q.is_correct).length} / 전체 ${data.quiz.length}`}
+                      />
                       <ul className="mt-3 space-y-1.5">
                         {data.quiz.slice(0, 3).map((q) => (
                           <li key={q.id} className="t-help flex items-start gap-2">
@@ -588,12 +635,20 @@ export default function EndingScreen() {
                 </StatCard>
 
                 {/* 8 심화 학습 포인트 */}
-                <StatCard icon={<Lightbulb size={17} />} label="심화 학습 포인트" delay="d4" className="col-span-3">
+                <StatCard
+                  icon={<Lightbulb size={17} />}
+                  label="심화 학습 포인트"
+                  delay="d4"
+                  className="col-span-3"
+                >
                   {data.points.length ? (
                     <ul className="grid grid-cols-2 gap-x-8 gap-y-2">
                       {data.points.map((p) => (
                         <li key={p.id} className="t-body flex items-start gap-2">
-                          <span className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-coral" aria-hidden="true" />
+                          <span
+                            className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-coral"
+                            aria-hidden="true"
+                          />
                           <span>
                             {p.text}
                             {p.source_doc && <span className="t-help ml-2">({p.source_doc})</span>}
@@ -610,25 +665,42 @@ export default function EndingScreen() {
               {/* ── 계정 기록이 있어야 보이는 값 ── */}
               <h3 className="t-section mt-10">지난 기록과 비교</h3>
               <p className="t-help mb-3">
-                계정에 쌓인 학습 기록과 다른 이용자 기록이 필요한 항목이에요. 지금은 데모 데이터로 보여주고 있어요.
+                계정에 쌓인 학습 기록과 다른 이용자 기록이 필요한 항목이에요. 지금은 데모 데이터로 보여주고
+                있어요.
               </p>
 
               <div className="grid grid-cols-3 gap-4">
                 {/* 3 전일 대비 집중 시간 */}
-                <StatCard icon={<TrendingUp size={17} />} label="전일 대비 집중 시간"
-                  period="이번 주 기준 · 어제와 비교" badge="이번 주 · 데모 데이터" delay="d1">
+                <StatCard
+                  icon={<TrendingUp size={17} />}
+                  label="전일 대비 집중 시간"
+                  period="이번 주 기준 · 어제와 비교"
+                  badge="이번 주 · 데모 데이터"
+                  delay="d1"
+                >
                   {!measured || data.diff == null ? (
                     <>
                       <Metric value={!measured ? '측정 안 함' : '비교할 기록 없음'} muted />
                       <p className="t-help mt-2">
-                        {!measured ? '집중 감지가 꺼져 있어 비교하지 않았어요.' : '어제 기록이 없어 비교하지 못했어요.'}
+                        {!measured
+                          ? '집중 감지가 꺼져 있어 비교하지 않았어요.'
+                          : '어제 기록이 없어 비교하지 못했어요.'}
                       </p>
                     </>
                   ) : (
                     <>
                       <div className="flex items-center gap-2">
-                        <span aria-hidden="true" className={data.diff > 0 ? 'text-[var(--chart-focus)]' : 'text-muted'}>
-                          {data.diff > 0 ? <TrendingUp size={26} /> : data.diff < 0 ? <TrendingDown size={26} /> : <Minus size={26} />}
+                        <span
+                          aria-hidden="true"
+                          className={data.diff > 0 ? 'text-[var(--chart-focus)]' : 'text-muted'}
+                        >
+                          {data.diff > 0 ? (
+                            <TrendingUp size={26} />
+                          ) : data.diff < 0 ? (
+                            <TrendingDown size={26} />
+                          ) : (
+                            <Minus size={26} />
+                          )}
                         </span>
                         <span className="t-metric tnum">{fmtShort(Math.abs(data.diff))}</span>
                       </div>
@@ -645,16 +717,26 @@ export default function EndingScreen() {
                 </StatCard>
 
                 {/* 4 연속 학습일 */}
-                <StatCard icon={<Flame size={17} />} label="연속 학습일"
-                  period="이번 주 기준 · 오늘까지" badge="이번 주 · 데모 데이터" delay="d2"
-                  note="하루 10분 이상 공부한 날만 셉니다.">
+                <StatCard
+                  icon={<Flame size={17} />}
+                  label="연속 학습일"
+                  period="이번 주 기준 · 오늘까지"
+                  badge="이번 주 · 데모 데이터"
+                  delay="d2"
+                  note="하루 10분 이상 공부한 날만 셉니다."
+                >
                   <Metric value={data.streak} unit="일" />
                 </StatCard>
 
                 {/* 6 전체 이용자 대비 주간 상위 % */}
-                <StatCard icon={<Trophy size={17} />} label="전체 이용자 대비"
-                  period="이번 주 기준 · 주간 집중 시간" badge="이번 주 · 데모 데이터" delay="d3"
-                  note={relaxed ? '완화 모드로 측정해 순위 집계에서 제외됨' : null}>
+                <StatCard
+                  icon={<Trophy size={17} />}
+                  label="전체 이용자 대비"
+                  period="이번 주 기준 · 주간 집중 시간"
+                  badge="이번 주 · 데모 데이터"
+                  delay="d3"
+                  note={relaxed ? '완화 모드로 측정해 순위 집계에서 제외됨' : null}
+                >
                   <div
                     aria-hidden={relaxed ? 'true' : undefined}
                     style={relaxed ? { filter: 'blur(6px)', opacity: 0.45 } : undefined}
@@ -669,9 +751,15 @@ export default function EndingScreen() {
                 </StatCard>
 
                 {/* 5 친구 대비 주간 비교 */}
-                <StatCard icon={<Users size={17} />} label="친구 대비 주간 집중 시간"
-                  period="이번 주 기준 (월요일 시작)" badge="이번 주 · 데모 데이터" delay="d4" className="col-span-3"
-                  note={relaxed ? '완화 모드로 측정해 순위 집계에서 제외됨' : null}>
+                <StatCard
+                  icon={<Users size={17} />}
+                  label="친구 대비 주간 집중 시간"
+                  period="이번 주 기준 (월요일 시작)"
+                  badge="이번 주 · 데모 데이터"
+                  delay="d4"
+                  className="col-span-3"
+                  note={relaxed ? '완화 모드로 측정해 순위 집계에서 제외됨' : null}
+                >
                   {relaxed && (
                     <p className="t-body mb-3">
                       이번 세션은 친구 비교에서 빠졌어요. 아래 순위는 참고용으로만 흐리게 보여드려요.
@@ -686,7 +774,9 @@ export default function EndingScreen() {
                         const max = Math.max(1, ...data.chart.map((r) => r.sec))
                         return (
                           <li key={row.name} className="flex items-center gap-4">
-                            <span className={`t-item w-20 shrink-0 ${row.me ? 'font-semibold' : 'text-subtle'}`}>
+                            <span
+                              className={`t-item w-20 shrink-0 ${row.me ? 'font-semibold' : 'text-subtle'}`}
+                            >
                               {row.name}
                               {row.me && (
                                 <span className="t-caption ml-1 rounded-full border border-hairline bg-peach px-1.5 py-0.5">
@@ -697,7 +787,9 @@ export default function EndingScreen() {
                             <span className="flex-1">
                               <Bar pct={barOn ? (row.sec / max) * 100 : 0} strong={row.me} />
                             </span>
-                            <span className="t-caption tnum w-24 shrink-0 text-right">{fmtShort(row.sec)}</span>
+                            <span className="t-caption tnum w-24 shrink-0 text-right">
+                              {fmtShort(row.sec)}
+                            </span>
                           </li>
                         )
                       })}

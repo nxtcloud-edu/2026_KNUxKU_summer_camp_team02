@@ -1,5 +1,23 @@
+# 의존성 · 빌드 산출물
 node_modules/
 dist/
 .vite/
+
+# 환경 변수 (.env.example만 커밋합니다)
+.env
+.env.local
+.env.*.local
+
+# Claude Code — 스킬은 용량이 커서 커밋하지 않습니다 (scripts/setup.sh로 설치)
+.claude/skills/
+.claude/settings.local.json
+.claude/ui-ux-pro-max-LICENSE
+
+# OS · 에디터
 .DS_Store
+Thumbs.db
+*.swp
+
+# 로그
 *.log
+npm-debug.log*

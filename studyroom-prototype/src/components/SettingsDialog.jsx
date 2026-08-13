@@ -10,21 +10,40 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  X, User, Volume2, Trash2, AlertTriangle, RotateCcw, PlayCircle, Shuffle, Info,
-} from 'lucide-react'
+import { X, User, Volume2, Trash2, AlertTriangle, RotateCcw, PlayCircle, Shuffle, Info } from 'lucide-react'
 
 import { useStore, allSeatsOff } from '../store/useStore'
 import { db } from '../store/db'
 import {
-  PRESETS, PRESET_ORDER, TRAIT_OPTIONS, EXPLAIN_STYLES, PROACTIVITY,
-  IMAGE_KEYS, seatFromPreset,
+  PRESETS,
+  PRESET_ORDER,
+  TRAIT_OPTIONS,
+  EXPLAIN_STYLES,
+  PROACTIVITY,
+  IMAGE_KEYS,
+  seatFromPreset,
 } from '../lib/presets'
 import { canIntervene, interventionLine, pickInterventionSpeaker, routeReply } from '../lib/mockAgent'
 import { sttSupported, ttsSupported, speechSupportNote } from '../lib/speech'
 import {
-  Section, Row, SubRow, Toggle, Segmented, Chips, CardChoice, TextInput, Stepper,
-  Select, TimeInput, MinuteField, Button, IconBtn, Dialog, Drawer, Confirm, CharacterSprite,
+  Section,
+  Row,
+  SubRow,
+  Toggle,
+  Segmented,
+  Chips,
+  CardChoice,
+  TextInput,
+  Stepper,
+  Select,
+  TimeInput,
+  MinuteField,
+  Button,
+  IconBtn,
+  Dialog,
+  Drawer,
+  Confirm,
+  CharacterSprite,
 } from './ui'
 
 /* ── 라벨 사전 (§5-2 용어 사전을 따른다) ─────────────────────── */
@@ -40,8 +59,19 @@ const LEVEL_LABEL = Object.fromEntries(LEVEL_OPTIONS.map((o) => [o.value, o.labe
 /** §6-5 개입 상황 표 — "집중 시간이 끝났을 때"는 집중 블록 UI 미정으로 데모에서 제외한다 */
 const TRIGGERS = [
   { key: 'idle', label: '일정 시간 활동이 없을 때', field: 'idleMin', fieldLabel: '활동 없음 감지 시간' },
-  { key: 'windowAway', label: '창을 오래 벗어났을 때', field: 'awayMin', fieldLabel: '창 이탈 감지 시간', needsAwayDetect: true },
-  { key: 'restOver', label: '휴식 시간이 길어졌을 때', field: 'restOverMin', fieldLabel: '휴식 시간 초과 기준' },
+  {
+    key: 'windowAway',
+    label: '창을 오래 벗어났을 때',
+    field: 'awayMin',
+    fieldLabel: '창 이탈 감지 시간',
+    needsAwayDetect: true,
+  },
+  {
+    key: 'restOver',
+    label: '휴식 시간이 길어졌을 때',
+    field: 'restOverMin',
+    fieldLabel: '휴식 시간 초과 기준',
+  },
   { key: 'longStudy', label: '장시간 공부했을 때', field: 'longStudyMin', fieldLabel: '장시간 공부 기준' },
   { key: 'stuck', label: '같은 부분에서 계속 막힐 때' },
   { key: 'goalNear', label: '목표 완료가 가까워졌을 때', help: '홈 화면의 목표 기능이 정해지면 동작해요.' },
@@ -69,14 +99,48 @@ const SCOPE_LABEL = { session: '세션 한정', persistent: '계속 기억', non
 
 /** §6-5 반응 미리보기 — 상황 8개 */
 const SITUATIONS = [
-  { value: 'idle', label: '일정 시간 활동이 없을 때', trigger: 'idle', line: 'idle', field: 'idleMin', fieldLabel: '활동 없음 감지 시간' },
+  {
+    value: 'idle',
+    label: '일정 시간 활동이 없을 때',
+    trigger: 'idle',
+    line: 'idle',
+    field: 'idleMin',
+    fieldLabel: '활동 없음 감지 시간',
+  },
   { value: 'focusEnd', label: '집중 시간이 끝났을 때', excluded: true },
   { value: 'question', label: '질문을 입력했을 때', isQuestion: true },
-  { value: 'away', label: '다른 창으로 이동했을 때', trigger: 'windowAway', line: 'away', field: 'awayMin', fieldLabel: '창 이탈 감지 시간', needsAwayDetect: true },
-  { value: 'restOver', label: '휴식이 길어졌을 때', trigger: 'restOver', line: 'restOver', field: 'restOverMin', fieldLabel: '휴식 시간 초과 기준' },
-  { value: 'longStudy', label: '장시간 공부했을 때', trigger: 'longStudy', line: 'longStudy', field: 'longStudyMin', fieldLabel: '장시간 공부 기준' },
+  {
+    value: 'away',
+    label: '다른 창으로 이동했을 때',
+    trigger: 'windowAway',
+    line: 'away',
+    field: 'awayMin',
+    fieldLabel: '창 이탈 감지 시간',
+    needsAwayDetect: true,
+  },
+  {
+    value: 'restOver',
+    label: '휴식이 길어졌을 때',
+    trigger: 'restOver',
+    line: 'restOver',
+    field: 'restOverMin',
+    fieldLabel: '휴식 시간 초과 기준',
+  },
+  {
+    value: 'longStudy',
+    label: '장시간 공부했을 때',
+    trigger: 'longStudy',
+    line: 'longStudy',
+    field: 'longStudyMin',
+    fieldLabel: '장시간 공부 기준',
+  },
   { value: 'goalNear', label: '목표 완료가 가까워졌을 때', trigger: 'goalNear', line: 'cheer' },
-  { value: 'prevQuestion', label: '이전에 질문했던 내용을 확인할 때', trigger: 'prevQuestion', line: 'stuck' },
+  {
+    value: 'prevQuestion',
+    label: '이전에 질문했던 내용을 확인할 때',
+    trigger: 'prevQuestion',
+    line: 'stuck',
+  },
 ]
 
 const SAMPLE_QUESTION = '이 개념이 왜 이렇게 되는지 모르겠어'
@@ -114,7 +178,12 @@ function previewAnswerSample(seat, settings) {
 
 const fmtDate = (ts) => {
   try {
-    return new Date(ts).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    return new Date(ts).toLocaleString('ko-KR', {
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
   } catch {
     return ''
   }
@@ -222,7 +291,10 @@ export default function SettingsDialog() {
 
         <div className="flex min-h-0 flex-1">
           {/* 왼쪽 메뉴 240px — 설정 "대상" 전환 (§6-5 창 레이아웃) */}
-          <nav aria-label="설정 대상" className="glass w-[240px] shrink-0 overflow-y-auto scroll-soft rounded-none border-0 border-r border-white/60 p-3">
+          <nav
+            aria-label="설정 대상"
+            className="glass w-[240px] shrink-0 overflow-y-auto scroll-soft rounded-none border-0 border-r border-white/60 p-3"
+          >
             <p className="t-caption px-3 pb-2 pt-1">설정 대상</p>
             <TargetItem
               active={isMe}
@@ -247,7 +319,9 @@ export default function SettingsDialog() {
                 off={!s.enabled}
               />
             ))}
-            <p className="t-help mt-3 px-3">캐릭터에는 마이크·카메라 설정이 없어요. 내 기기로 말하는 참가자가 아니기 때문이에요.</p>
+            <p className="t-help mt-3 px-3">
+              캐릭터에는 마이크·카메라 설정이 없어요. 내 기기로 말하는 참가자가 아니기 때문이에요.
+            </p>
           </nav>
 
           {/* 본문 — 이 영역만 스크롤한다 */}
@@ -337,8 +411,17 @@ function TargetItem({ active, onClick, icon, label, status, off, autofocus }) {
 /* ══ A. 본인 설정창 ═══════════════════════════════════════ */
 
 function MePanel({
-  settings, device, setDevice, stream, seats, displayName, setDisplayName,
-  updateSettings, toast, setConfirmState, onOpenMemory,
+  settings,
+  device,
+  setDevice,
+  stream,
+  seats,
+  displayName,
+  setDisplayName,
+  updateSettings,
+  toast,
+  setConfirmState,
+  onOpenMemory,
 }) {
   const [devices, setDevices] = useState([])
   const [level, setLevel] = useState(0)
@@ -525,7 +608,12 @@ function MePanel({
             options={camOpts}
           />
         </Row>
-        <Row title="마이크" help={stream ? '말하면 입력 레벨이 움직여요.' : '대기 화면에서 마이크를 연결하면 입력 레벨이 표시돼요.'}>
+        <Row
+          title="마이크"
+          help={
+            stream ? '말하면 입력 레벨이 움직여요.' : '대기 화면에서 마이크를 연결하면 입력 레벨이 표시돼요.'
+          }
+        >
           <div className="flex items-center gap-3">
             <div
               role="meter"
@@ -535,7 +623,10 @@ function MePanel({
               aria-valuemax={100}
               className="h-2 w-32 overflow-hidden rounded-full bg-chart-track"
             >
-              <div className="h-full rounded-full bg-chart-focus" style={{ width: `${Math.round(level * 100)}%` }} />
+              <div
+                className="h-full rounded-full bg-chart-focus"
+                style={{ width: `${Math.round(level * 100)}%` }}
+              />
             </div>
             <span className="t-caption tnum w-8 text-right">{Math.round(level * 100)}</span>
             <Select
@@ -546,7 +637,11 @@ function MePanel({
             />
           </div>
         </Row>
-        <Row title="스피커" help="브라우저가 출력 장치 지정을 지원하지 않으면 시스템 기본 장치로 재생돼요." last>
+        <Row
+          title="스피커"
+          help="브라우저가 출력 장치 지정을 지원하지 않으면 시스템 기본 장치로 재생돼요."
+          last
+        >
           <div className="flex items-center gap-2">
             <Select
               ariaLabel="스피커 선택"
@@ -612,12 +707,23 @@ function MePanel({
       </Section>
 
       {/* 4) 입장 옵션 */}
-      <Section title="입장 옵션" help="스터디룸에 들어갈 때의 시작 상태입니다. 방 안에서 언제든 바꿀 수 있어요.">
+      <Section
+        title="입장 옵션"
+        help="스터디룸에 들어갈 때의 시작 상태입니다. 방 안에서 언제든 바꿀 수 있어요."
+      >
         <Row title="마이크 끄고 입장">
-          <Toggle label="마이크 끄고 입장" checked={!device.micOn} onChange={(v) => setDevice({ micOn: !v })} />
+          <Toggle
+            label="마이크 끄고 입장"
+            checked={!device.micOn}
+            onChange={(v) => setDevice({ micOn: !v })}
+          />
         </Row>
         <Row title="카메라 끄고 입장" last>
-          <Toggle label="카메라 끄고 입장" checked={!device.cameraOn} onChange={(v) => setDevice({ cameraOn: !v })} />
+          <Toggle
+            label="카메라 끄고 입장"
+            checked={!device.cameraOn}
+            onChange={(v) => setDevice({ cameraOn: !v })}
+          />
         </Row>
       </Section>
 
@@ -634,20 +740,20 @@ function MePanel({
       </Section>
 
       <Section title="개입 상황" help="어떤 상황에서 스터디 메이트가 먼저 말을 걸지 고릅니다.">
-        {TRIGGERS.map((t, i) => {
+        {TRIGGERS.map((t) => {
           const blockedByAway = t.needsAwayDetect && awayDetectOff
           const disabled = quiet || blockedByAway
           const reason = quiet ? quietReason : blockedByAway ? "'창 이탈 감지 허용'이 꺼져 있어요" : ''
           const on = settings.triggers[t.key]
           return (
             <div key={t.key}>
-              <Row
-                title={t.label}
-                help={t.help}
-                disabled={disabled}
-                disabledReason={reason}
-              >
-                <Toggle label={t.label} checked={on} disabled={disabled} onChange={(v) => setTrigger(t.key, v)} />
+              <Row title={t.label} help={t.help} disabled={disabled} disabledReason={reason}>
+                <Toggle
+                  label={t.label}
+                  checked={on}
+                  disabled={disabled}
+                  onChange={(v) => setTrigger(t.key, v)}
+                />
               </Row>
               {on && t.field && !disabled && (
                 <SubRow>
@@ -691,38 +797,74 @@ function MePanel({
       </Section>
 
       <Section title="방해 방지" help="여기서 막히면 위의 개입 설정은 실행되지 않아요.">
-        <Row title="집중 중에는 먼저 말 걸지 않기" help="키보드·마우스를 계속 쓰는 동안에는 말을 걸지 않아요.">
+        <Row
+          title="집중 중에는 먼저 말 걸지 않기"
+          help="키보드·마우스를 계속 쓰는 동안에는 말을 걸지 않아요."
+        >
           <Toggle
             label="집중 중에는 먼저 말 걸지 않기"
             checked={settings.dnd.focusSilence}
             onChange={(v) => setDnd('focusSilence', v)}
           />
         </Row>
-        <Row title="종이책 공부 모드" help="창을 벗어나도 자리 비움으로 보지 않아요. 켜면 랭킹 비교에서 제외돼요.">
-          <Toggle label="종이책 공부 모드" checked={settings.dnd.paperMode} onChange={(v) => setDnd('paperMode', v)} />
+        <Row
+          title="종이책 공부 모드"
+          help="창을 벗어나도 자리 비움으로 보지 않아요. 켜면 랭킹 비교에서 제외돼요."
+        >
+          <Toggle
+            label="종이책 공부 모드"
+            checked={settings.dnd.paperMode}
+            onChange={(v) => setDnd('paperMode', v)}
+          />
         </Row>
-        <Row title="온라인 강의 시청 모드" help="화면이 오래 고정돼도 집중력 저하로 보지 않아요. 켜면 랭킹 비교에서 제외돼요.">
-          <Toggle label="온라인 강의 시청 모드" checked={settings.dnd.lectureMode} onChange={(v) => setDnd('lectureMode', v)} />
+        <Row
+          title="온라인 강의 시청 모드"
+          help="화면이 오래 고정돼도 집중력 저하로 보지 않아요. 켜면 랭킹 비교에서 제외돼요."
+        >
+          <Toggle
+            label="온라인 강의 시청 모드"
+            checked={settings.dnd.lectureMode}
+            onChange={(v) => setDnd('lectureMode', v)}
+          />
         </Row>
-        <Row title="다른 창에서 자료 탐색 허용" help="자료를 찾는 창 이동을 이탈로 세지 않아요. 켜면 랭킹 비교에서 제외돼요.">
+        <Row
+          title="다른 창에서 자료 탐색 허용"
+          help="자료를 찾는 창 이동을 이탈로 세지 않아요. 켜면 랭킹 비교에서 제외돼요."
+        >
           <Toggle
             label="다른 창에서 자료 탐색 허용"
             checked={settings.dnd.browseAllowed}
             onChange={(v) => setDnd('browseAllowed', v)}
           />
         </Row>
-        <Row title="방해 금지 시간" help="이 시간에는 어떤 개입도 하지 않아요." last={!settings.dnd.quietEnabled}>
-          <Toggle label="방해 금지 시간" checked={settings.dnd.quietEnabled} onChange={(v) => setDnd('quietEnabled', v)} />
+        <Row
+          title="방해 금지 시간"
+          help="이 시간에는 어떤 개입도 하지 않아요."
+          last={!settings.dnd.quietEnabled}
+        >
+          <Toggle
+            label="방해 금지 시간"
+            checked={settings.dnd.quietEnabled}
+            onChange={(v) => setDnd('quietEnabled', v)}
+          />
         </Row>
         {settings.dnd.quietEnabled && (
           <SubRow>
             <label className="inline-flex items-center gap-2">
               <span className="t-help">시작</span>
-              <TimeInput ariaLabel="방해 금지 시작 시각" value={settings.dnd.quietFrom} onChange={(v) => setDnd('quietFrom', v)} />
+              <TimeInput
+                ariaLabel="방해 금지 시작 시각"
+                value={settings.dnd.quietFrom}
+                onChange={(v) => setDnd('quietFrom', v)}
+              />
             </label>
             <label className="inline-flex items-center gap-2">
               <span className="t-help">종료</span>
-              <TimeInput ariaLabel="방해 금지 종료 시각" value={settings.dnd.quietTo} onChange={(v) => setDnd('quietTo', v)} />
+              <TimeInput
+                ariaLabel="방해 금지 종료 시각"
+                value={settings.dnd.quietTo}
+                onChange={(v) => setDnd('quietTo', v)}
+              />
             </label>
             <span className="t-help">자정을 넘겨도 됩니다. (예: 23:00 ~ 07:00)</span>
           </SubRow>
@@ -740,7 +882,8 @@ function MePanel({
           <div>
             <div className="t-item text-danger">참여 중인 캐릭터가 없어요</div>
             <p className="t-help mt-0.5">
-              세 자리가 모두 참여 꺼짐 상태라 아래 설정은 실제로 적용되지 않아요. 왼쪽 메뉴에서 캐릭터를 골라 참여 여부를 켜주세요.
+              세 자리가 모두 참여 꺼짐 상태라 아래 설정은 실제로 적용되지 않아요. 왼쪽 메뉴에서 캐릭터를 골라
+              참여 여부를 켜주세요.
             </p>
           </div>
         </div>
@@ -755,9 +898,21 @@ function MePanel({
               value={settings.replyPolicy}
               onChange={(v) => updateSettings({ replyPolicy: v })}
               options={[
-                { value: 'primary', label: '주 담당 캐릭터가 답변', help: '항상 정해둔 자리가 먼저 답합니다.' },
-                { value: 'mention', label: '질문할 때 직접 지정', help: '채팅에 @이름을 적어 부르면 그 캐릭터가 답합니다.' },
-                { value: 'auto', label: '가장 적합한 캐릭터가 자동 응답', help: '질문 내용과 설명 방식을 보고 골라요.' },
+                {
+                  value: 'primary',
+                  label: '주 담당 캐릭터가 답변',
+                  help: '항상 정해둔 자리가 먼저 답합니다.',
+                },
+                {
+                  value: 'mention',
+                  label: '질문할 때 직접 지정',
+                  help: '채팅에 @이름을 적어 부르면 그 캐릭터가 답합니다.',
+                },
+                {
+                  value: 'auto',
+                  label: '가장 적합한 캐릭터가 자동 응답',
+                  help: '질문 내용과 설명 방식을 보고 골라요.',
+                },
               ]}
             />
           </div>
@@ -831,7 +986,10 @@ function MePanel({
             />
           </SubRow>
         )}
-        <Row title="보충 발언 완전히 끄기" help="켜면 질문을 받은 한 명만 답하고 다른 캐릭터는 끼어들지 않아요.">
+        <Row
+          title="보충 발언 완전히 끄기"
+          help="켜면 질문을 받은 한 명만 답하고 다른 캐릭터는 끼어들지 않아요."
+        >
           <Toggle
             label="보충 발언 완전히 끄기"
             checked={settings.noSupplement}
@@ -848,7 +1006,11 @@ function MePanel({
           />
         </Row>
         <Row title="같은 내용 반복 방지">
-          <Toggle label="같은 내용 반복 방지" checked={settings.noRepeat} onChange={(v) => updateSettings({ noRepeat: v })} />
+          <Toggle
+            label="같은 내용 반복 방지"
+            checked={settings.noRepeat}
+            onChange={(v) => updateSettings({ noRepeat: v })}
+          />
         </Row>
         <Row title="답변 길이" last>
           <Segmented
@@ -1069,7 +1231,9 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
                   onClick={() => updateSeat(seat.slotNo, { imageKey: k })}
                   className={[
                     'flex h-[72px] w-[72px] items-center justify-center rounded-sm border transition-all duration-300',
-                    on ? 'bg-peach border-[var(--text-dark)] shadow-soft' : 'bg-white border-hairline hover:bg-[var(--hover-bg)]',
+                    on
+                      ? 'bg-peach border-[var(--text-dark)] shadow-soft'
+                      : 'bg-white border-hairline hover:bg-[var(--hover-bg)]',
                   ].join(' ')}
                 >
                   <CharacterSprite imageKey={k} size={52} state="studying" />
@@ -1097,7 +1261,10 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
         </Row>
       </Section>
 
-      <Section title="성격" help="프리셋을 고르면 아래 값이 한 번에 채워지고, 직접 고치면 '직접 설정'이 돼요.">
+      <Section
+        title="성격"
+        help="프리셋을 고르면 아래 값이 한 번에 채워지고, 직접 고치면 '직접 설정'이 돼요."
+      >
         <Row title="프리셋">
           <Select
             ariaLabel="성격 프리셋"
@@ -1139,7 +1306,8 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
 
       <p className="t-help -mt-4 flex items-start gap-1.5">
         <Info size={14} className="mt-0.5 shrink-0" />
-        전체 개입 빈도가 &apos;조용한 방&apos;이면 캐릭터가 &apos;적극적으로 도움&apos;이어도 먼저 말을 걸지 않아요. 개입 빈도는 본인 설정에서 바꿀 수 있어요.
+        전체 개입 빈도가 &apos;조용한 방&apos;이면 캐릭터가 &apos;적극적으로 도움&apos;이어도 먼저 말을 걸지
+        않아요. 개입 빈도는 본인 설정에서 바꿀 수 있어요.
       </p>
     </>
   )
@@ -1159,7 +1327,8 @@ function MemoryDrawer({ open, onClose, toast }) {
   return (
     <Drawer open={open} onClose={onClose} title="저장된 기억" width={440}>
       <p className="t-help mb-4">
-        스터디 메이트가 다음에 참고하려고 남겨둔 내용이에요. 하나씩 지울 수 있어요. 학습 통계는 여기에 포함되지 않아요.
+        스터디 메이트가 다음에 참고하려고 남겨둔 내용이에요. 하나씩 지울 수 있어요. 학습 통계는 여기에
+        포함되지 않아요.
       </p>
       {items.length === 0 ? (
         <div className="rounded-sm border border-hairline bg-surface px-5 py-8 text-center">
@@ -1169,7 +1338,10 @@ function MemoryDrawer({ open, onClose, toast }) {
       ) : (
         <ul className="flex flex-col gap-2">
           {items.map((m) => (
-            <li key={m.id} className="flex items-start gap-3 rounded-sm border border-hairline bg-surface px-4 py-3">
+            <li
+              key={m.id}
+              className="flex items-start gap-3 rounded-sm border border-hairline bg-surface px-4 py-3"
+            >
               <div className="min-w-0 flex-1">
                 <p className="t-body break-words">{m.content}</p>
                 <p className="t-caption mt-1">
@@ -1221,8 +1393,18 @@ function PreviewDrawer({ open, onClose, settings, seats }) {
         line: repliers[0] ? previewAnswerSample(repliers[0], settings) : '',
         styles: [],
         facts: [
-          ['답변 캐릭터 결정', { primary: '주 담당 캐릭터', mention: '질문할 때 직접 지정', auto: '자동 응답' }[settings.replyPolicy]],
-          ['다른 캐릭터의 참여', settings.noSupplement ? '보충 발언 끔 (한 명만)' : { one: '한 명만', two: '최대 두 명', many: '여러 캐릭터' }[settings.multiReply]],
+          [
+            '답변 캐릭터 결정',
+            { primary: '주 담당 캐릭터', mention: '질문할 때 직접 지정', auto: '자동 응답' }[
+              settings.replyPolicy
+            ],
+          ],
+          [
+            '다른 캐릭터의 참여',
+            settings.noSupplement
+              ? '보충 발언 끔 (한 명만)'
+              : { one: '한 명만', two: '최대 두 명', many: '여러 캐릭터' }[settings.multiReply],
+          ],
           ['답변 길이', { short: '한마디', brief: '간단히', detailed: '자세히' }[settings.replyLength]],
         ],
       }
@@ -1230,13 +1412,27 @@ function PreviewDrawer({ open, onClose, settings, seats }) {
 
     const facts = [
       ['개입 빈도', LEVEL_LABEL[settings.interventionLevel]],
-      ['이 상황 개입', situation.trigger ? (settings.triggers[situation.trigger] ? '켜짐' : '꺼짐') : '해당 없음'],
+      [
+        '이 상황 개입',
+        situation.trigger ? (settings.triggers[situation.trigger] ? '켜짐' : '꺼짐') : '해당 없음',
+      ],
     ]
     if (situation.field) facts.push([situation.fieldLabel, `${settings.thresholds[situation.field]}분`])
     facts.push(['재개입 대기 시간', `${settings.thresholds.cooldownMin}분`])
-    facts.push(['방해 금지 시간', settings.dnd.quietEnabled ? `${settings.dnd.quietFrom} ~ ${settings.dnd.quietTo}` : '꺼짐'])
+    facts.push([
+      '방해 금지 시간',
+      settings.dnd.quietEnabled ? `${settings.dnd.quietFrom} ~ ${settings.dnd.quietTo}` : '꺼짐',
+    ])
 
-    const block = (reason) => ({ allowed: false, verdict: '개입 안 함', reason, speakers: [], line: '', styles: [], facts })
+    const block = (reason) => ({
+      allowed: false,
+      verdict: '개입 안 함',
+      reason,
+      speakers: [],
+      line: '',
+      styles: [],
+      facts,
+    })
 
     if (situation.excluded)
       return block('집중 블록을 시작하고 끝내는 화면이 아직 없어서 이번 데모에서는 제외된 상황이에요.')
@@ -1268,9 +1464,7 @@ function PreviewDrawer({ open, onClose, settings, seats }) {
 
   return (
     <Drawer open={open} onClose={onClose} title="반응 미리보기" width={460}>
-      <p className="t-help mb-4">
-        실제 AI를 부르지 않고, 지금 설정으로 어떤 판정이 나오는지만 보여줍니다.
-      </p>
+      <p className="t-help mb-4">실제 AI를 부르지 않고, 지금 설정으로 어떤 판정이 나오는지만 보여줍니다.</p>
 
       <div className="mb-5 flex items-center gap-2">
         <label className="t-help shrink-0">상황</label>
@@ -1300,7 +1494,9 @@ function PreviewDrawer({ open, onClose, settings, seats }) {
               <span
                 className={[
                   't-caption shrink-0 rounded-full border px-2.5 py-1',
-                  result.allowed ? 'bg-sage border-[var(--text-dark)]' : 'bg-danger-bg border-[var(--danger)] text-danger',
+                  result.allowed
+                    ? 'bg-sage border-[var(--text-dark)]'
+                    : 'bg-danger-bg border-[var(--danger)] text-danger',
                 ].join(' ')}
               >
                 {result.verdict}
@@ -1313,7 +1509,10 @@ function PreviewDrawer({ open, onClose, settings, seats }) {
             {result.speakers.length ? (
               <div className="flex flex-wrap items-center gap-3">
                 {result.speakers.map((s) => (
-                  <span key={s.slotNo} className="inline-flex items-center gap-2 rounded-full border border-hairline bg-white px-3 py-1.5">
+                  <span
+                    key={s.slotNo}
+                    className="inline-flex items-center gap-2 rounded-full border border-hairline bg-white px-3 py-1.5"
+                  >
                     <CharacterSprite imageKey={s.imageKey} size={24} state="studying" />
                     <span className="t-item">
                       {s.slotNo}번 {s.name}
@@ -1347,7 +1546,9 @@ function PreviewDrawer({ open, onClose, settings, seats }) {
                 ))}
               </div>
             ) : (
-              <p className="t-body text-subtle">{result.allowed ? '이 상황에서는 개입 방식을 쓰지 않아요.' : '없음'}</p>
+              <p className="t-body text-subtle">
+                {result.allowed ? '이 상황에서는 개입 방식을 쓰지 않아요.' : '없음'}
+              </p>
             )}
           </PreviewBlock>
         </div>
@@ -1360,7 +1561,9 @@ function PreviewBlock({ step, title, children }) {
   return (
     <section className="rounded-sm border border-hairline bg-surface p-4">
       <h3 className="t-caption mb-2 flex items-center gap-2">
-        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-lavender tnum">{step}</span>
+        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-lavender tnum">
+          {step}
+        </span>
         {title}
       </h3>
       {children}

@@ -41,7 +41,8 @@ const WEIGHT = { rare: -1, when_needed: 0, active: 1 }
  */
 export function canIntervene(settings, ctx) {
   // 1순위 — 방해 방지 (§7-3)
-  if (settings.dnd.focusSilence && ctx.userTyping) return { allowed: false, reason: '집중 중에는 먼저 말 걸지 않기' }
+  if (settings.dnd.focusSilence && ctx.userTyping)
+    return { allowed: false, reason: '집중 중에는 먼저 말 걸지 않기' }
   if (isQuietHour(settings.dnd)) return { allowed: false, reason: '방해 금지 시간' }
   if (ctx.sinceLastInterventionSec < settings.thresholds.cooldownMin * 60)
     return { allowed: false, reason: '재개입 대기 시간' }
@@ -167,18 +168,9 @@ const LENGTH_HINT = { short: 1, brief: 2, detailed: 4 }
 const REST_RE = /(쉬고|쉴게|쉬러|휴식|잠깐만|잠시만|화장실|밥 먹|커피|스트레칭)/
 
 const REST_REPLIES = {
-  mina: [
-    '네, 다녀와요. 여기까지 어디 봤는지 표시해둘게요.',
-    '좋아요. 돌아오면 흐름 안 끊기게 짚어드릴게요.',
-  ],
-  theo: [
-    '좋아, 나도 물 좀 마시고 올게!',
-    '오케이 쉬자! 나도 잠깐 스트레칭 좀 할래.',
-  ],
-  juno: [
-    '응, 천천히 와.',
-    '그래. 나도 좀 늘어져 있을게.',
-  ],
+  mina: ['네, 다녀와요. 여기까지 어디 봤는지 표시해둘게요.', '좋아요. 돌아오면 흐름 안 끊기게 짚어드릴게요.'],
+  theo: ['좋아, 나도 물 좀 마시고 올게!', '오케이 쉬자! 나도 잠깐 스트레칭 좀 할래.'],
+  juno: ['응, 천천히 와.', '그래. 나도 좀 늘어져 있을게.'],
 }
 
 /**

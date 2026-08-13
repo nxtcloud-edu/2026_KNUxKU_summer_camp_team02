@@ -63,7 +63,8 @@ function slotOfMessage(m, seats) {
 /** §6-1 [판단] 표시 캐릭터 = 최근 세션에서 가장 많이 상호작용한 자리, 없으면 1번 */
 function pickGreeter(seats, lastSessionId) {
   const enabled = seats.filter((s) => s.enabled)
-  const fallback = enabled.find((s) => s.slotNo === 1) || enabled[0] || seats.find((s) => s.slotNo === 1) || seats[0]
+  const fallback =
+    enabled.find((s) => s.slotNo === 1) || enabled[0] || seats.find((s) => s.slotNo === 1) || seats[0]
   if (!lastSessionId || !enabled.length) return fallback
 
   const count = new Map()
@@ -160,7 +161,11 @@ export default function HomeScreen() {
   return (
     <div className="relative min-h-full overflow-hidden bg-warm">
       {/* 존 A 배경 블롭 2개 — 홈·엔딩만 허용 (§4-4) */}
-      <div className="blob bg-sage" style={{ width: 520, height: 520, top: -190, left: -140 }} aria-hidden="true" />
+      <div
+        className="blob bg-sage"
+        style={{ width: 520, height: 520, top: -190, left: -140 }}
+        aria-hidden="true"
+      />
       <div
         className="blob blob-delayed bg-lavender"
         style={{ width: 460, height: 460, top: 300, right: -160 }}
@@ -175,7 +180,8 @@ export default function HomeScreen() {
             <span className="h-6 w-6 shrink-0 self-center rounded-full bg-coral" aria-hidden="true" />
             <h1 className="t-section">AI 스터디룸</h1>
             <p className="t-help">
-              {dayLabel(today)} {WEEKDAY[(parseKey(today).getDay() + 6) % 7]}요일 · 혼자 공부하지만 혼자가 아닌 시간
+              {dayLabel(today)} {WEEKDAY[(parseKey(today).getDay() + 6) % 7]}요일 · 혼자 공부하지만 혼자가
+              아닌 시간
             </p>
           </div>
 
@@ -187,7 +193,14 @@ export default function HomeScreen() {
             <Button
               variant="primary"
               onClick={() => go('lobby')}
-              style={{ fontSize: 17, fontWeight: 600, paddingLeft: 32, paddingRight: 32, paddingTop: 14, paddingBottom: 14 }}
+              style={{
+                fontSize: 17,
+                fontWeight: 600,
+                paddingLeft: 32,
+                paddingRight: 32,
+                paddingTop: 14,
+                paddingBottom: 14,
+              }}
             >
               <Play size={19} /> 스터디 시작
             </Button>
@@ -266,7 +279,9 @@ function WeekStrip({ days, today, selected, onSelect, byDate, todaySec }) {
                 onClick={() => onSelect(key)}
                 className={[
                   'flex h-[58px] w-[58px] items-center justify-center rounded-full border transition-all duration-300 ease-soft',
-                  isFuture ? 'cursor-not-allowed border-hairline bg-white text-muted opacity-55' : 'hover:shadow-soft',
+                  isFuture
+                    ? 'cursor-not-allowed border-hairline bg-white text-muted opacity-55'
+                    : 'hover:shadow-soft',
                   isToday
                     ? 'border-[var(--text-dark)] bg-coral font-bold text-ink'
                     : isSelected
@@ -291,7 +306,10 @@ function WeekStrip({ days, today, selected, onSelect, byDate, todaySec }) {
               {/* 선택 표시 — 색 외 신호 */}
               <span
                 aria-hidden="true"
-                className={['h-[3px] w-7 rounded-full', isSelected ? 'bg-[var(--text-strong)]' : 'bg-transparent'].join(' ')}
+                className={[
+                  'h-[3px] w-7 rounded-full',
+                  isSelected ? 'bg-[var(--text-strong)]' : 'bg-transparent',
+                ].join(' ')}
               />
               <span className="t-caption">{isToday ? '오늘' : studied ? fmtShort(sec) : '—'}</span>
             </div>

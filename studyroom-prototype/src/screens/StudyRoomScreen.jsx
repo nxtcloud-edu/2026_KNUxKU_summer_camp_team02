@@ -8,17 +8,23 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Paperclip, Send, Mic, MicOff, Video, VideoOff, Settings, PhoneOff, FileText,
-} from 'lucide-react'
+import { Paperclip, Send, Mic, MicOff, Video, VideoOff, Settings, PhoneOff, FileText } from 'lucide-react'
 
 import { useStore, isRelaxed, activeSeats, allSeatsOff } from '../store/useStore'
 import { db } from '../store/db'
 import { PRESETS } from '../lib/presets'
 import { MetricsTracker, computeScore, fmtHMS } from '../lib/metrics'
 import {
-  nextAnimationState, stateInterval, canIntervene, pickInterventionSpeaker,
-  interventionLine, routeReply, generateReply, makeQuiz, judgeQuiz, makeStudyPoint,
+  nextAnimationState,
+  stateInterval,
+  canIntervene,
+  pickInterventionSpeaker,
+  interventionLine,
+  routeReply,
+  generateReply,
+  makeQuiz,
+  judgeQuiz,
+  makeStudyPoint,
 } from '../lib/mockAgent'
 import { sttSupported, ttsSupported, createRecognizer, speak, stopSpeaking } from '../lib/speech'
 import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
@@ -27,12 +33,12 @@ import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const rid = () => Math.random().toString(36).slice(2, 10)
-const NAME_MAX = 12                    // §7-2 이름 최대 12자
-const ENGINE_TICK_MS = 15000           // 개입 엔진 판정 주기
-const QUIZ_AFTER_SEC = 20 * 60         // §7-5 세션 20분 경과 후
-const QUIZ_MAX = 3                     // §7-5 세션당 최대 3회
-const REST_HINT_MS = 5 * 60 * 1000     // §6-3 휴식 힌트 유지 시간
-const REST_WORDS = /쉬|휴식|잠깐/       // §6-3 휴식 감지 키워드
+const NAME_MAX = 12 // §7-2 이름 최대 12자
+const ENGINE_TICK_MS = 15000 // 개입 엔진 판정 주기
+const QUIZ_AFTER_SEC = 20 * 60 // §7-5 세션 20분 경과 후
+const QUIZ_MAX = 3 // §7-5 세션당 최대 3회
+const REST_HINT_MS = 5 * 60 * 1000 // §6-3 휴식 힌트 유지 시간
+const REST_WORDS = /쉬|휴식|잠깐/ // §6-3 휴식 감지 키워드
 
 /** 파일 크기 표기 */
 function fmtBytes(n = 0) {
@@ -166,8 +172,14 @@ function MateTile({ seat, state, tint, otherNames, onRename }) {
                   if (error) setError('')
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); commit() }
-                  if (e.key === 'Escape') { e.preventDefault(); cancel() }
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    commit()
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    cancel()
+                  }
                 }}
                 onBlur={commit}
                 className={[
@@ -175,7 +187,9 @@ function MateTile({ seat, state, tint, otherNames, onRename }) {
                   error ? 'border-danger' : 'border-hairline',
                 ].join(' ')}
               />
-              <span className="t-caption tnum shrink-0">{draft.trim().length}/{NAME_MAX}</span>
+              <span className="t-caption tnum shrink-0">
+                {draft.trim().length}/{NAME_MAX}
+              </span>
             </div>
             {error && <div className="t-caption mt-1 text-danger">{error}</div>}
           </div>
@@ -209,15 +223,39 @@ function EmptySeatTile({ seat, onOpenSettings }) {
           <rect x="20" y="52" width="100" height="8" rx="4" fill="currentColor" opacity="0.55" />
           <rect x="30" y="60" width="6" height="28" rx="3" fill="currentColor" opacity="0.35" />
           <rect x="104" y="60" width="6" height="28" rx="3" fill="currentColor" opacity="0.35" />
-          <rect x="46" y="32" width="34" height="20" rx="3" fill="none" stroke="currentColor" strokeWidth="2" opacity="0.5" />
-          <path d="M52 39h22M52 45h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.4" />
-          <path d="M92 40h12v10a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4z" fill="none" stroke="currentColor" strokeWidth="2" opacity="0.45" />
+          <rect
+            x="46"
+            y="32"
+            width="34"
+            height="20"
+            rx="3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            opacity="0.5"
+          />
+          <path
+            d="M52 39h22M52 45h14"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            opacity="0.4"
+          />
+          <path
+            d="M92 40h12v10a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4z"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            opacity="0.45"
+          />
         </svg>
         <span className="t-body">빈 자리</span>
       </div>
       <div className="flex items-center gap-2 border-t border-hairline px-4 py-2.5">
         <span className="t-item truncate text-muted">{seat.name}</span>
-        <span className="t-caption shrink-0 rounded-full border border-hairline bg-white px-2 py-0.5">참여 꺼짐</span>
+        <span className="t-caption shrink-0 rounded-full border border-hairline bg-white px-2 py-0.5">
+          참여 꺼짐
+        </span>
         <button
           type="button"
           onClick={onOpenSettings}
@@ -248,34 +286,34 @@ export default function StudyRoomScreen() {
   const setLastSessionId = useStore((s) => s.setLastSessionId)
   const toast = useStore((s) => s.toast)
 
-  const [snap, setSnap] = useState(null)                 // MetricsTracker 스냅샷 (§8)
+  const [snap, setSnap] = useState(null) // MetricsTracker 스냅샷 (§8)
   const [animStates, setAnimStates] = useState({ 1: 'studying', 2: 'reading', 3: 'studying' })
   const [messages, setMessages] = useState([])
-  const [typingSlots, setTypingSlots] = useState([])     // 타이핑 인디케이터 (§6-3)
+  const [typingSlots, setTypingSlots] = useState([]) // 타이핑 인디케이터 (§6-3)
   const [draft, setDraft] = useState('')
-  const [mention, setMention] = useState(null)           // {q, start, end}
+  const [mention, setMention] = useState(null) // {q, start, end}
   const [mentionIdx, setMentionIdx] = useState(0)
   const [listening, setListening] = useState(false)
   const [confirmEnd, setConfirmEnd] = useState(false)
 
   const trackerRef = useRef(null)
   const sidRef = useRef(null)
-  const todayBaseRef = useRef(0)
+  const [todayBase, setTodayBase] = useState(0)
   const aliveRef = useRef(true)
   const endedRef = useRef(false)
 
   const draftRef = useRef('')
   const lastKeyRef = useRef(0)
-  const lastInterventionRef = useRef(null)               // null = 아직 한 번도 개입하지 않음
+  const lastInterventionRef = useRef(null) // null = 아직 한 번도 개입하지 않음
   const interventionsRef = useRef([])
-  const pendingAwayRef = useRef(false)                   // 이탈 복귀 대기
+  const pendingAwayRef = useRef(false) // 이탈 복귀 대기
   const awayStartedRef = useRef(0)
   const prevAwayRef = useRef(false)
   const longStudyFiredRef = useRef(false)
   const restStartRef = useRef(null)
   const restTimerRef = useRef(null)
   const quizCountRef = useRef(0)
-  const pendingQuizRef = useRef(null)                    // {quiz, slotNo}
+  const pendingQuizRef = useRef(null) // {quiz, slotNo}
   const recRef = useRef(null)
   const sttBaseRef = useRef('')
   const fileRef = useRef(null)
@@ -283,9 +321,11 @@ export default function StudyRoomScreen() {
   const listEndRef = useRef(null)
 
   const actives = useMemo(() => activeSeats(seats), [seats])
-  const noMates = allSeatsOff(seats)                     // §10 규칙 9
+  const noMates = allSeatsOff(seats) // §10 규칙 9
 
-  useEffect(() => { draftRef.current = draft }, [draft])
+  useEffect(() => {
+    draftRef.current = draft
+  }, [draft])
 
   /* ── 세션 · 지표 (§8, §9-3) ─────────────────────────────── */
   useEffect(() => {
@@ -299,14 +339,14 @@ export default function StudyRoomScreen() {
 
     // 오늘 누적 = 이미 저장된 오늘치 − 이 세션 몫 (하단바에서 실시간으로 더한다, §8-1)
     const row = db.getSession(id)
-    todayBaseRef.current = Math.max(0, db.todayTotalSec() - (row?.study_sec || 0))
+    setTodayBase(Math.max(0, db.todayTotalSec() - (row?.study_sec || 0)))
 
     const st = useStore.getState().settings
     const tracker = new MetricsTracker(id, {
       awayDetect: st.privacyFlags.awayDetect,
       inputDetect: st.privacyFlags.inputDetect,
       idleMin: st.thresholds.idleMin,
-      relaxed: isRelaxed(st),                            // §8-2 완화 모드 → integrity='relaxed'
+      relaxed: isRelaxed(st), // §8-2 완화 모드 → integrity='relaxed'
     })
     trackerRef.current = tracker
     const off = tracker.onChange((s) => setSnap(s))
@@ -321,9 +361,8 @@ export default function StudyRoomScreen() {
       clearTimeout(restTimerRef.current)
       recRef.current?.abort()
       recRef.current = null
-      stopSpeaking()                                     // 화면을 떠날 때 읽어주기 중단
+      stopSpeaking() // 화면을 떠날 때 읽어주기 중단
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /* 이탈 시작/복귀 감지 → 개입 kind 'away' 예약 (§7-3) */
@@ -355,21 +394,24 @@ export default function StudyRoomScreen() {
   }, [])
 
   /** ① 타이핑 인디케이터 → ② 생성 → ③ 말풍선 (§6-3) */
-  const mateSay = useCallback(async (seat, produce, kind = 'text') => {
-    if (!aliveRef.current) return
-    setTypingSlots((t) => (t.includes(seat.slotNo) ? t : [...t, seat.slotNo]))
-    try {
-      const body = await produce()
-      if (!aliveRef.current || !body) return
-      pushMsg({ senderType: 'mate', seat: seat.slotNo, body, kind })
-      const st = useStore.getState().settings
-      if (st.voice.tts && ttsSupported) speak(body, PRESETS[seat.preset]?.voice)
-    } catch {
-      if (aliveRef.current) toast('답변을 만들지 못했어요. 다시 물어봐 주세요.', 'danger')
-    } finally {
-      setTypingSlots((t) => t.filter((x) => x !== seat.slotNo))
-    }
-  }, [pushMsg, toast])
+  const mateSay = useCallback(
+    async (seat, produce, kind = 'text') => {
+      if (!aliveRef.current) return
+      setTypingSlots((t) => (t.includes(seat.slotNo) ? t : [...t, seat.slotNo]))
+      try {
+        const body = await produce()
+        if (!aliveRef.current || !body) return
+        pushMsg({ senderType: 'mate', seat: seat.slotNo, body, kind })
+        const st = useStore.getState().settings
+        if (st.voice.tts && ttsSupported) speak(body, PRESETS[seat.preset]?.voice)
+      } catch {
+        if (aliveRef.current) toast('답변을 만들지 못했어요. 다시 물어봐 주세요.', 'danger')
+      } finally {
+        setTypingSlots((t) => t.filter((x) => x !== seat.slotNo))
+      }
+    },
+    [pushMsg, toast],
+  )
 
   /* ── 자율 행동 (§7-3 3순위) ──────────────────────────────
      ambient random은 animationState만 바꾸고 발화하지 않는다 (§10 규칙 12) */
@@ -413,7 +455,7 @@ export default function StudyRoomScreen() {
 
       const st = useStore.getState().settings
       const allSeats = useStore.getState().seats
-      if (!activeSeats(allSeats).length) return          // §10 규칙 2
+      if (!activeSeats(allSeats).length) return // §10 규칙 2
 
       const now = Date.now()
       const s = tracker.snapshot()
@@ -423,17 +465,20 @@ export default function StudyRoomScreen() {
       if (pendingAwayRef.current && st.triggers.windowAway && st.privacyFlags.awayDetect) {
         kind = 'away'
       } else if (
-        st.triggers.restOver && restStartRef.current &&
+        st.triggers.restOver &&
+        restStartRef.current &&
         (now - restStartRef.current) / 1000 >= st.thresholds.restOverMin * 60
       ) {
         kind = 'restOver'
       } else if (
-        st.triggers.longStudy && !longStudyFiredRef.current &&
+        st.triggers.longStudy &&
+        !longStudyFiredRef.current &&
         s.studySec >= st.thresholds.longStudyMin * 60
       ) {
         kind = 'longStudy'
       } else if (
-        st.triggers.idle && st.privacyFlags.inputDetect &&
+        st.triggers.idle &&
+        st.privacyFlags.inputDetect &&
         (now - tracker.lastInputAt) / 1000 >= st.thresholds.idleMin * 60
       ) {
         kind = 'idle'
@@ -455,8 +500,10 @@ export default function StudyRoomScreen() {
 
       // 기습 질문 — 세션 20분 경과 후 개입 상한 안에서 최대 3회 (§7-5)
       const quizReady =
-        st.memoryFlags.makeQuiz && st.interventionStyles.ask &&
-        quizCountRef.current < QUIZ_MAX && !pendingQuizRef.current &&
+        st.memoryFlags.makeQuiz &&
+        st.interventionStyles.ask &&
+        quizCountRef.current < QUIZ_MAX &&
+        !pendingQuizRef.current &&
         s.studySec >= QUIZ_AFTER_SEC
       if (quizReady && Math.random() < 0.5) {
         const quiz = makeQuiz()
@@ -464,7 +511,14 @@ export default function StudyRoomScreen() {
         quizCountRef.current += 1
         markIntervention(now)
         db.logEvent(sid, 'quiz', { question: quiz.q, slot_no: speaker.slotNo })
-        mateSay(speaker, async () => { await sleep(700 + Math.random() * 700); return quiz.q }, 'quiz')
+        mateSay(
+          speaker,
+          async () => {
+            await sleep(700 + Math.random() * 700)
+            return quiz.q
+          },
+          'quiz',
+        )
         return
       }
 
@@ -496,89 +550,94 @@ export default function StudyRoomScreen() {
 
   /* ── 전송 ──────────────────────────────────────────────── */
 
-  const send = useCallback(async (raw) => {
-    const text = (raw ?? '').trim()
-    if (!text) return
-    setDraft('')
-    setMention(null)
-    pushMsg({ senderType: 'me', body: text, kind: 'text' })
+  const send = useCallback(
+    async (raw) => {
+      const text = (raw ?? '').trim()
+      if (!text) return
+      setDraft('')
+      setMention(null)
+      pushMsg({ senderType: 'me', body: text, kind: 'text' })
 
-    // 휴식 감지 (§6-3) — restingHint가 그 구간의 이탈을 "휴식"으로 분류한다 (§8-2)
-    if (REST_WORDS.test(text)) startRest()
-    else restStartRef.current = null
+      // 휴식 감지 (§6-3) — restingHint가 그 구간의 이탈을 "휴식"으로 분류한다 (§8-2)
+      if (REST_WORDS.test(text)) startRest()
+      else restStartRef.current = null
 
-    // 기습 질문 채점 — 바로 다음 사용자 메시지를 채점한다 (§7-5)
-    const pending = pendingQuizRef.current
-    if (pending) {
-      pendingQuizRef.current = null
-      const correct = judgeQuiz(pending.quiz, text)
-      db.addQuizResult(sidRef.current, {
-        question: pending.quiz.q,
-        user_answer: text,
-        is_correct: correct,
-      })
-      const seat = useStore.getState().seats.find((x) => x.slotNo === pending.slotNo)
-      if (seat) {
-        await mateSay(seat, async () => {
-          await sleep(600 + Math.random() * 600)
-          return correct
-            ? '맞아요. 그 부분은 확실히 잡은 것 같네요.'
-            : '음, 조금 달라요. 그 부분은 이따 한 번 더 짚고 갈게요.'
+      // 기습 질문 채점 — 바로 다음 사용자 메시지를 채점한다 (§7-5)
+      const pending = pendingQuizRef.current
+      if (pending) {
+        pendingQuizRef.current = null
+        const correct = judgeQuiz(pending.quiz, text)
+        db.addQuizResult(sidRef.current, {
+          question: pending.quiz.q,
+          user_answer: text,
+          is_correct: correct,
         })
+        const seat = useStore.getState().seats.find((x) => x.slotNo === pending.slotNo)
+        if (seat) {
+          await mateSay(seat, async () => {
+            await sleep(600 + Math.random() * 600)
+            return correct
+              ? '맞아요. 그 부분은 확실히 잡은 것 같네요.'
+              : '음, 조금 달라요. 그 부분은 이따 한 번 더 짚고 갈게요.'
+          })
+        }
+        return
       }
-      return
-    }
 
-    const st = useStore.getState().settings
-    const allSeats = useStore.getState().seats
-    const repliers = routeReply(text, allSeats, st)      // §10 규칙 11 @멘션 > 답변 캐릭터 > 자동
-    for (const seat of repliers) {
-      // 답변자마다 순차로: 타이핑 인디케이터 → 생성 → 말풍선
-      // eslint-disable-next-line no-await-in-loop
-      await mateSay(seat, () => generateReply({ seat, text, settings: st }))
-    }
-  }, [mateSay, pushMsg, startRest])
+      const st = useStore.getState().settings
+      const allSeats = useStore.getState().seats
+      const repliers = routeReply(text, allSeats, st) // §10 규칙 11 @멘션 > 답변 캐릭터 > 자동
+      for (const seat of repliers) {
+        // 답변자마다 순차로: 타이핑 인디케이터 → 생성 → 말풍선
+        await mateSay(seat, () => generateReply({ seat, text, settings: st }))
+      }
+    },
+    [mateSay, pushMsg, startRest],
+  )
 
   /* ── 문서 업로드 (§6-3, §7-5) ──────────────────────────── */
 
-  const onPickFile = useCallback(async (e) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    const sid = sidRef.current
+  const onPickFile = useCallback(
+    async (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ''
+      if (!file) return
+      const sid = sidRef.current
 
-    pushMsg({
-      senderType: 'me',
-      kind: 'file',
-      body: file.name,
-      file: { name: file.name, size: file.size },
-    })
-
-    // 세션 주제를 파일명으로 기록 (§9-2 topics / topic_source)
-    const topic = file.name.replace(/\.[^.]+$/, '').slice(0, 40)
-    const prev = db.getSession(sid)?.topics || []
-    db.heartbeat(sid, {
-      topics: prev.includes(topic) ? prev : [...prev, topic],
-      topic_source: 'document',
-    })
-
-    // Document Reader Agent → 심화 학습 포인트 1~2개 (§7-4, §7-5)
-    const points = []
-    const want = 1 + Math.round(Math.random())
-    for (let i = 0; i < want * 3 && points.length < want; i++) {
-      const p = makeStudyPoint()
-      if (!points.includes(p)) points.push(p)
-    }
-    points.forEach((p) => db.addStudyPoint(sid, p, file.name))
-
-    const speaker = pickInterventionSpeaker(useStore.getState().seats)
-    if (speaker && points.length) {
-      await mateSay(speaker, async () => {
-        await sleep(900 + Math.random() * 700)
-        return `“${topic}” 훑어봤어요. 더 깊이 볼 만한 건 ${points.map((p) => `「${p}」`).join(', ')} 예요.`
+      pushMsg({
+        senderType: 'me',
+        kind: 'file',
+        body: file.name,
+        file: { name: file.name, size: file.size },
       })
-    }
-  }, [mateSay, pushMsg])
+
+      // 세션 주제를 파일명으로 기록 (§9-2 topics / topic_source)
+      const topic = file.name.replace(/\.[^.]+$/, '').slice(0, 40)
+      const prev = db.getSession(sid)?.topics || []
+      db.heartbeat(sid, {
+        topics: prev.includes(topic) ? prev : [...prev, topic],
+        topic_source: 'document',
+      })
+
+      // Document Reader Agent → 심화 학습 포인트 1~2개 (§7-4, §7-5)
+      const points = []
+      const want = 1 + Math.round(Math.random())
+      for (let i = 0; i < want * 3 && points.length < want; i++) {
+        const p = makeStudyPoint()
+        if (!points.includes(p)) points.push(p)
+      }
+      points.forEach((p) => db.addStudyPoint(sid, p, file.name))
+
+      const speaker = pickInterventionSpeaker(useStore.getState().seats)
+      if (speaker && points.length) {
+        await mateSay(speaker, async () => {
+          await sleep(900 + Math.random() * 700)
+          return `“${topic}” 훑어봤어요. 더 깊이 볼 만한 건 ${points.map((p) => `「${p}」`).join(', ')} 예요.`
+        })
+      }
+    },
+    [mateSay, pushMsg],
+  )
 
   /* ── 음성 입력 (Web Speech API) ─────────────────────────── */
 
@@ -591,7 +650,10 @@ export default function StudyRoomScreen() {
     const rec = createRecognizer({
       onPartial: (t) => setDraft(`${sttBaseRef.current}${sttBaseRef.current ? ' ' : ''}${t}`),
       onFinal: (t) => setDraft(`${sttBaseRef.current}${sttBaseRef.current ? ' ' : ''}${t}`),
-      onEnd: () => { setListening(false); recRef.current = null },
+      onEnd: () => {
+        setListening(false)
+        recRef.current = null
+      },
       onError: () => {
         setListening(false)
         recRef.current = null
@@ -612,12 +674,16 @@ export default function StudyRoomScreen() {
   const toggleCam = () => {
     const on = !device.cameraOn
     setDevice({ cameraOn: on })
-    stream?.getVideoTracks?.().forEach((t) => { t.enabled = on })
+    stream?.getVideoTracks?.().forEach((t) => {
+      t.enabled = on
+    })
   }
   const toggleMic = () => {
     const on = !device.micOn
     setDevice({ micOn: on })
-    stream?.getAudioTracks?.().forEach((t) => { t.enabled = on })
+    stream?.getAudioTracks?.().forEach((t) => {
+      t.enabled = on
+    })
   }
 
   /** 세션 마감 (§9-3 공부 종료) */
@@ -625,12 +691,15 @@ export default function StudyRoomScreen() {
     const tracker = trackerRef.current
     const sid = sidRef.current
     setConfirmEnd(false)
-    if (!tracker || !sid) { go('ending'); return }
+    if (!tracker || !sid) {
+      go('ending')
+      return
+    }
 
     endedRef.current = true
     tracker.stop()
     const s = tracker.snapshot()
-    const score = computeScore(s)                        // §8-4
+    const score = computeScore(s) // §8-4
     db.endSession(sid, {
       study_sec: s.studySec,
       focus_sec: s.focusSec ?? 0,
@@ -692,14 +761,26 @@ export default function StudyRoomScreen() {
   const onInputKeyDown = (e) => {
     lastKeyRef.current = Date.now()
     if (mention && mentionList.length) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIdx((i) => (i + 1) % mentionList.length); return }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIdx((i) => (i - 1 + mentionList.length) % mentionList.length); return }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIdx((i) => (i + 1) % mentionList.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIdx((i) => (i - 1 + mentionList.length) % mentionList.length)
+        return
+      }
       if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault()
         insertMention(mentionList[mentionIdx] || mentionList[0])
         return
       }
-      if (e.key === 'Escape') { e.preventDefault(); setMention(null); return }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMention(null)
+        return
+      }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -710,7 +791,7 @@ export default function StudyRoomScreen() {
   /* ── 렌더 ──────────────────────────────────────────────── */
 
   const tints = { 1: 'bg-sage', 2: 'bg-lavender', 3: 'bg-peach' }
-  const todaySec = todayBaseRef.current + (snap?.studySec || 0)
+  const todaySec = todayBase + (snap?.studySec || 0)
   const seatName = (no) => seats.find((s) => s.slotNo === no)?.name || `${no}번`
 
   return (
@@ -802,7 +883,9 @@ export default function StudyRoomScreen() {
                         <div className="t-caption">
                           {seatName(m.seat)}
                           {m.kind === 'quiz' && (
-                            <span className="ml-1.5 rounded-full bg-[var(--hover-bg)] px-2 py-0.5">확인 질문</span>
+                            <span className="ml-1.5 rounded-full bg-[var(--hover-bg)] px-2 py-0.5">
+                              확인 질문
+                            </span>
                           )}
                         </div>
                         <p className="mt-0.5 rounded-sm border border-hairline bg-white px-4 py-2.5 t-body whitespace-pre-wrap break-words">
@@ -856,7 +939,10 @@ export default function StudyRoomScreen() {
                     id={`mention-opt-${s.slotNo}`}
                     role="option"
                     aria-selected={i === mentionIdx}
-                    onMouseDown={(e) => { e.preventDefault(); insertMention(s) }}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      insertMention(s)
+                    }}
                     className={[
                       'flex cursor-pointer items-center gap-2 px-4 py-2.5 transition-colors duration-300',
                       i === mentionIdx ? 'bg-peach font-semibold' : 'hover:bg-[var(--hover-bg)]',
