@@ -111,21 +111,6 @@ export const STATE_LABEL = {
   typing: '입력 중',
 }
 
-export const TRAIT_OPTIONS = ['차분함', '친근함', '활발함', '장난스러움']
-
-export const EXPLAIN_STYLES = [
-  { value: 'easy', label: '쉽게 설명' },
-  { value: 'example', label: '예시 중심' },
-  { value: 'stepwise', label: '단계별 설명' },
-  { value: 'concise', label: '핵심만 간단히' },
-]
-
-export const PROACTIVITY = [
-  { value: 'rare', label: '거의 말하지 않음', help: '먼저 말을 걸지 않고 질문할 때만 답합니다.' },
-  { value: 'when_needed', label: '필요한 경우에만', help: '도움이 필요해 보일 때만 조심스럽게 말을 겁니다.' },
-  { value: 'active', label: '적극적으로 도움', help: '먼저 말을 걸고 휴식이나 정리를 자주 제안합니다.' },
-]
-
 /** 새 자리 하나를 프리셋으로 초기화 */
 export function seatFromPreset(slotNo, presetKey) {
   const p = PRESETS[presetKey]

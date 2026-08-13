@@ -14,15 +14,7 @@ import { X, User, Volume2, Trash2, AlertTriangle, RotateCcw, PlayCircle, Shuffle
 
 import { useStore, allSeatsOff } from '../store/useStore'
 import { db } from '../store/db'
-import {
-  PRESETS,
-  PRESET_ORDER,
-  TRAIT_OPTIONS,
-  EXPLAIN_STYLES,
-  PROACTIVITY,
-  IMAGE_KEYS,
-  seatFromPreset,
-} from '../lib/presets'
+import { PRESETS, PRESET_ORDER, IMAGE_KEYS, seatFromPreset } from '../lib/presets'
 import { canIntervene, pickInterventionSpeaker, routeReply } from '../lib/mockAgent'
 import { toneOf, toneSample, TONE_OPTIONS } from '../lib/agent/tone'
 import { FUNCS, FUNC_META, ownerSlot, validateOwner } from '../lib/agent/functions'
@@ -911,7 +903,7 @@ function MePanel({
                 {
                   value: 'auto',
                   label: '가장 적합한 캐릭터가 자동 응답',
-                  help: '질문 내용과 설명 방식을 보고 골라요.',
+                  help: '질문 내용과 담당 기능을 보고 골라요.',
                 },
               ]}
             />
@@ -1192,7 +1184,7 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
     setConfirmState({
       title: `${PRESETS[key].name} 프리셋으로 바꿀까요?`,
       body:
-        `이름·이미지·성격과 말투·설명 방식·먼저 말 거는 정도가 ${PRESETS[key].name}의 기본값으로 덮어써집니다.\n\n` +
+        `이름·이미지·말투가 ${PRESETS[key].name}의 기본값으로 덮어써집니다.\n\n` +
         `${PRESETS[key].blurb}\n\n지금 직접 고친 값은 사라져요.`,
       confirmLabel: '프리셋 적용',
       tone: 'primary',
