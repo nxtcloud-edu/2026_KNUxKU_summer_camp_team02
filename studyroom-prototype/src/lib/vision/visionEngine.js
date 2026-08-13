@@ -207,6 +207,7 @@ export function createVisionLoop({
     }
     pushPerf(perf.faceMs, performance.now() - t)
     diag.samples += 1
+    diag.lastSampleAt = Date.now()
     maybeDegrade()
 
     const hasFace = !!(res && res.faceLandmarks && res.faceLandmarks.length)
@@ -242,9 +243,26 @@ export function createVisionLoop({
     diag.p95 = p95
     if (p95 == null) return
 
+    /**
+     * 너무 느려도 **끄지 않고 최대한 늦춘다.**
+     *
+     * 예전에는 여기서 stop() 을 불러 통째로 껐고, 되살리는 코드가 없었다.
+     * p95 는 30표본 창이라 GC 한 번, 탭 전환 한 번에도 튄다.
+     * 그 순간의 측정으로 기능을 영구히 죽이는 건 과하다 —
+     * 느린 판정이라도 없는 것보다 낫고, 잠시 뒤 회복될 수도 있다.
+     */
     if (p95 > DEGRADE.unusableMs) {
+      if (faceInterval < DEGRADE.maxIntervalMs) {
+        faceInterval = DEGRADE.maxIntervalMs
+        diag.intervalMs = faceInterval
+        diag.degradeNote = `너무 느려서 주기를 ${faceInterval}ms로 늦췄습니다 (p95 ${p95.toFixed(0)}ms)`
+        perf.faceMs.length = 0
+        onDegrade({ kind: 'slow', p95, intervalMs: faceInterval, reason: diag.degradeNote })
+        return
+      }
+      // 가장 느린 주기에서도 못 버티면 그때 끈다. 이유는 남긴다
       degraded = true
-      diag.degradeNote = `추론이 너무 느립니다 (p95 ${p95.toFixed(0)}ms). 기능을 끕니다.`
+      diag.degradeNote = `가장 느린 주기에서도 버거워 껐습니다 (p95 ${p95.toFixed(0)}ms)`
       onDegrade({ kind: 'off', p95, reason: diag.degradeNote })
       stop()
       report(null)
