@@ -121,6 +121,16 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* 랜딩 히어로 워드마크 전용 — 기조 hero 범위(48~96px, 위 주석) 중 위쪽을 쓴다.
+   앱 화면의 .t-hero(60px)와는 별개 토큰이다. */
+.t-wordmark {
+  font-size: 92px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  color: var(--text-strong);
+}
+
 /* 손글씨 액센트 — 기조의 시그니처. 한글 글리프가 없으므로 숫자·영문 전용 (§4-2) */
 .font-hand {
   font-family: var(--font-hand);

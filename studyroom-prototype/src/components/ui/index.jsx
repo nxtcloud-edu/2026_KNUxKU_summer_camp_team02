@@ -293,9 +293,12 @@ export function MinuteField({ value, onChange, label, min = 1, max = 240 }) {
 
 /* ── 버튼 ─────────────────────────────────────────────────── */
 
-export function Button({ variant = 'secondary', children, className = '', ...rest }) {
+export function Button({ variant = 'secondary', shape = 'pill', children, className = '', ...rest }) {
   const base =
-    'inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 t-item transition-all duration-300 ease-soft disabled:opacity-45 disabled:cursor-not-allowed'
+    'inline-flex items-center justify-center gap-2 px-6 py-3 t-item transition-all duration-300 ease-soft disabled:opacity-45 disabled:cursor-not-allowed'
+  // shape='rounded'는 랜딩 CTA처럼 카드 radius에 맞춰야 하는 자리용 — 기본은 기존 화면 전부가 쓰는 pill 그대로.
+  // md(16px)를 쓴다: 이 버튼 높이(~46px)에서 lg(24px)는 height/2에 근접해 시각적으로 pill과 구분이 안 된다.
+  const shapes = { pill: 'rounded-full', rounded: 'rounded-md' }
   const styles = {
     /* 주요 액션 — 기조의 hero CTA가 `bg-[#FFB7B2] text-stone-900 hover:-translate-y-1`이다.
        코랄 위에 진한 글자를 얹으면 9.1:1이라 접근성도 문제없다.
@@ -309,7 +312,10 @@ export function Button({ variant = 'secondary', children, className = '', ...res
     danger: 'bg-[var(--danger)] text-white hover:brightness-110 hover:-translate-y-0.5 shadow-soft',
   }
   return (
-    <button className={`${base} ${styles[variant] || styles.secondary} ${className}`} {...rest}>
+    <button
+      className={`${base} ${shapes[shape] || shapes.pill} ${styles[variant] || styles.secondary} ${className}`}
+      {...rest}
+    >
       {children}
     </button>
   )
@@ -342,7 +348,18 @@ export function IconBtn({ children, label, active, tone = 'default', className =
 /* ── 오버레이 ─────────────────────────────────────────────── */
 
 /** ESC · 바깥 클릭 · 닫기 버튼으로 닫히고, 포커스가 뒤로 새지 않는다 (§6-5, §11) */
-export function Dialog({ open, onClose, title, children, footer, width = 1100, height = 760, labelledBy }) {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  width = 1100,
+  height = 760,
+  minWidth = 900,
+  plain = false,
+  labelledBy,
+}) {
   const ref = useRef(null)
   const prevFocus = useRef(null)
 
@@ -383,12 +400,14 @@ export function Dialog({ open, onClose, title, children, footer, width = 1100, h
         style={{
           width: `min(88vw, ${width}px)`,
           height: `min(86vh, ${height}px)`,
-          minWidth: 900,
+          minWidth,
           // 유리(좌측 메뉴·하단 바)가 읽히려면 뒤에 색이 있어야 한다 (§4-3)
-          background:
-            'radial-gradient(680px 300px at 6% 4%, rgba(239,237,244,.9), transparent 60%),' +
-            'radial-gradient(620px 280px at 96% 96%, rgba(255,240,237,.9), transparent 58%),' +
-            'var(--bg-warm)',
+          // plain: 로그인 모달처럼 유리 컨트롤이 없는 작은 대화상자는 장식용 그라데이션이 필요 없다
+          background: plain
+            ? 'var(--surface)'
+            : 'radial-gradient(680px 300px at 6% 4%, rgba(239,237,244,.9), transparent 60%),' +
+              'radial-gradient(620px 280px at 96% 96%, rgba(255,240,237,.9), transparent 58%),' +
+              'var(--bg-warm)',
         }}
       >
         {children}

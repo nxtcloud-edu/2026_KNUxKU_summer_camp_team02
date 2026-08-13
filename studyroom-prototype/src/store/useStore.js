@@ -101,8 +101,8 @@ function mergeSettings(s) {
 const boot = initial()
 
 export const useStore = create((set, get) => ({
-  /* 라우팅 — 홈 → 대기 → 스터디룸 → 엔딩 (§3-2) */
-  route: 'home',
+  /* 라우팅 — 랜딩 → 홈 → 대기 → 스터디룸 → 엔딩 (§3-2, 랜딩 기획서 §8·§10) */
+  route: 'landing',
   go: (route) => set({ route }),
 
   /* deviceState — 방문 한정, 영속화하지 않음 */

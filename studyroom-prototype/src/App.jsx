@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useStore } from './store/useStore'
 import { Toasts } from './components/ui'
-// 홈 화면은 김규태 님이 새로 만든 v1 을 쓴다.
-// import 한 줄만 바꾼다 — App.jsx 는 여러 브랜치가 함께 건드리는 파일이라
-// 변경면을 넓히면 다음 병합이 어려워진다. 예전 HomeScreen.jsx 는 남겨 둔다.
+import LandingScreen from './screens/LandingScreen'
+// 홈 화면은 김규태 님이 새로 만든 v1 을 쓴다. 예전 HomeScreen.jsx 는 남겨 둔다
 import HomeScreen from './screens/HomeScreen_v1'
 import LobbyScreen from './screens/LobbyScreen'
 import StudyRoomScreen from './screens/StudyRoomScreen'
@@ -24,13 +23,14 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    document.title = 'AI 스터디룸 — 프로토타입'
+    document.title = 'Alongside — AI 스터디 메이트'
   }, [])
 
   if (hash === '#bench') return <BenchScreen />
 
   return (
     <>
+      {route === 'landing' && <LandingScreen />}
       {route === 'home' && <HomeScreen />}
       {route === 'lobby' && <LobbyScreen />}
       {route === 'room' && <StudyRoomScreen />}
