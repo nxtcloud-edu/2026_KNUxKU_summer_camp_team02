@@ -1,0 +1,2 @@
+# MediaPipe WASM 런타임 (33MB) — postinstall이 node_modules에서 복사한다
+public/mediapipe/
