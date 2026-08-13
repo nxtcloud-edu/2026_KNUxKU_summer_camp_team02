@@ -36,10 +36,10 @@ import {
 } from '../lib/ttsQueue'
 import { useListener, listenSupported } from '../lib/voice/useListener'
 import { screenUtterance, looksComplete, joinVoice, WHY_LABEL } from '../lib/voice/gate'
-import { requestSummary } from '../lib/agent/client'
+import { requestSummary, requestReply } from '../lib/agent/client'
 import { useVision } from '../lib/vision/useVision'
 import { wakeChime } from '../lib/chime'
-import { readDocument, toPrompt, renderPages } from '../lib/docReader'
+import { readDocument, toPrompt, asInlineFile, MAX_INLINE_PDF_BYTES } from '../lib/docReader'
 import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
 
 /* ── 지역 헬퍼 (새 의존 파일을 만들지 않는다) ─────────────────── */
@@ -734,6 +734,7 @@ export default function StudyRoomScreen() {
                 seat,
                 text: payload,
                 images: docImages,
+                withDoc: wantsDoc, // 자료를 놓고 묻는 질문은 상위 모델로
                 settings: st,
                 // 방금 넣은 사용자 발화는 서버가 message로 따로 받으므로 뺀다
                 history: historyRef.current.slice(0, -1).slice(-MAX_HISTORY_TURNS),
@@ -778,21 +779,41 @@ export default function StudyRoomScreen() {
       // "훑어봤어요"라고 말했다. 읽지 않은 걸 읽었다고 하는 건 있어서는 안 될 일이다.
       const doc = await readDocument(file)
 
-      // 글자층이 깨졌거나 비어 있는 PDF 는 **쪽을 그림으로 만들어** 읽힌다.
-      // 사람 눈에는 멀쩡히 보이는 문서다 — 모델도 그림으로는 읽어낸다.
+      // 글자층이 깨졌거나 비어 있는 PDF. 사람 눈에는 멀쩡히 보이는 문서다.
+      //
+      // **PDF 를 통째로 모델에 넘겨 글로 옮긴다.** 우리가 쪽을 그림으로 그려 보내는 것보다
+      // 토큰이 비슷하면서 더 정확하고, 브라우저에서 캔버스를 돌릴 일도 없다.
+      // 한 번 글로 만들어 두면 이후 질문은 값싼 글자 호출로 끝난다.
       if (!doc.ok && doc.kind === 'pdf' && (doc.garbled || /글자가 없는/.test(doc.reason))) {
-        toast('글자를 못 뽑아서 페이지를 그림으로 읽는 중이에요…', 'info')
+        if (file.size > MAX_INLINE_PDF_BYTES) {
+          toast(
+            `자료가 너무 커요 (${(file.size / 1024 / 1024).toFixed(1)}MB). 20MB 아래로 줄여서 올려주세요.`,
+            'danger',
+          )
+          return
+        }
+        toast('글자를 못 뽑아서 자료를 통째로 읽는 중이에요…', 'info')
         try {
-          const { images, pages, rendered } = await renderPages(file)
+          const inline = await asInlineFile(file)
+          const got = await requestReply({
+            mode: 'extract',
+            settings: {},
+            turns: [],
+            images: [inline],
+            message: `"${file.name}" 자료의 내용을 빠짐없이 글로 옮겨 적어줘.`,
+          })
+          if (!got?.text) throw new Error('빈 응답')
+
+          docRef.current = { name: file.name, prompt: toPrompt(file.name, { text: got.text }) }
+          db.addStudyPoint(sid, `${file.name} 읽음 (${got.text.length.toLocaleString()}자로 옮김)`, file.name)
+
           const speaker = pickInterventionSpeaker(useStore.getState().seats)
-          docRef.current = { name: file.name, images, pages }
-          db.addStudyPoint(sid, `${file.name} 그림으로 읽음 (${rendered}/${pages}쪽)`, file.name)
           if (speaker) {
             await mateSay(speaker, () =>
               generateReply({
                 seat: speaker,
-                text: `방금 올린 "${file.name}" 자료야${rendered < pages ? ` (앞 ${rendered}쪽만)` : ''}. 무엇에 대한 자료인지 두세 문장으로 말해줘. 안 보이는 내용은 지어내지 않는다.`,
-                images,
+                text: `${docRef.current.prompt}\n\n위 자료를 방금 훑어본 사람처럼, 무엇에 대한 자료인지 두세 문장으로 말해줘. 없는 내용을 지어내지 않는다.`,
+                withDoc: true,
                 settings: { ...useStore.getState().settings, replyLength: 'brief' },
                 history: [],
                 summary: '',
@@ -800,7 +821,7 @@ export default function StudyRoomScreen() {
             )
           }
         } catch (e) {
-          console.warn('[doc] 그림 변환 실패', e)
+          console.warn('[doc] 자료 읽기 실패', e)
           toast('자료를 읽지 못했어요.', 'danger')
         }
         return

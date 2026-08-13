@@ -39,9 +39,19 @@ const env = loadEnv()
 const geminiPool = poolFromEnv(env, ['T2', 'T3', 'T4', 'T5', 'T6', 'GOOGLE_API_KEY'])
 const openaiPool = poolFromEnv(env, ['T1', 'OPENAI_API_KEY'])
 
+/**
+ * 상위 모델용 키 (유료 계정).
+ *
+ * 잡담까지 여기로 보내면 돈이 샌다. **어려운 자리에서만** 부른다:
+ *  - 전공 뱅크가 근거를 찾아낸 질문 → 그 자체가 "전공 질문"이라는 신호다
+ *  - 자료를 그림으로 읽는 질문 → 페이지를 알아보는 일은 작은 모델에 버겁다
+ */
+const proPool = poolFromEnv(env, ['S1'])
+
 const MODELS = {
   gemini: env.MODEL_GEMINI || 'gemini-3.5-flash-lite',
   openai: env.MODEL_OPENAI || 'gpt-5.4-mini',
+  pro: env.MODEL_PRO || 'gemini-3.6-flash',
 }
 
 const SECRETS = Object.values(env).filter((v) => v && v.length > 12)
@@ -66,10 +76,10 @@ function routeProvider(prefer) {
  * @param {string} [body.kind]    'reply' | 'intervention'
  */
 export async function handleChat(body) {
-  const { seat, settings = {}, turns = [], message = '', summary = '', kind = 'reply', images = [] } = body || {}
-  if (!seat || !seat.name) throw new HttpError(400, { error: 'seat 이 필요합니다' })
+  const { seat, settings = {}, turns = [], message = '', summary = '', kind = 'reply', images = [], mode, withDoc = false } = body || {}
+  if (mode !== 'extract' && (!seat || !seat.name)) throw new HttpError(400, { error: 'seat 이 필요합니다' })
 
-  const route = routeProvider(settings.provider)
+  let route = routeProvider(settings.provider)
   if (!route) throw new HttpError(503, { error: '사용 가능한 API 키가 없습니다. .env 를 확인하세요.' })
 
   // ── 전공 근거 검색 ──
@@ -81,7 +91,34 @@ export async function handleChat(body) {
     knowledge = toContext(hits)
   }
 
-  const system = buildSystemPrompt(seat, settings)
+  // 전공 근거가 잡혔거나 자료를 그림으로 읽어야 하면 상위 모델로 올린다.
+  // 검색을 마친 뒤에 판단해야 해서 여기서 갈아탄다
+  /**
+   * 상위 모델로 올릴 자리.
+   *  - 전공 뱅크가 근거를 찾음 → 전공 질문이라는 신호
+   *  - 자료를 읽거나(extract) 자료를 놓고 묻는 질문(withDoc) → 긴 자료를 정확히 다뤄야 한다
+   *  - 그림이 붙음 → 작은 모델에는 버겁다
+   */
+  const wantsPro = proPool && (hits.length > 0 || images.length > 0 || mode === 'extract' || withDoc)
+  if (wantsPro) route = { name: 'gemini', pool: proPool, model: MODELS.pro }
+
+  /**
+   * 자료 읽기 전용 모드.
+   *
+   * 캐릭터 말투를 씌우면 "친구처럼 말해"와 "그대로 옮겨 적어"가 서로 부딪친다.
+   * 자료에서 글을 뽑아내는 일은 성격이 없어야 한다 — 뽑아낸 글로 캐릭터가
+   * 말하는 건 그다음 순서다.
+   */
+  const system =
+    mode === 'extract'
+      ? [
+          '너는 문서를 글로 옮기는 도구다. 성격도 말투도 없다.',
+          '- 자료에 적힌 내용을 빠짐없이 한국어로 옮겨 적는다',
+          '- 표는 표 형태를 유지한다',
+          '- 자료에 없는 내용을 덧붙이지 않는다. 해석도 하지 않는다',
+          '- 인사말이나 서론 없이 곧바로 내용부터 쓴다',
+        ].join('\n')
+      : buildSystemPrompt(seat, settings)
   const history = [...turns]
   if (message || images.length) {
     history.push(images.length ? { role: 'user', text: message, images } : { role: 'user', text: message })
@@ -106,7 +143,7 @@ export async function handleChat(body) {
    * 출력 1,000토큰이 $0.0025 라 넉넉히 줘도 부담이 아니다 — 잘리는 쪽이 훨씬 비싸다.
    * (한국어 1토큰 ≈ 1.7자. detailed 2000토큰 ≈ 3,400자까지 쓸 수 있다는 뜻)
    */
-  const maxOut = { short: 200, brief: 700, detailed: 2000 }[settings.replyLength] ?? 700
+  const maxOut = mode === 'extract' ? 4000 : ({ short: 200, brief: 700, detailed: 2000 }[settings.replyLength] ?? 700)
 
   /**
    * 사고 단계는 답변 길이에 맞춘다.
@@ -123,11 +160,11 @@ export async function handleChat(body) {
 
   for (let attempt = 0; attempt < Math.min(3, route.pool.size + 1); attempt++) {
     // 같은 캐릭터는 늘 같은 키로 (프리픽스 캐시 유지). 실패하면 다음 키로 넘어간다
-    const k = route.pool.pick(`${seat.slotNo ?? seat.name}-${attempt}`)
+    const k = route.pool.pick(`${seat?.slotNo ?? seat?.name ?? mode}-${attempt}`)
     try {
       const opts = {
         apiKey: k.key,
-        model: MODELS[route.name],
+        model: route.model || MODELS[route.name],
         system: assembled.system,
         messages: assembled.messages,
         maxTokens: maxOut,
@@ -154,7 +191,7 @@ export async function handleChat(body) {
         text: r.text,
         meta: {
           provider: route.name,
-          model: MODELS[route.name],
+          model: route.model || MODELS[route.name],
           keyId: k.id,
           ms: r.ms,
           inTok: r.inTok,
@@ -211,6 +248,7 @@ export function handleHealth() {
     providers: {
       gemini: geminiPool ? { keys: geminiPool.size, model: MODELS.gemini, stats: geminiPool.stats() } : null,
       openai: openaiPool ? { keys: openaiPool.size, model: MODELS.openai, stats: openaiPool.stats() } : null,
+      pro: proPool ? { keys: proPool.size, model: MODELS.pro, stats: proPool.stats() } : null,
     },
     bank: bankStats(BANK_DIR),
   }
