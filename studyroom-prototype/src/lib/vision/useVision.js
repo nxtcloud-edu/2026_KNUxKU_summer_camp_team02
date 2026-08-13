@@ -118,17 +118,29 @@ export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
         changed = true
       }
 
-      // 30초에 한 번 실제 성능을 남긴다. "느리다"는 인상을 숫자로 바꿔 놓는다
+      // 30초에 한 번 실제 성능을 남긴다.
+      // **서버로도 보낸다** — 판정은 브라우저에서 도는데 로그가 브라우저에만 있으면
+      // "느리다"는 말을 들어도 숫자를 볼 방법이 없다
       if (!lastPerfLog || now - lastPerfLog > 30_000) {
         lastPerfLog = now
-        console.debug(
-          '[vision] 주기',
-          s.diag?.intervalMs ?? '?',
-          'ms · 추론',
-          s.perf,
-          '· 표본',
-          s.diag?.samples,
-        )
+        const report = {
+          kind: 'vision',
+          faceMs: s.diag?.intervalMs ?? null,
+          phoneMs: s.diag?.phoneIntervalMs ?? null,
+          perf: s.perf,
+          samples: s.diag?.samples,
+          skipped: s.diag?.skipped,
+          errors: s.diag?.errors,
+          delegate: s.diag?.delegate,
+          renderer: (s.diag?.renderer || '').slice(0, 60),
+          state: s.state,
+        }
+        console.debug('[vision]', report)
+        fetch('/api/diag', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(report),
+        }).catch(() => {}) // 진단이 실패해도 판정은 계속돼야 한다
       }
 
       if (changed) cbRef.current.onSignal?.({ ...cur })

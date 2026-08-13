@@ -8,6 +8,19 @@ import { checkRate, checkAccess, clientIp, rateStats, LIMITS } from './guard.mjs
 const ROUTES = {
   '/api/chat': handleChat,
   '/api/summarize': handleSummarize,
+  /**
+   * 브라우저가 남기는 진단.
+   *
+   * 비전 판정은 전부 브라우저에서 돌기 때문에, 성능이 어떤지 서버 로그만 봐서는
+   * 알 수가 없었다. "느리다"는 말을 들어도 숫자를 볼 방법이 없었다.
+   * 이제 브라우저가 30초마다 실제 주기·추론 시간을 여기로 보낸다.
+   *   sudo journalctl -u studyroom -f | grep diag
+   */
+  '/api/diag': async (body) => {
+    const { kind = '?', ...rest } = body || {}
+    console.log(`[diag] ${kind}`, JSON.stringify(rest).slice(0, 400))
+    return { ok: true }
+  },
 }
 
 /** 열쇠를 정해두면 그때부터 요구한다. 안 정하면 예전과 똑같이 동작한다 */
@@ -69,10 +82,17 @@ export async function apiHandler(req, res) {
     return true
   }
 
+  const t0 = Date.now()
   try {
-    send(res, 200, await fn(await readBody(req)))
+    const out = await fn(await readBody(req))
+    // 한 줄 요청 기록. 무슨 일이 있었는지 서버에서 볼 수 있어야 한다
+    if (url !== '/api/diag') {
+      console.log(`[api] ${url} 200 ${Date.now() - t0}ms ${out?.meta?.model || ''} ${out?.meta?.keyId || ''}`)
+    }
+    send(res, 200, out)
   } catch (e) {
     const status = e.status || 500
+    console.warn(`[api] ${url} ${status} ${Date.now() - t0}ms — ${String(e.message || e).slice(0, 120)}`)
     send(res, status, e.body || { error: String(e.message || e) })
   }
   return true
