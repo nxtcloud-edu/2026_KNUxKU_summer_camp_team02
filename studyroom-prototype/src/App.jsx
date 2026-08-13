@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useStore } from './store/useStore'
 import { Toasts } from './components/ui'
-import HomeScreen from './screens/HomeScreen'
+// 홈 화면은 김규태 님이 새로 만든 v1 을 쓴다.
+// import 한 줄만 바꾼다 — App.jsx 는 여러 브랜치가 함께 건드리는 파일이라
+// 변경면을 넓히면 다음 병합이 어려워진다. 예전 HomeScreen.jsx 는 남겨 둔다.
+import HomeScreen from './screens/HomeScreen_v1'
 import LobbyScreen from './screens/LobbyScreen'
 import StudyRoomScreen from './screens/StudyRoomScreen'
 import EndingScreen from './screens/EndingScreen'
