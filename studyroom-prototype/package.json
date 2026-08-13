@@ -4,16 +4,19 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/copy-mediapipe-wasm.js",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "sim": "esbuild scripts/nod-sim.mjs --bundle --platform=node --format=esm --outfile=node_modules/.sim.mjs --log-level=error && node node_modules/.sim.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,css}\" \"*.{js,json,html}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx,css}\" \"*.{js,json,html}\"",
-    "check": "npm run format:check && npm run lint && npm run build"
+    "check": "npm run format:check && npm run lint && npm run sim && npm run build"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1",
     "lucide-react": "^0.454.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -23,6 +26,7 @@
     "@eslint/js": "^9.39.5",
     "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
