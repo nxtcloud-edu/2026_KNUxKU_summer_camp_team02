@@ -158,7 +158,9 @@ export async function readDocument(file, { onProgress } = {}) {
     return { ok: false, kind, reason: '이 형식은 아직 못 읽어요' }
   } catch (e) {
     console.warn('[doc] 읽기 실패', e)
-    return { ok: false, kind, reason: '파일을 여는 데 실패했어요' }
+    if (typeof window !== 'undefined') window.__lastDocError = (e && (e.stack || e.message)) || String(e)
+    // 무엇이 문제였는지 화면에도 남긴다. "실패했어요"만으로는 사용자도 우리도 알 수 없다
+    return { ok: false, kind, reason: `파일을 여는 데 실패했어요 (${String(e?.message || e).slice(0, 80)})` }
   }
 }
 
@@ -167,3 +169,5 @@ export function toPrompt(fileName, doc) {
   const head = `[학생이 올린 자료 — "${fileName}"${doc.pages ? ` · ${doc.pages}쪽` : ''}${doc.truncated ? ' · 일부 생략됨' : ''}]`
   return `${head}\n${doc.text}\n[자료 끝]`
 }
+
+if (typeof window !== 'undefined') window.__readDocument = readDocument
