@@ -19,7 +19,6 @@ import {
   stateInterval,
   canIntervene,
   pickInterventionSpeaker,
-  interventionLine,
   routeReply,
   generateReply,
   takeLastError,
@@ -39,7 +38,7 @@ import { useVision } from '../lib/vision/useVision'
 import { wakeChime } from '../lib/chime'
 import { planDocument, toPrompt, asInlineFile } from '../lib/docReader'
 import { rememberDocument, searchUserDocs, toUserDocContext } from '../lib/userDocs'
-import { routeFunction } from '../lib/agent/functions'
+import { routeFunction, resolveTiming } from '../lib/agent/functions'
 import { makeQuiz as generateQuiz } from '../lib/agent/quiz'
 import QuizPanel from '../components/QuizPanel'
 import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
@@ -50,6 +49,21 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const rid = () => Math.random().toString(36).slice(2, 10)
 const NAME_MAX = 12 // §7-2 이름 최대 12자
 const ENGINE_TICK_MS = 15000 // 개입 엔진 판정 주기
+/**
+ * 관찰자가 감지한 상황을 프롬프트가 읽는 한국어 라벨로.
+ *
+ * 페이스 케어 블록이 이 낱말을 그대로 보고 무슨 말을 할지 정한다.
+ * 영어 kind 를 그대로 넘기면 모델이 뜻을 추측해야 한다.
+ */
+const PACE_EVENT = {
+  away: '자리를 비웠다가 방금 돌아왔다',
+  idle: '한동안 아무 입력이 없다',
+  longStudy: '쉬지 않고 너무 오래 이어서 하고 있다',
+  restOver: '쉬는 시간이 예정보다 길어졌다',
+  drowsy: '고개가 자꾸 떨어진다. 졸고 있다',
+  phone: '휴대폰을 계속 보고 있다',
+}
+
 const QUIZ_AFTER_SEC = 20 * 60 // §7-5 세션 20분 경과 후
 const QUIZ_MAX = 3 // §7-5 세션당 최대 3회
 const REST_HINT_MS = 5 * 60 * 1000 // §6-3 휴식 힌트 유지 시간
@@ -58,8 +72,6 @@ const MAX_HISTORY_TURNS = 40 // 서버가 예산으로 또 자르지만, 전송�
 const COMPACT_ABOVE_TURNS = 50 // 이보다 길어지면 앞부분을 요약으로 접는다
 /** 말끝이 애매할 때, 이만큼 더 기다렸다가 그래도 안 이어지면 보낸다 */
 const VOICE_IDLE_MS = 3000
-/** 이만큼 끊기지 않고 집중해야 칭찬 한마디. 이유 없는 칭찬은 소음이다 */
-const CHEER_AFTER_STREAK_SEC = 25 * 60
 
 /** 시계가 멈춘 이유 — 색만으로는 알 수 없으니 글자로도 붙인다 */
 /**
@@ -351,6 +363,9 @@ export default function StudyRoomScreen() {
   const voiceIdleRef = useRef(null) // 말끝이 애매할 때 기다리는 타이머
   const docRef = useRef(null) // 마지막으로 올린 자료의 본문 — 이후 질문에 같이 넘긴다
 
+  /** 시연 프로필(?demo=1)이면 임계값이 확 줄어든다. 저장하지 않는다 */
+  const TIMING_P = useMemo(() => resolveTiming(window.location.search), [])
+
   /**
    * 직전 답변의 기능과 본문.
    *
@@ -362,8 +377,14 @@ export default function StudyRoomScreen() {
 
   /** 이번 세션 목표 원문. 목표 추적(F4)과 출제(F3)의 범위가 된다 */
   const goalRef = useRef('')
+  /** 사용자가 답한 진도. 다음 확인 때 이 지점부터 묻는다 */
+  const goalProgressRef = useRef('')
+  /**
+   * 목표를 몇 번 물었나. `awaiting` 은 "방금 물었고 아직 답을 못 들었다"는 뜻이다.
+   * 답을 **기다리기만** 할 뿐, 다음 메시지를 가로채지 않는다 — 그게 퀴즈에서 났던 사고다.
+   */
+  const goalAskRef = useRef({ count: 0, lastAt: 0, awaiting: false })
   const replyChainRef = useRef(Promise.resolve()) // 답변 루프를 한 줄로 세운다
-  const lastCheerStreakRef = useRef(0) // 마지막으로 칭찬한 집중 구간
   const [typingSlots, setTypingSlots] = useState([]) // 타이핑 인디케이터 (§6-3)
   const [readingDoc, setReadingDoc] = useState(null) // 자료를 읽는 중이면 파일 이름
   const [draft, setDraft] = useState('')
@@ -567,9 +588,21 @@ export default function StudyRoomScreen() {
       const speaker = pickInterventionSpeaker(useStore.getState().seats)
       if (!speaker) return
       db.logEvent(sidRef.current, 'intervention', { kind, slot_no: speaker.slotNo, source: 'vision' })
+      // 졸음·휴대폰도 "먼저 말 걸기"라 페이스 케어와 같은 기능이다.
+      // 하드코딩 문장을 쓰면 말투 설정이 여기서만 안 먹는다
       mateSay(speaker, async () => {
-        await sleep(400)
-        return interventionLine(speaker, kind)
+        await sleep(300)
+        const r = await generateReply({
+          seat: speaker,
+          funcId: 'F5',
+          kind: 'intervention',
+          text: `[상황] ${PACE_EVENT[kind] || kind}`,
+          state: { event: PACE_EVENT[kind] || kind },
+          settings: st,
+          history: [],
+          summary: '',
+        })
+        return r?.text || ''
       })
     },
     [mateSay],
@@ -697,14 +730,28 @@ export default function StudyRoomScreen() {
       ) {
         kind = 'idle'
       } else if (
-        // 칭찬은 **끊기지 않고 오래 집중했을 때만.** 그것도 한 구간에 한 번만
-        st.triggers.longStudy &&
-        s.bestStreakSec >= CHEER_AFTER_STREAK_SEC &&
-        s.bestStreakSec - lastCheerStreakRef.current >= CHEER_AFTER_STREAK_SEC
+        /**
+         * 목표 확인 (F4).
+         *
+         * 목표를 안 적었으면 **아예 발동하지 않는다.** 문서가 못 박은 규칙이고,
+         * 없는 목표를 지어내 되물으면 그게 제일 이상하다.
+         * 세션당 2회까지. 답을 안 해도 재촉하지 않는다.
+         */
+        goalRef.current &&
+        goalAskRef.current.count < TIMING_P.goalMaxAsk &&
+        s.studySec >= TIMING_P.goalAskMin * 60 &&
+        now - goalAskRef.current.lastAt >= TIMING_P.goalAskMin * 60 * 1000
       ) {
-        kind = 'cheer'
-        lastCheerStreakRef.current = s.bestStreakSec
+        kind = 'goal'
       }
+
+      /**
+       * 칭찬(cheer)을 없앴다.
+       *
+       * "오늘 진짜 잘하고 있는데?!" 는 평가다. 말투 문서의 "사용자를 평가하지 않는다"와
+       * 페이스 케어의 "학습 태도 언급 금지"에 동시에 걸린다. 무엇보다 사유 없이
+       * 튀어나오는 칭찬이 제일 어색했다.
+       */
 
       if (!kind) return // 말할 이유가 없으면 조용히 있는다
 
@@ -738,7 +785,7 @@ export default function StudyRoomScreen() {
 
       // 개입 방식이 꺼져 있으면 발화하지 않는다 (§6-5 interventionStyles)
       const styleOn = {
-        cheer: st.interventionStyles.cheer,
+        goal: st.interventionStyles.ask,
         longStudy: st.interventionStyles.rest,
         restOver: st.interventionStyles.rest,
         idle: st.interventionStyles.bubble,
@@ -749,12 +796,48 @@ export default function StudyRoomScreen() {
       if (kind === 'away') pendingAwayRef.current = false
       if (kind === 'longStudy') longStudyFiredRef.current = true
       if (kind === 'restOver') restStartRef.current = null
+      if (kind === 'goal') {
+        goalAskRef.current = { count: goalAskRef.current.count + 1, lastAt: now, awaiting: true }
+      }
 
       markIntervention(now)
       db.logEvent(sid, 'intervention', { kind, slot_no: speaker.slotNo })
+      /**
+       * 여기가 하드코딩 문자열이었다.
+       *
+       * 캐릭터별로 미리 써 둔 문장을 골라 썼기 때문에 **말투 설정이 전혀 먹지 않았고**,
+       * 문구 자체가 문서를 어겼다 — "어디 갔다 왔어! 기다렸잖아 ㅋㅋ" 는
+       * 페이스 케어의 '어디 갔었냐고 묻지 않는다'를 정면으로 어긴다.
+       * 이제 다른 발화와 같은 프롬프트 층(공통·기능·말투·상태)을 지나간다.
+       */
+      const speakOne = () => {
+        const isGoal = kind === 'goal'
+        return generateReply({
+          seat: speaker,
+          funcId: isGoal ? 'F4' : 'F5',
+          kind: 'intervention',
+          // 관찰자 턴에도 사용자 메시지가 비면 안 된다. 빈 배열은 모델이 거절한다
+          text: isGoal ? '[상황] 목표를 확인할 때가 됐다.' : `[상황] ${PACE_EVENT[kind]}`,
+          state: isGoal
+            ? {
+                goalText: goalRef.current,
+                progressText: goalProgressRef.current,
+                elapsedMin: Math.round(s.studySec / 60),
+              }
+            : {
+                event: PACE_EVENT[kind],
+                awayMin: kind === 'away' ? Math.round((s.awaySec || 0) / 60) : null,
+                streakMin: Math.round((s.bestStreakSec || 0) / 60),
+              },
+          settings: st,
+          history: [],
+          summary: '',
+        })
+      }
       mateSay(speaker, async () => {
-        await sleep(600 + Math.random() * 800)
-        return interventionLine(speaker, kind)
+        await sleep(400 + Math.random() * 500)
+        const r = await speakOne()
+        return r?.text || ''
       })
     }
 
@@ -771,6 +854,19 @@ export default function StudyRoomScreen() {
       setDraft('')
       setMention(null)
       pushMsg({ senderType: 'me', body: text, kind: 'text' })
+
+      /**
+       * 목표를 물었고 아직 답을 못 들었다면, 이번 말을 진도로 적어 둔다.
+       *
+       * **가로채지 않는다.** 적어만 두고 그대로 흘려보낸다. 퀴즈에서 났던 사고가
+       * 정확히 이것이었다 — 답을 기다리는 상태에서 다음 메시지를 통째로 삼켜서,
+       * 사용자가 물어본 것이 사라졌다. 기록과 응답은 별개다.
+       */
+      if (goalAskRef.current.awaiting) {
+        goalAskRef.current.awaiting = false
+        goalProgressRef.current = text.slice(0, 120)
+        db.setProgress(sidRef.current, text)
+      }
 
       // 휴식 감지 (§6-3) — restingHint가 그 구간의 이탈을 "휴식"으로 분류한다 (§8-2)
       if (REST_WORDS.test(text)) startRest()

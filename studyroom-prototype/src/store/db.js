@@ -231,6 +231,16 @@ export const db = {
       score: null,
       score_mode: 'full',
       integrity: 'strict',
+      /**
+       * 이번 세션에 하려는 것. 대기 화면에서 한 줄 받는다.
+       *
+       * 목표 추적(F4)이 **원문 그대로 인용**해야 해서 문자열을 그대로 보관한다.
+       * 비어 있으면 F4 는 아예 발동하지 않는다 — 없는 목표를 지어내지 않는다.
+       */
+      goal: '',
+      /** 사용자가 답한 진도. "2장까지 했어" 같은 원문 */
+      goal_progress: '',
+      goal_progress_at: null,
       topics: [],
       topic_source: 'none',
     }
@@ -345,6 +355,23 @@ export const db = {
   deleteDocument(id) {
     const d = read()
     d.document = (d.document || []).filter((x) => x.id !== id)
+    write()
+  },
+
+  /** 세션 목표를 적어 둔다 (대기 화면에서 한 번) */
+  setGoal(sessionId, text) {
+    const s = read().session.find((x) => x.id === sessionId)
+    if (!s) return
+    s.goal = String(text || '').slice(0, 60)
+    write()
+  },
+
+  /** 진도 응답을 기록한다. 다음 확인 때 이 지점부터 묻는다 */
+  setProgress(sessionId, text) {
+    const s = read().session.find((x) => x.id === sessionId)
+    if (!s) return
+    s.goal_progress = String(text || '').slice(0, 120)
+    s.goal_progress_at = Date.now()
     write()
   },
 

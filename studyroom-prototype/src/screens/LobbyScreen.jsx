@@ -99,6 +99,13 @@ export default function LobbyScreen() {
   const [localStream, setLocalStream] = useState(null)
   const [acquiring, setAcquiring] = useState(true)
   const [entering, setEntering] = useState(false)
+  /**
+   * 이번에 뭘 할지 한 줄.
+   *
+   * 목표 추적(F4)이 이걸 **원문 그대로 인용**해서 되묻는다. 비워도 입장은 된다 —
+   * 매번 목표를 강요하면 그냥 아무거나 적게 되고, 그러면 되묻는 말이 더 어색해진다.
+   */
+  const [goal, setGoal] = useState('')
   const [tick, setTick] = useState(0) // 트랙 ended 등으로 재계산이 필요할 때
   const [counts, setCounts] = useState({ cams: null, mics: null })
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
@@ -417,6 +424,7 @@ export default function LobbyScreen() {
     setEntering(true)
     handoffRef.current = true // 스트림을 룸으로 그대로 넘긴다 (§5-4)
     const id = db.startSession()
+    db.setGoal(id, goal.trim())
     setSessionId(id)
     db.logEvent(id, 'enter', { camera: camShown, mic: micLive && device.micOn })
     enterTimerRef.current = setTimeout(() => go('room'), 240)
@@ -627,6 +635,23 @@ export default function LobbyScreen() {
             </span>
           </div>
         </section>
+
+        {/* 오늘 뭘 할지 한 줄 — 메이트가 나중에 이 문구를 그대로 인용해 되묻는다 */}
+        <label className="flex min-w-0 flex-1 flex-col justify-center gap-2">
+          <span className="t-caption text-muted">오늘 뭘 할 거야? (건너뛰어도 돼)</span>
+          <input
+            type="text"
+            value={goal}
+            maxLength={40}
+            onChange={(e) => setGoal(e.target.value)}
+            onKeyDown={(e) => {
+              // 엔터로 곧장 입장. 목표만 적고 마우스로 옮겨가는 건 번거롭다
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && !entering && online) enterRoom()
+            }}
+            placeholder="예: 자료구조 3장 끝내기"
+            className="border-hairline t-body bg-surface w-full rounded-2xl border px-4 py-3 outline-none transition-colors duration-200 focus:border-[var(--text-strong)]"
+          />
+        </label>
 
         {/* 입장하기 — 미리보기 오른쪽 변에 세로로 길게 밀착. 이 화면에서 가장 강조 (§6-2) */}
         <Button
