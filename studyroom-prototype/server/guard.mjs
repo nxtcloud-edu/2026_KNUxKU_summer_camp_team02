@@ -13,8 +13,15 @@
  */
 
 export const LIMITS = {
-  /** IP 하나당 1분에 허용할 호출 수 */
-  perMinute: 20,
+  /**
+   * IP 하나당 1분에 허용할 호출 수.
+   *
+   * 20이었는데 올렸다. 개입 발화가 정적 문자열에서 모델 호출로 바뀌면서 한 사람이
+   * 쓰는 호출이 늘었고, **시연장에서는 여러 명이 같은 공유 IP로 들어온다.**
+   * 세 명이 각자 대화하면 20회는 금방 넘고, 그때 막히는 건 우리 서비스다.
+   * 시간당·전체 상한이 총량을 따로 잡아 주므로 분당만 여유를 준다.
+   */
+  perMinute: 40,
   /** IP 하나당 1시간에 허용할 호출 수 */
   perHour: 200,
   /** 전체 합산 1시간 상한 — 열쇠가 퍼졌을 때의 마지막 방어선 */
@@ -50,7 +57,15 @@ let lastPrune = 0
 /**
  * @returns {{ok:true} | {ok:false, status:number, error:string, retryAfterSec?:number}}
  */
-export function checkRate(ip, now = Date.now()) {
+export function checkRate(ip, now = Date.now(), local = false) {
+  /**
+   * 내 기계에서 부르는 건 세지 않는다.
+   *
+   * 이 상한은 **공개 주소를 지키려고** 있는 것이다. 로컬에서 실험하다 우리 자신이
+   * 막히면, 정작 확인하려던 모델 동작 대신 우리 방어막을 확인하게 된다.
+   * 실제로 말투×기능 행렬 52건 중 32건이 구글이 아니라 여기서 잘렸다.
+   */
+  if (local) return { ok: true }
   if (now - lastPrune > MIN) {
     prune(now)
     lastPrune = now

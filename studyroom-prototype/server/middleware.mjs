@@ -90,7 +90,7 @@ export async function apiHandler(req, res) {
     send(res, access.status, { error: access.error })
     return true
   }
-  const rate = checkRate(clientIp(req))
+  const rate = checkRate(clientIp(req), Date.now(), access.local === true)
   if (!rate.ok) {
     if (rate.retryAfterSec) res.setHeader('Retry-After', String(rate.retryAfterSec))
     send(res, rate.status, { error: rate.error })

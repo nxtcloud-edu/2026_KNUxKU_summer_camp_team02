@@ -20,6 +20,27 @@ const COOLDOWN = {
   default: 5_000,
 }
 
+/**
+ * 하루치를 다 쓴 키는 오래 쉬게 한다.
+ *
+ * 429 는 두 가지다 — **분당** 한도와 **하루** 한도. 둘 다 60초만 쉬게 하면,
+ * 하루치를 다 쓴 키를 하루 종일 1분마다 다시 두드리게 된다. 그 호출은 전부 실패하고
+ * 그동안 진짜 살아 있는 키로 넘어가는 게 늦어진다.
+ *
+ * 구글은 어느 쪽인지 오류 본문에 적어 준다(quotaId 에 PerDay / PerMinute).
+ * 적혀 있지 않으면 짧은 쪽으로 본다 — 멀쩡한 키를 오래 재우는 쪽이 더 나쁘다.
+ */
+const DAILY_COOLDOWN = 30 * 60_000
+
+function isDailyQuota(body) {
+  try {
+    const s = typeof body === 'string' ? body : JSON.stringify(body || {})
+    return /PerDay|per day|daily limit/i.test(s)
+  } catch {
+    return false
+  }
+}
+
 export class KeyPool {
   /**
    * @param {Array<{id:string, key:string}>} keys
@@ -83,13 +104,48 @@ export class KeyPool {
     return chosen
   }
 
+  /**
+   * 지금 쓸 수 있는 키를 **순서대로** 준다.
+   *
+   * 예전에는 재시도할 때마다 `pick(slot-attempt)` 로 해시를 다시 돌렸다. 해시라서
+   * **같은 키를 두 번 뽑을 수 있었고**, 키가 5개여도 3번만 시도하니 두 개는 아예
+   * 손도 안 댔다. 이제 살아 있는 키를 전부, 겹치지 않게, 정해진 순서로 넘긴다.
+   *
+   * 맨 앞은 sticky 키다 — 같은 캐릭터가 같은 키를 써야 프리픽스 캐시가 산다.
+   * 그다음은 덜 쓴 순, 마지막이 쉬는 중인 키(빨리 풀리는 순)다.
+   * 쉬는 키까지 넣는 이유는, 전부 쉬는 중이어도 침묵하는 것보다 한 번 던져 보는 게 낫기 때문이다.
+   */
+  orderedKeys(sticky = 0) {
+    const now = Date.now()
+    const healthy = this._healthy(now)
+    const resting = this.keys.filter((k) => k.cooldownUntil > now).sort((a, b) => a.cooldownUntil - b.cooldownUntil)
+
+    const preferred = this.keys[Math.abs(hash(String(sticky))) % this.keys.length]
+    const rest = healthy.filter((k) => k !== preferred).sort((a, b) => a.calls - b.calls)
+    const head = healthy.includes(preferred) ? [preferred, ...rest] : rest
+    return [...head, ...resting]
+  }
+
+  /** 이 키를 쓴다고 표시한다 (orderedKeys 로 직접 고른 경우) */
+  use(k) {
+    k.calls += 1
+    k.lastUsed = Date.now()
+    return k
+  }
+
+  /** 살아 있는 키가 하나라도 있는가 */
+  get hasHealthy() {
+    return this._healthy(Date.now()).length > 0
+  }
+
   /** 호출 결과를 알려준다. 실패하면 그 키를 잠시 쉬게 한다 */
-  report(id, { ok, status }) {
+  report(id, { ok, status, body }) {
     const k = this.keys.find((x) => x.id === id)
     if (!k) return
     if (ok) return
     k.errors += 1
-    k.cooldownUntil = Date.now() + (COOLDOWN[status] ?? COOLDOWN.default)
+    const ms = status === 429 && isDailyQuota(body) ? DAILY_COOLDOWN : (COOLDOWN[status] ?? COOLDOWN.default)
+    k.cooldownUntil = Date.now() + ms
   }
 
   stats() {

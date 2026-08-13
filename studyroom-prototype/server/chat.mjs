@@ -67,6 +67,59 @@ function routeProvider(prefer) {
   return null
 }
 
+/**
+ * 어떤 키로 어떤 모델을 부를지, **순서대로** 정한다.
+ *
+ * 두 가지가 완전히 다른 일이라 갈라 둔다.
+ *
+ *   지능 승급 — 어려운 자리(개념·정리·심화·자료·출제)는 처음부터 유료 키의 상위 모델.
+ *               품질을 사려고 올리는 것이다.
+ *   할당량 폴백 — 무료 키가 전부 소진되면 유료 키로 넘어가되 **같은 급 모델**을 쓴다.
+ *               멈추지 않으려고 넘어가는 것이지 품질을 올리려는 게 아니다.
+ *               여기서 상위 모델을 쓰면 한도가 풀린 뒤에도 비싼 호출이 계속된다.
+ *
+ * 마지막 줄은 반대 방향 폴백이다. 유료 키까지 막히면 무료로라도 답한다 —
+ * 값싼 답이 침묵보다 낫다.
+ *
+ * @returns {Array<{pool:KeyPool, key:object, model:string, why:string}>}
+ */
+function buildAttempts({ wantsPro, sticky }) {
+  /**
+   * ⚠️ 주 경로와 폴백의 자리를 **따로** 잡는다.
+   *
+   * 처음엔 그냥 이어 붙이고 앞에서 5개를 잘랐다. 그런데 무료 키가 5개라 상한을
+   * 무료가 전부 먹어 버려서 **폴백이 한 번도 실행되지 않았다.** 정확히 막으려던
+   * 상황(전부 소진)에서만 조용히 안 되는, 제일 나쁜 종류의 버그다.
+   */
+  const take = (pool, model, why, n) => {
+    if (!pool) return []
+    return pool
+      .orderedKeys(sticky)
+      .slice(0, n)
+      .map((key) => ({ pool, key, model, why }))
+  }
+
+  if (wantsPro) {
+    return [
+      ...take(proPool, MODELS.pro, 'pro', PRIMARY_TRIES), // 지능 승급
+      ...take(geminiPool, MODELS.gemini, 'pro-down', FALLBACK_TRIES), // 유료가 막히면 값싼 모델로라도
+    ]
+  }
+  return [
+    ...take(geminiPool, MODELS.gemini, 'free', PRIMARY_TRIES),
+    ...take(proPool, MODELS.gemini, 'quota-fallback', FALLBACK_TRIES), // 무료 소진 → 유료 키, 같은 급
+  ]
+}
+
+/**
+ * 한 요청이 시도할 횟수.
+ *
+ * 키를 전부 순회하면 사용자가 너무 오래 기다린다. 주 경로에서 세 번 막히면
+ * 그 풀은 지금 상태가 나쁜 것이니 폴백으로 넘어가는 게 빠르다.
+ */
+const PRIMARY_TRIES = 3
+const FALLBACK_TRIES = 2
+
 /* ── 본체 ─────────────────────────────────────────────────── */
 
 /**
@@ -102,8 +155,6 @@ export async function handleChat(body) {
   } = body || {}
   if (mode !== 'extract' && (!seat || !seat.name)) throw new HttpError(400, { error: 'seat 이 필요합니다' })
 
-  let route = routeProvider(settings.provider)
-  if (!route) throw new HttpError(503, { error: '사용 가능한 API 키가 없습니다. .env 를 확인하세요.' })
 
   // ── 전공 근거 검색 ──
   // 개입 턴에는 넣지 않는다. 연관 낮은 조각이 긴 컨텍스트에서 답을 더 흐린다.
@@ -124,8 +175,9 @@ export async function handleChat(body) {
    *  - 자료를 읽거나(extract) 자료를 놓고 묻는 질문(withDoc) → 긴 자료를 정확히 다뤄야 한다
    *  - 그림이 붙음 → 작은 모델에는 버겁다
    */
-  const wantsPro = proPool && (hits.length > 0 || images.length > 0 || spec.wantsPro || withDoc)
-  if (wantsPro) route = { name: 'gemini', pool: proPool, model: MODELS.pro }
+  const wantsPro = !!(proPool && (hits.length > 0 || images.length > 0 || spec.wantsPro || withDoc))
+  const attempts = buildAttempts({ wantsPro, sticky: `${seat?.slotNo ?? seat?.name ?? funcId}` })
+  if (!attempts.length) throw new HttpError(503, { error: '사용 가능한 API 키가 없습니다. .env 를 확인하세요.' })
 
   /**
    * 자료 읽기 전용 모드.
@@ -172,16 +224,15 @@ export async function handleChat(body) {
    * high 는 쓰지 않는다. 예산 2000에서도 답이 끝나기 전에 잘렸다.
    */
   const thinking = spec.thinking
-  const call = PROVIDERS[route.name]
+  const call = PROVIDERS.gemini
   let lastErr = null
 
-  for (let attempt = 0; attempt < Math.min(3, route.pool.size + 1); attempt++) {
-    // 같은 캐릭터는 늘 같은 키로 (프리픽스 캐시 유지). 실패하면 다음 키로 넘어간다
-    const k = route.pool.pick(`${seat?.slotNo ?? seat?.name ?? mode}-${attempt}`)
+  for (const step of attempts) {
+    const k = step.pool.use(step.key)
     try {
       const opts = {
         apiKey: k.key,
-        model: route.model || MODELS[route.name],
+        model: step.model,
         system: assembled.system,
         messages: assembled.messages,
         maxTokens: maxOut,
@@ -197,7 +248,8 @@ export async function handleChat(body) {
          * 유료키(S1)에서만 실제로 동작한다 — 무료키로 켜면 거절당한다.
          * 그래서 상위 모델로 올라간 호출에만 붙인다.
          */
-        search: spec.useSearch && wantsPro && hits.length === 0,
+        // 검색은 유료 키에서만 동작한다. 무료로 폴백된 시도에서는 켜지 않는다
+        search: spec.useSearch && step.why === 'pro' && hits.length === 0,
         jsonSchema: spec.json || null,
       }
       let r = await call(opts)
@@ -213,7 +265,7 @@ export async function handleChat(body) {
         r = await call({ ...opts, maxTokens: maxOut * (1 + widened) })
       }
 
-      route.pool.report(k.id, { ok: true })
+      step.pool.report(k.id, { ok: true })
       if (!r.text) throw new HttpError(502, { error: `빈 응답 (finish=${r.finish})` })
 
       // 지시로 못 막는 것만 코드가 확인한다 — 이모지·웃음표기·길이 상한.
@@ -228,9 +280,11 @@ export async function handleChat(body) {
           funcId,
           fixed: cleaned.changed, // 후처리가 무엇을 고쳤는지 — 프롬프트 튜닝의 단서
           searched: r.searched || 0,
-          provider: route.name,
-          model: route.model || MODELS[route.name],
+          provider: 'gemini',
+          model: step.model,
           keyId: k.id,
+          // 왜 이 키·모델이 됐는지. 폴백이 조용히 일어나면 원인을 못 찾는다
+          route: step.why,
           ms: r.ms,
           inTok: r.inTok,
           outTok: r.outTok,
@@ -244,7 +298,8 @@ export async function handleChat(body) {
     } catch (e) {
       lastErr = e
       const status = e.status || 500
-      route.pool.report(k.id, { ok: false, status })
+      step.pool.report(k.id, { ok: false, status, body: e.body })
+      console.warn(`[key] ${k.id}(${step.why}) ${status} — 다음 키로`)
       // 400은 우리 요청이 잘못된 것이라 키를 바꿔도 소용없다
       if (status === 400) break
     }
