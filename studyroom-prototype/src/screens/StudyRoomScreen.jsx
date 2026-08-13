@@ -24,7 +24,6 @@ import {
   generateReply,
   makeQuiz,
   judgeQuiz,
-  makeStudyPoint,
   takeLastError,
 } from '../lib/mockAgent'
 import {
@@ -40,6 +39,7 @@ import { screenUtterance, looksComplete, joinVoice, WHY_LABEL } from '../lib/voi
 import { requestSummary } from '../lib/agent/client'
 import { useVision } from '../lib/vision/useVision'
 import { wakeChime } from '../lib/chime'
+import { readDocument, toPrompt } from '../lib/docReader'
 import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
 
 /* ── 지역 헬퍼 (새 의존 파일을 만들지 않는다) ─────────────────── */
@@ -56,6 +56,8 @@ const MAX_HISTORY_TURNS = 40 // 서버가 예산으로 또 자르지만, 전송�
 const COMPACT_ABOVE_TURNS = 50 // 이보다 길어지면 앞부분을 요약으로 접는다
 /** 말끝이 애매할 때, 이만큼 더 기다렸다가 그래도 안 이어지면 보낸다 */
 const VOICE_IDLE_MS = 3000
+/** 올린 자료를 가리키는 말 — 이럴 때만 본문을 같이 넘긴다 */
+const DOC_REF_WORDS = /파일|자료|문서|pdf|이거|저거|방금|올린|첨부|요약|정리해|내용/i
 
 /** 파일 크기 표기 */
 function fmtBytes(n = 0) {
@@ -325,6 +327,7 @@ export default function StudyRoomScreen() {
    */
   const voiceBufRef = useRef('')
   const voiceIdleRef = useRef(null) // 말끝이 애매할 때 기다리는 타이머
+  const docRef = useRef(null) // 마지막으로 올린 자료의 본문 — 이후 질문에 같이 넘긴다
   const replyChainRef = useRef(Promise.resolve()) // 답변 루프를 한 줄로 세운다
   const [typingSlots, setTypingSlots] = useState([]) // 타이핑 인디케이터 (§6-3)
   const [draft, setDraft] = useState('')
@@ -717,13 +720,18 @@ export default function StudyRoomScreen() {
       // 줄을 세워서 앞 대화가 끝난 뒤에 다음 답변이 시작되게 한다
       replyChainRef.current = replyChainRef.current
         .then(async () => {
+          // 올린 자료를 가리키는 질문이면 본문을 같이 넘긴다.
+          // 매번 넘기면 토큰이 낭비되고, 안 넘기면 "저 파일 요약해줘"에 엉뚱한 답이 나온다
+          const wantsDoc = docRef.current && DOC_REF_WORDS.test(text)
+          const payload = wantsDoc ? `${docRef.current.prompt}\n\n${text}` : text
+
           for (const seat of repliers) {
             if (!aliveRef.current) return
             // 답변자마다 순차로: 타이핑 인디케이터 → 생성 → 말풍선 → 읽어주기
             await mateSay(seat, () =>
               generateReply({
                 seat,
-                text,
+                text: payload,
                 settings: st,
                 // 방금 넣은 사용자 발화는 서버가 message로 따로 받으므로 뺀다
                 history: historyRef.current.slice(0, -1).slice(-MAX_HISTORY_TURNS),
@@ -764,21 +772,40 @@ export default function StudyRoomScreen() {
         topic_source: 'document',
       })
 
-      // Document Reader Agent → 심화 학습 포인트 1~2개 (§7-4, §7-5)
-      const points = []
-      const want = 1 + Math.round(Math.random())
-      for (let i = 0; i < want * 3 && points.length < want; i++) {
-        const p = makeStudyPoint()
-        if (!points.includes(p)) points.push(p)
+      // 실제로 읽는다. 예전에는 파일 **이름만** 보고 고정 문구를 읊으면서
+      // "훑어봤어요"라고 말했다. 읽지 않은 걸 읽었다고 하는 건 있어서는 안 될 일이다.
+      const doc = await readDocument(file)
+
+      if (!doc.ok) {
+        // 못 읽으면 못 읽었다고 말한다. 지어내지 않는다
+        const s2 = pickInterventionSpeaker(useStore.getState().seats)
+        if (s2) {
+          await mateSay(s2, async () => {
+            await sleep(500)
+            return `“${topic}” 열어봤는데 ${doc.reason}. 중요한 부분만 붙여넣어 주면 같이 볼게.`
+          })
+        }
+        return
       }
-      points.forEach((p) => db.addStudyPoint(sid, p, file.name))
+
+      docRef.current = { name: file.name, prompt: toPrompt(file.name, doc) }
+      db.addStudyPoint(
+        sid,
+        `${file.name} 읽음 (${doc.chars.toLocaleString()}자${doc.pages ? `, ${doc.pages}쪽` : ''})`,
+        file.name,
+      )
 
       const speaker = pickInterventionSpeaker(useStore.getState().seats)
-      if (speaker && points.length) {
-        await mateSay(speaker, async () => {
-          await sleep(900 + Math.random() * 700)
-          return `“${topic}” 훑어봤어요. 더 깊이 볼 만한 건 ${points.map((p) => `「${p}」`).join(', ')} 예요.`
-        })
+      if (speaker) {
+        await mateSay(speaker, () =>
+          generateReply({
+            seat: speaker,
+            text: `${docRef.current.prompt}\n\n위 자료를 방금 훑어본 사람처럼, 무엇에 대한 자료인지 두세 문장으로 말해줘. 없는 내용을 지어내지 않는다.`,
+            settings: { ...useStore.getState().settings, replyLength: 'brief' },
+            history: [],
+            summary: '',
+          }),
+        )
       }
     },
     [mateSay, pushMsg],
