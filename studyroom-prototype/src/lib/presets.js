@@ -27,7 +27,17 @@ export const PRESETS = {
     proactivity: 'when_needed',
     tone: '성실하고 조용한 타입. 공부 관련 정보나 정리 중심으로 이야기한다.',
     // 자율 행동 가중치 (§7-1 행동 경향)
-    weights: { studying: 40, writing: 20, reading: 20, drinking: 6, stretching: 4, resting: 5, distracted: 3, away: 1, cameraOff: 1 },
+    weights: {
+      studying: 40,
+      writing: 20,
+      reading: 20,
+      drinking: 6,
+      stretching: 4,
+      resting: 5,
+      distracted: 3,
+      away: 1,
+      cameraOff: 1,
+    },
     voice: { pitch: 1.05, rate: 0.98 },
   },
   theo: {
@@ -39,7 +49,17 @@ export const PRESETS = {
     explainStyle: 'example',
     proactivity: 'active',
     tone: '활발하고 함께 공부하는 걸 좋아한다. 반응이 빠르고 표현이 많다.',
-    weights: { studying: 26, writing: 10, reading: 10, drinking: 16, stretching: 14, resting: 10, distracted: 8, away: 4, cameraOff: 2 },
+    weights: {
+      studying: 26,
+      writing: 10,
+      reading: 10,
+      drinking: 16,
+      stretching: 14,
+      resting: 10,
+      distracted: 8,
+      away: 4,
+      cameraOff: 2,
+    },
     voice: { pitch: 0.92, rate: 1.08 },
   },
   juno: {
@@ -51,7 +71,17 @@ export const PRESETS = {
     explainStyle: 'concise',
     proactivity: 'rare',
     tone: '느긋하고 자기 방식대로 공부한다. 예상치 못한 관점을 던진다.',
-    weights: { studying: 28, writing: 8, reading: 12, drinking: 6, stretching: 6, resting: 10, distracted: 16, away: 9, cameraOff: 5 },
+    weights: {
+      studying: 28,
+      writing: 8,
+      reading: 12,
+      drinking: 6,
+      stretching: 6,
+      resting: 10,
+      distracted: 16,
+      away: 9,
+      cameraOff: 5,
+    },
     voice: { pitch: 1.15, rate: 0.92 },
   },
 }
@@ -60,14 +90,29 @@ export const PRESET_ORDER = ['mina', 'theo', 'juno']
 
 /** §6-3 애니메이션 상태 열거형 — stretching 포함해 닫힌 집합 */
 export const ANIMATION_STATES = [
-  'studying', 'writing', 'reading', 'drinking', 'stretching',
-  'resting', 'distracted', 'away', 'cameraOff', 'typing',
+  'studying',
+  'writing',
+  'reading',
+  'drinking',
+  'stretching',
+  'resting',
+  'distracted',
+  'away',
+  'cameraOff',
+  'typing',
 ]
 
 export const STATE_LABEL = {
-  studying: '공부 중', writing: '필기 중', reading: '읽는 중',
-  drinking: '물 마시는 중', stretching: '스트레칭', resting: '쉬는 중',
-  distracted: '딴생각', away: '자리 비움', cameraOff: '카메라 끔', typing: '입력 중',
+  studying: '공부 중',
+  writing: '필기 중',
+  reading: '읽는 중',
+  drinking: '물 마시는 중',
+  stretching: '스트레칭',
+  resting: '쉬는 중',
+  distracted: '딴생각',
+  away: '자리 비움',
+  cameraOff: '카메라 끔',
+  typing: '입력 중',
 }
 
 export const TRAIT_OPTIONS = ['차분함', '친근함', '활발함', '장난스러움']

@@ -187,7 +187,14 @@ export const allSeatsOff = (seats) => seats.every((s) => !s.enabled)
 function deepMerge(base, patch) {
   const out = { ...base }
   for (const [k, v] of Object.entries(patch)) {
-    if (v && typeof v === 'object' && !Array.isArray(v) && base[k] && typeof base[k] === 'object' && !Array.isArray(base[k])) {
+    if (
+      v &&
+      typeof v === 'object' &&
+      !Array.isArray(v) &&
+      base[k] &&
+      typeof base[k] === 'object' &&
+      !Array.isArray(base[k])
+    ) {
       out[k] = deepMerge(base[k], v)
     } else {
       out[k] = v

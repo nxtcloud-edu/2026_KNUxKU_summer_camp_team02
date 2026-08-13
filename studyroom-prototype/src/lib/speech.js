@@ -11,13 +11,10 @@
  *  · 스피커     → 스터디 메이트의 답변을 읽어줌 (TTS)
  */
 
-const SR =
-  typeof window !== 'undefined' &&
-  (window.SpeechRecognition || window.webkitSpeechRecognition)
+const SR = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)
 
 export const sttSupported = !!SR
-export const ttsSupported =
-  typeof window !== 'undefined' && 'speechSynthesis' in window
+export const ttsSupported = typeof window !== 'undefined' && 'speechSynthesis' in window
 
 /* ── STT ──────────────────────────────────────────────────── */
 

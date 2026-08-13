@@ -23,15 +23,60 @@ Google Meet 형태의 화상 스터디룸에 입장해 **성격이 다른 3명�
 
 ---
 
-## 프로토타입 실행
+## 개발 환경 세팅
+
+클론한 뒤 **한 번만** 실행하면 됩니다.
+
+```bash
+bash scripts/setup.sh
+```
+
+Node 버전 확인 → 의존성 설치 → `.env` 준비 → (선택) Claude Code용 UI/UX 스킬 설치까지 합니다.
+
+수동으로 하려면:
 
 ```bash
 cd studyroom-prototype
 npm install
+cp .env.example .env
 npm run dev
 ```
 
 http://127.0.0.1:5180 에서 열립니다. **Chrome으로 여세요** — 음성 입력은 Chrome/Edge에만 있고, 웹캠·마이크·음성 API는 `localhost` 또는 HTTPS에서만 동작합니다.
+
+### 요구 사항
+
+| | |
+| --- | --- |
+| Node | **20 이상** (`.nvmrc` 있음 — `nvm use`) |
+| npm | 10 이상 |
+| 브라우저 | Chrome / Edge (음성 입력 때문) |
+
+### 명령어
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `npm run dev` | 개발 서버 (127.0.0.1:5180) |
+| `npm run build` | 프로덕션 빌드 |
+| `npm run lint` | ESLint |
+| `npm run format` | Prettier로 포맷 |
+| `npm run check` | 포맷 검사 + 린트 + 빌드 — **PR 올리기 전에 이거 하나만** |
+
+### 저장소에 들어 있는 설정
+
+| 파일 | 용도 |
+| --- | --- |
+| `.nvmrc` | Node 버전 고정 |
+| `.editorconfig` | 들여쓰기·개행 통일 (에디터 무관) |
+| `.prettierrc` | 코드 포맷 규칙 |
+| `eslint.config.js` | 린트 규칙 (React + Hooks) |
+| `.env.example` | 환경 변수 템플릿 — `.env`로 복사해서 씁니다 |
+| `.vscode/` | 권장 확장(Tailwind·ESLint·Prettier)과 저장 시 자동 포맷 |
+| `.claude/launch.json` | Claude Code에서 개발 서버 미리보기 |
+| `.claude/settings.json` | 자주 쓰는 명령 허용 목록 |
+
+> `.env`와 `node_modules/`, `.claude/skills/` 는 커밋되지 않습니다.
+> 스킬은 용량이 커서 `scripts/setup.sh`가 각자 받아오게 했습니다.
 
 자세한 내용은 [`studyroom-prototype/README.md`](studyroom-prototype/README.md).
 

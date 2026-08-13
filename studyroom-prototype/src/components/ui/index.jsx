@@ -68,7 +68,9 @@ export function Toggle({ checked, onChange, label, disabled }) {
       <span
         className={[
           'relative h-6 w-11 rounded-full border transition-colors duration-300',
-          checked ? 'bg-[var(--text-strong)] border-[var(--text-strong)]' : 'bg-white border-[var(--disabled)]',
+          checked
+            ? 'bg-[var(--text-strong)] border-[var(--text-strong)]'
+            : 'bg-white border-[var(--disabled)]',
         ].join(' ')}
       >
         <span
@@ -88,7 +90,11 @@ export function Toggle({ checked, onChange, label, disabled }) {
 
 export function Segmented({ value, onChange, options, ariaLabel }) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex rounded-full bg-[var(--hover-bg)] p-1 gap-1">
+    <div
+      role="radiogroup"
+      aria-label={ariaLabel}
+      className="inline-flex rounded-full bg-[var(--hover-bg)] p-1 gap-1"
+    >
       {options.map((o) => {
         const on = o.value === value
         return (
@@ -214,11 +220,19 @@ export function TextInput({ value, onChange, maxLength, placeholder, error, aria
 export function Stepper({ value, onChange, min = 1, max = 9, ariaLabel }) {
   return (
     <div className="inline-flex items-center gap-1 rounded-full border border-hairline bg-white p-1">
-      <IconBtn label={`${ariaLabel} 줄이기`} onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min}>
+      <IconBtn
+        label={`${ariaLabel} 줄이기`}
+        onClick={() => onChange(Math.max(min, value - 1))}
+        disabled={value <= min}
+      >
         <Minus size={15} />
       </IconBtn>
       <span className="t-item tnum w-7 text-center">{value}</span>
-      <IconBtn label={`${ariaLabel} 늘리기`} onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max}>
+      <IconBtn
+        label={`${ariaLabel} 늘리기`}
+        onClick={() => onChange(Math.min(max, value + 1))}
+        disabled={value >= max}
+      >
         <Plus size={15} />
       </IconBtn>
     </div>
@@ -240,7 +254,10 @@ export function Select({ value, onChange, options, ariaLabel }) {
           </option>
         ))}
       </select>
-      <ChevronDown size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-subtle" />
+      <ChevronDown
+        size={15}
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-subtle"
+      />
     </div>
   )
 }
@@ -350,7 +367,11 @@ export function Dialog({ open, onClose, title, children, footer, width = 1100, h
 
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center fade-in" style={{ background: 'var(--scrim)' }} onMouseDown={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center fade-in"
+      style={{ background: 'var(--scrim)' }}
+      onMouseDown={onClose}
+    >
       <div
         ref={ref}
         role="dialog"
@@ -403,7 +424,11 @@ export function Drawer({ open, onClose, title, children, width = 420 }) {
   }, [open, onClose])
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-[60] flex justify-end" style={{ background: 'var(--scrim)' }} onMouseDown={onClose}>
+    <div
+      className="fixed inset-0 z-[60] flex justify-end"
+      style={{ background: 'var(--scrim)' }}
+      onMouseDown={onClose}
+    >
       <aside
         role="dialog"
         aria-label={title}
@@ -432,7 +457,11 @@ export function Confirm({ open, title, body, confirmLabel = '확인', tone = 'pr
   }, [open, onCancel])
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center fade-in" style={{ background: 'var(--scrim)' }} onMouseDown={onCancel}>
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center fade-in"
+      style={{ background: 'var(--scrim)' }}
+      onMouseDown={onCancel}
+    >
       <div
         role="alertdialog"
         aria-label={title}
@@ -463,7 +492,9 @@ export function Toasts({ items }) {
           role="status"
           className={[
             'enter-up rounded-full px-5 py-3 t-body shadow-pop',
-            t.tone === 'danger' ? 'bg-[var(--danger)] text-white' : 'bg-[var(--text-strong)] text-[var(--bg-warm)]',
+            t.tone === 'danger'
+              ? 'bg-[var(--danger)] text-white'
+              : 'bg-[var(--text-strong)] text-[var(--bg-warm)]',
           ].join(' ')}
         >
           {t.msg}
@@ -481,11 +512,19 @@ export function CharacterSprite({ imageKey, size = 120, state, className = '', s
   const onErr = useCallback(() => setSrc(characterImage(imageKey)), [imageKey])
   useEffect(() => setSrc(characterImagePng(imageKey)), [imageKey])
 
-  const anim = {
-    studying: 'anim-idle', writing: 'anim-write', reading: 'anim-idle',
-    drinking: 'anim-drink', stretching: 'anim-stretch', resting: 'anim-rest',
-    distracted: 'anim-distract', typing: 'anim-type', away: '', cameraOff: '',
-  }[state] || 'anim-idle'
+  const anim =
+    {
+      studying: 'anim-idle',
+      writing: 'anim-write',
+      reading: 'anim-idle',
+      drinking: 'anim-drink',
+      stretching: 'anim-stretch',
+      resting: 'anim-rest',
+      distracted: 'anim-distract',
+      typing: 'anim-type',
+      away: '',
+      cameraOff: '',
+    }[state] || 'anim-idle'
 
   return (
     <img

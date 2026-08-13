@@ -10,8 +10,16 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  ArrowLeft, Mic, MicOff, Video, VideoOff, Settings, RotateCcw,
-  AlertTriangle, WifiOff, Users,
+  ArrowLeft,
+  Mic,
+  MicOff,
+  Video,
+  VideoOff,
+  Settings,
+  RotateCcw,
+  AlertTriangle,
+  WifiOff,
+  Users,
 } from 'lucide-react'
 import { useStore, allSeatsOff } from '../store/useStore'
 import { db } from '../store/db'
@@ -111,8 +119,12 @@ export default function LobbyScreen() {
       const d = useStore.getState().device
       if (s) {
         // 빠른 토글의 현재 의사를 그대로 적용 (§5-4 단일 전역 상태)
-        s.getVideoTracks().forEach((t) => { t.enabled = d.cameraOn })
-        s.getAudioTracks().forEach((t) => { t.enabled = d.micOn })
+        s.getVideoTracks().forEach((t) => {
+          t.enabled = d.cameraOn
+        })
+        s.getAudioTracks().forEach((t) => {
+          t.enabled = d.micOn
+        })
         // 사용 중 장치를 뽑았을 때 (§6-2 예외)
         s.getTracks().forEach((t) => {
           t.onended = () => {
@@ -198,7 +210,9 @@ export default function LobbyScreen() {
 
   /* 새로고침·탭 닫기에서도 확실히 해제 (§6-2 예외) */
   useEffect(() => {
-    const bye = () => { if (!handoffRef.current) stopStream() }
+    const bye = () => {
+      if (!handoffRef.current) stopStream()
+    }
     window.addEventListener('beforeunload', bye)
     window.addEventListener('pagehide', bye)
     return () => {
@@ -227,7 +241,9 @@ export default function LobbyScreen() {
     }
     refresh()
     if (md.addEventListener) md.addEventListener('devicechange', refresh)
-    return () => { if (md.removeEventListener) md.removeEventListener('devicechange', refresh) }
+    return () => {
+      if (md.removeEventListener) md.removeEventListener('devicechange', refresh)
+    }
   }, [toast])
 
   /* 인터넷 연결 (§6-2 예외 — 끊기면 입장 버튼이 눌리지 않고 이유를 알려준다) */
@@ -243,7 +259,9 @@ export default function LobbyScreen() {
   }, [])
 
   /* ── 마이크 입력 레벨 (§6-2) — AnalyserNode를 destination에 연결하지 않아 되돌림이 없다 ── */
-  useEffect(() => { micOnRef.current = device.micOn }, [device.micOn])
+  useEffect(() => {
+    micOnRef.current = device.micOn
+  }, [device.micOn])
 
   useEffect(() => {
     const s = localStream
@@ -293,8 +311,16 @@ export default function LobbyScreen() {
 
     return () => {
       cancelAnimationFrame(raf)
-      try { src.disconnect() } catch { /* noop */ }
-      try { analyser.disconnect() } catch { /* noop */ }
+      try {
+        src.disconnect()
+      } catch {
+        /* noop */
+      }
+      try {
+        analyser.disconnect()
+      } catch {
+        /* noop */
+      }
       if (ctx.state !== 'closed') ctx.close().catch(() => {}) // 언마운트 시 close (§6-2)
     }
   }, [localStream])
@@ -310,12 +336,18 @@ export default function LobbyScreen() {
   const toggleCam = () => {
     const next = !device.cameraOn
     setDevice({ cameraOn: next })
-    if (streamRef.current) streamRef.current.getVideoTracks().forEach((t) => { t.enabled = next })
+    if (streamRef.current)
+      streamRef.current.getVideoTracks().forEach((t) => {
+        t.enabled = next
+      })
   }
   const toggleMic = () => {
     const next = !device.micOn
     setDevice({ micOn: next })
-    if (streamRef.current) streamRef.current.getAudioTracks().forEach((t) => { t.enabled = next })
+    if (streamRef.current)
+      streamRef.current.getAudioTracks().forEach((t) => {
+        t.enabled = next
+      })
   }
 
   /* ── 셀렉터 ───────────────────────────────────────────── */
@@ -355,7 +387,9 @@ export default function LobbyScreen() {
       d.startX = e.clientX
     }
   }
-  const onPreviewUp = () => { swipeRef.current.active = false }
+  const onPreviewUp = () => {
+    swipeRef.current.active = false
+  }
 
   /* ── 설정 버튼 (§6-2 · §12-3 9·12) ─────────────────────── */
   const openTargetSettings = () => {
@@ -363,7 +397,9 @@ export default function LobbyScreen() {
     if (Date.now() - dragEndAtRef.current < 300) return
     openSettings(previewTarget)
   }
-  const targetLabel = isMe ? '나' : `${previewTarget}번 ${seatOf(previewTarget) ? seatOf(previewTarget).name : ''}`.trim()
+  const targetLabel = isMe
+    ? '나'
+    : `${previewTarget}번 ${seatOf(previewTarget) ? seatOf(previewTarget).name : ''}`.trim()
 
   /* ── 입장 (§6-2) ──────────────────────────────────────── */
   const enterRoom = () => {
@@ -424,7 +460,8 @@ export default function LobbyScreen() {
         </button>
         <h1 className="t-screen mt-4 enter-up">들어가기 전에 확인해요</h1>
         <p className="t-help enter-up d1">
-          내 모습과 소리를 확인하고, 함께 들어갈 자리를 살펴보세요. 여기서 정한 설정은 방 안까지 그대로 이어집니다.
+          내 모습과 소리를 확인하고, 함께 들어갈 자리를 살펴보세요. 여기서 정한 설정은 방 안까지 그대로
+          이어집니다.
         </p>
       </header>
 
@@ -518,10 +555,16 @@ export default function LobbyScreen() {
                 <div
                   className={[
                     'mt-1 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 t-caption',
-                    seat.enabled ? 'border-hairline bg-surface text-subtle' : 'border-[var(--danger)] bg-danger-bg text-danger',
+                    seat.enabled
+                      ? 'border-hairline bg-surface text-subtle'
+                      : 'border-[var(--danger)] bg-danger-bg text-danger',
                   ].join(' ')}
                 >
-                  {seat.enabled ? <Users size={13} aria-hidden="true" /> : <AlertTriangle size={13} aria-hidden="true" />}
+                  {seat.enabled ? (
+                    <Users size={13} aria-hidden="true" />
+                  ) : (
+                    <AlertTriangle size={13} aria-hidden="true" />
+                  )}
                   {seat.enabled ? '함께 들어갑니다' : '참여 꺼짐 — 빈 자리로 표시돼요'}
                 </div>
               </div>
@@ -571,7 +614,11 @@ export default function LobbyScreen() {
                 <span
                   key={i}
                   className="h-4 w-[3px] rounded-full"
-                  style={{ background: 'var(--chart-track)', transformOrigin: 'center', transform: 'scaleY(0.18)' }}
+                  style={{
+                    background: 'var(--chart-track)',
+                    transformOrigin: 'center',
+                    transform: 'scaleY(0.18)',
+                  }}
                 />
               ))}
             </div>
@@ -590,7 +637,10 @@ export default function LobbyScreen() {
           className="h-auto w-[112px] shrink-0 flex-col gap-1"
           style={{ borderRadius: 24, paddingLeft: 0, paddingRight: 0 }}
         >
-          <span aria-hidden="true" className="flex flex-col items-center gap-1 text-[24px] font-semibold leading-[32px]">
+          <span
+            aria-hidden="true"
+            className="flex flex-col items-center gap-1 text-[24px] font-semibold leading-[32px]"
+          >
             {(entering ? ['입', '장', '중'] : ['입', '장', '하', '기']).map((ch, i) => (
               <span key={i}>{ch}</span>
             ))}
@@ -609,7 +659,9 @@ export default function LobbyScreen() {
             items={items}
             value={previewTarget}
             onChange={setPreviewTarget}
-            onDragEnd={() => { dragEndAtRef.current = Date.now() }}
+            onDragEnd={() => {
+              dragEndAtRef.current = Date.now()
+            }}
           />
         </div>
 
@@ -633,12 +685,13 @@ export default function LobbyScreen() {
       {/* ── 안내 줄 ─────────────────────────────────────── */}
       <div className="relative mx-auto mt-3 flex w-[1120px] flex-col gap-2">
         <p className="t-help">
-          지점을 누르거나 좌우로 끌어서 자리를 살펴보세요. 방향키 ←·→ 로도 옮길 수 있어요. 캐릭터 자리를 봐도 내 카메라·마이크는 그대로예요.
+          지점을 누르거나 좌우로 끌어서 자리를 살펴보세요. 방향키 ←·→ 로도 옮길 수 있어요. 캐릭터 자리를 봐도
+          내 카메라·마이크는 그대로예요.
         </p>
         {noSeats && (
           <p className="inline-flex items-center gap-2 t-body text-danger">
-            <AlertTriangle size={16} aria-hidden="true" />
-            세 자리 모두 참여가 꺼져 있어요. 이대로 들어가면 혼자 공부하게 됩니다.
+            <AlertTriangle size={16} aria-hidden="true" />세 자리 모두 참여가 꺼져 있어요. 이대로 들어가면
+            혼자 공부하게 됩니다.
           </p>
         )}
         {!online && (
@@ -662,7 +715,10 @@ function Selector({ items, value, onChange, onDragEnd }) {
   const [dragging, setDragging] = useState(false)
 
   const n = items.length
-  const idx = Math.max(0, items.findIndex((it) => it.key === value))
+  const idx = Math.max(
+    0,
+    items.findIndex((it) => it.key === value),
+  )
   const [pos, setPos] = useState(idx)
 
   useEffect(() => {
@@ -768,7 +824,9 @@ function Selector({ items, value, onChange, onDragEnd }) {
                 aria-checked={on}
                 aria-label={it.aria}
                 tabIndex={on ? 0 : -1}
-                ref={(el) => { dotRefs.current[i] = el }}
+                ref={(el) => {
+                  dotRefs.current[i] = el
+                }}
                 onClick={() => onChange(it.key)}
                 onKeyDown={onKeyDown}
                 className="absolute top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full"
@@ -779,7 +837,11 @@ function Selector({ items, value, onChange, onDragEnd }) {
                   className={[
                     'block rounded-full transition-all duration-300',
                     on ? 'h-3.5 w-3.5 bg-[var(--text-strong)]' : 'h-2.5 w-2.5',
-                    on ? '' : it.dim ? 'border border-dashed border-[var(--disabled)] bg-transparent' : 'bg-[var(--disabled)]',
+                    on
+                      ? ''
+                      : it.dim
+                        ? 'border border-dashed border-[var(--disabled)] bg-transparent'
+                        : 'bg-[var(--disabled)]',
                     it.dim && !on ? 'opacity-70' : '',
                   ].join(' ')}
                 />

@@ -68,8 +68,26 @@ export function daysAgoKey(n) {
 
 /* ── seed (§9-4) ───────────────────────────────────────────── */
 const PEER_NAMES = [
-  '민서', '지후', '서연', '도윤', '하은', '주원', '수아', '건우', '지아', '시우',
-  '예린', '태윤', '나은', '현우', '유진', '정민', '보라', '승현', '가온', '리아',
+  '민서',
+  '지후',
+  '서연',
+  '도윤',
+  '하은',
+  '주원',
+  '수아',
+  '건우',
+  '지아',
+  '시우',
+  '예린',
+  '태윤',
+  '나은',
+  '현우',
+  '유진',
+  '정민',
+  '보라',
+  '승현',
+  '가온',
+  '리아',
 ]
 
 function seedIfEmpty() {
@@ -274,7 +292,14 @@ export const db = {
   /* 기억 · 개인정보 (§6-5) */
   addMemory(scope, content) {
     const d = read()
-    d.memory_item.push({ id: uid(), user_id: d.user?.id, scope, content, created_at: Date.now(), expires_at: null })
+    d.memory_item.push({
+      id: uid(),
+      user_id: d.user?.id,
+      scope,
+      content,
+      created_at: Date.now(),
+      expires_at: null,
+    })
     write()
   },
   getMemories() {
@@ -305,8 +330,13 @@ function rollUpDaily(d, s) {
   let row = d.daily_stat.find((x) => x.date === key)
   if (!row) {
     row = {
-      user_id: d.user?.id, date: key,
-      total_study_sec: 0, total_focus_sec: 0, session_count: 0, score: null, streak_days: 0,
+      user_id: d.user?.id,
+      date: key,
+      total_study_sec: 0,
+      total_focus_sec: 0,
+      session_count: 0,
+      score: null,
+      streak_days: 0,
     }
     d.daily_stat.push(row)
   }
