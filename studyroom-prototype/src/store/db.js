@@ -276,6 +276,20 @@ export const db = {
     return persisted + live
   },
 
+  /**
+   * 오늘 집중한 시간. 화면의 시계가 쓴다.
+   * 총 시간은 화면 앞에 있던 시간이고, 이건 실제로 집중한 시간이다 (§8-2).
+   */
+  todayFocusSec() {
+    const d = read()
+    const t = d.daily_stat.find((s) => s.date === todayKey())
+    const persisted = t ? t.total_focus_sec || 0 : 0
+    const live = d.session
+      .filter((s) => s.ended_at == null && todayKey(new Date(s.started_at)) === todayKey())
+      .reduce((a, s) => a + (s.focus_sec || 0), 0)
+    return persisted + live
+  },
+
   /** 연속 학습일 — 하루 10분 이상 (§8-4) */
   streakDays() {
     const d = read()
