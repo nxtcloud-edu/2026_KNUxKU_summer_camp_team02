@@ -60,6 +60,16 @@ const VOICE_IDLE_MS = 3000
 const CHEER_AFTER_STREAK_SEC = 25 * 60
 
 /** 시계가 멈춘 이유 — 색만으로는 알 수 없으니 글자로도 붙인다 */
+/**
+ * 시계가 멈춘 뒤 이만큼 지나야 빨갛게 만든다.
+ *
+ * **멈추는 건 즉시**다 — 집중 시간은 정확해야 하니까.
+ * 다만 1초짜리 흔들림에 화면이 빨개졌다 돌아오면 눈에 거슬린다.
+ * 측정과 표시를 갈라 두면 둘 다 만족한다.
+ */
+const PAUSE_SHOW_MS = 1200
+
+/** 시계가 멈춘 이유 — 색만으로는 알 수 없으니 글자로도 붙인다 */
 const PAUSE_LABEL = {
   away: '자리 비움',
   absent: '자리 비움',
@@ -1117,6 +1127,17 @@ export default function StudyRoomScreen() {
    */
   const todaySec = todayBase + (snap?.focusSec ?? snap?.studySec ?? 0)
   const pausedBy = snap?.pausedBy || null
+
+  // 멈춤은 즉시 반영되고(위 todaySec), 빨간 표시만 조금 늦게 켜진다
+  const [pausedShown, setPausedShown] = useState(null)
+  useEffect(() => {
+    if (!pausedBy) {
+      setPausedShown(null)
+      return
+    }
+    const t = setTimeout(() => setPausedShown(pausedBy), PAUSE_SHOW_MS)
+    return () => clearTimeout(t)
+  }, [pausedBy])
   const seatName = (no) => seats.find((s) => s.slotNo === no)?.name || `${no}번`
 
   return (
@@ -1365,14 +1386,14 @@ export default function StudyRoomScreen() {
             className={['t-section tnum transition-colors duration-300', pausedBy ? 'text-danger' : ''].join(
               ' ',
             )}
-            aria-label={`오늘 집중한 시간 ${fmtHMS(todaySec)}${pausedBy ? ` — ${PAUSE_LABEL[pausedBy]}라 멈춰 있어요` : ''}`}
+            aria-label={`오늘 집중한 시간 ${fmtHMS(todaySec)}${pausedShown ? ` — ${PAUSE_LABEL[pausedShown]}라 멈춰 있어요` : ''}`}
           >
             {fmtHMS(todaySec)}
           </span>
           {/* 색만으로 알리지 않는다 (§4-5, §11). 왜 멈췄는지 글자로도 말한다 */}
-          {pausedBy && (
+          {pausedShown && (
             <span className="t-caption shrink-0 text-danger" aria-hidden="true">
-              {PAUSE_LABEL[pausedBy]}
+              {PAUSE_LABEL[pausedShown]}
             </span>
           )}
         </div>
