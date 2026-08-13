@@ -4,10 +4,16 @@
  */
 import { handleChat, handleSummarize, handleHealth, HttpError, loadEnv } from './chat.mjs'
 import { checkRate, checkAccess, clientIp, rateStats, LIMITS } from './guard.mjs'
+import { handleGoogleAuth, publicConfig } from './auth.mjs'
 
 const ROUTES = {
   '/api/chat': handleChat,
   '/api/summarize': handleSummarize,
+  /**
+   * 로그인. 호출 상한 안에 둔다 — 토큰을 무한정 던져 보는 걸 막는다.
+   * 출입 열쇠도 그대로 요구한다. 열쇠를 걸어 둔 배포에서는 링크를 받은 사람만 로그인한다.
+   */
+  '/api/auth/google': handleGoogleAuth,
   /**
    * 브라우저가 남기는 진단.
    *
@@ -58,6 +64,15 @@ export async function apiHandler(req, res) {
     // 열쇠를 건 상태에서는 키 이름·호출수 같은 속사정을 아무에게나 보여주지 않는다
     const inside = checkAccess(req, ACCESS_KEY).ok
     send(res, 200, inside ? { ...handleHealth(), rate: rateStats() } : { ok: true, locked: true })
+    return true
+  }
+
+  /**
+   * 로그인 화면이 **로그인하기 전에** 읽어야 하는 값. 그래서 열쇠를 묻지 않는다.
+   * 공개해도 되는 것만 담는다 — publicConfig() 안에 키를 넣지 말 것.
+   */
+  if (url === '/api/config') {
+    send(res, 200, publicConfig())
     return true
   }
 

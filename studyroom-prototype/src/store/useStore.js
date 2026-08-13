@@ -10,6 +10,7 @@
 import { create } from 'zustand'
 import { db } from './db'
 import { defaultSeats } from '../lib/presets'
+import { GUEST, accountKeyOf, clearAccount, displayNameOf, loadAccount, saveAccount } from '../lib/auth'
 
 export const DEFAULT_SETTINGS = {
   // 집중 및 개입 (§6-5)
@@ -75,8 +76,19 @@ export const DEFAULT_SETTINGS = {
 }
 
 const initial = () => {
+  // db 는 모듈이 로드될 때 이미 저장된 계정의 칸을 열어 둔다 (db.js 의 accountKey)
   db.init()
   db.reconcileOpenSessions()
+  return { account: loadAccount(), ...configOf() }
+}
+
+/**
+ * 지금 열려 있는 칸의 설정을 읽는다.
+ *
+ * 계정을 갈아탈 때마다 이걸 다시 불러야 한다. 스토어는 모듈 로드 시점에 한 번만
+ * 읽으므로, 이 함수 없이 계정만 바꾸면 **앞 계정의 캐릭터 설정이 그대로 남는다.**
+ */
+function configOf() {
   const saved = db.loadConfig()
   return {
     seats: saved.seats?.length === 3 ? saved.seats : defaultSeats(),
@@ -123,10 +135,51 @@ export const useStore = create((set, get) => ({
   stream: null,
   setStream: (stream) => set({ stream }),
 
+  /* 계정 — 데이터 칸을 가르는 이름표 (lib/auth.js) */
+  account: boot.account,
+
+  /**
+   * 로그인. 칸을 갈아타고 그 칸의 설정을 다시 읽는다.
+   *
+   * 진행 중인 세션 id 는 앞 계정 것이라 반드시 버린다. 남겨 두면 새 계정의 db 에
+   * 없는 세션에 대고 heartbeat 를 쏘게 된다.
+   */
+  signIn: (profile) => {
+    saveAccount(profile)
+    db.useAccount(accountKeyOf(profile))
+    db.setUser({
+      display_name: displayNameOf(profile),
+      avatar_url: profile.picture || null,
+      email: profile.email || '',
+      provider: profile.provider,
+    })
+    set({
+      account: profile,
+      displayName: displayNameOf(profile),
+      sessionId: null,
+      lastSessionId: null,
+      ...configOf(),
+    })
+  },
+
+  signOut: () => {
+    clearAccount()
+    db.useAccount('guest')
+    set({
+      account: { ...GUEST },
+      displayName: '나',
+      sessionId: null,
+      lastSessionId: null,
+      route: 'landing',
+      ...configOf(),
+    })
+  },
+
   /* roomConfig — 영속 */
-  displayName: '나',
+  displayName: displayNameOf(boot.account),
   setDisplayName: (v) => {
     set({ displayName: v })
+    db.setUser({ display_name: v })
     get().persist()
   },
 

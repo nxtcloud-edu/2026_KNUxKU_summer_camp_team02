@@ -40,6 +40,7 @@ import { requestSummary, requestReply } from '../lib/agent/client'
 import { useVision } from '../lib/vision/useVision'
 import { wakeChime } from '../lib/chime'
 import { planDocument, toPrompt, asInlineFile } from '../lib/docReader'
+import { rememberDocument, searchUserDocs, toUserDocContext } from '../lib/userDocs'
 import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
 
 /* ── 지역 헬퍼 (새 의존 파일을 만들지 않는다) ─────────────────── */
@@ -776,7 +777,21 @@ export default function StudyRoomScreen() {
           // 매번 넘기면 토큰이 낭비되고, 안 넘기면 "저 파일 요약해줘"에 엉뚱한 답이 나온다
           const wantsDoc = docRef.current && DOC_REF_WORDS.test(text)
           const docImages = wantsDoc ? docRef.current.images || [] : []
-          const payload = wantsDoc && docRef.current.prompt ? `${docRef.current.prompt}\n\n${text}` : text
+
+          /**
+           * 이번 세션에 올린 자료가 아니면 **지난 세션에 올린 자료**를 찾는다.
+           * 계정 칸에 남아 있으므로 "저번에 올린 그 자료" 를 다시 올리지 않아도 된다.
+           * 점수가 문턱을 못 넘으면 아무것도 넣지 않는다 — 관계없는 조각은 답을 흐린다.
+           */
+          const pastHits = wantsDoc ? [] : searchUserDocs(text)
+          const pastContext = toUserDocContext(pastHits)
+
+          const payload =
+            wantsDoc && docRef.current.prompt
+              ? `${docRef.current.prompt}\n\n${text}`
+              : pastContext
+                ? `${pastContext}\n\n${text}`
+                : text
 
           for (const seat of repliers) {
             if (!aliveRef.current) return
@@ -873,6 +888,8 @@ export default function StudyRoomScreen() {
 
       docRef.current = { name: file.name, prompt: toPrompt(file.name, body) }
       db.addStudyPoint(sid, `${file.name} 읽음 (${body.length.toLocaleString()}자)`, file.name)
+      // 이 계정의 자료 칸에 남긴다. 다음 세션에서 물어도 찾을 수 있게 (lib/userDocs.js)
+      rememberDocument(file.name, body, sid)
 
       const speaker = pickInterventionSpeaker(useStore.getState().seats)
       if (speaker) {
