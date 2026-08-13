@@ -197,7 +197,7 @@ function MateTile({ seat, state, tint, otherNames, onRename }) {
     <div className="flex min-h-0 flex-col overflow-hidden rounded-md border border-hairline bg-surface shadow-soft">
       <div className={`flex min-h-0 flex-1 items-center justify-center ${tint}`}>
         {/* 상태를 텍스트로 표시하지 않는다. 애니메이션만 바뀐다 (§6-3) */}
-        <CharacterSprite imageKey={seat.imageKey} state={state} size={148} />
+        <CharacterSprite imageKey={seat.imageKey} state={state} size={148} speakerId={seat.slotNo} />
       </div>
       <div className="border-t border-hairline px-4 py-2.5">
         {editing ? (
@@ -531,7 +531,8 @@ export default function StudyRoomScreen() {
         setTypingSlots((t) => t.filter((x) => x !== seat.slotNo))
         const st = useStore.getState().settings
         // 재생이 실제로 끝날 때까지 기다린다 — 이 동안 발언권을 쥐고 있다
-        if (st.voice.tts && ttsSupported) await speakAndWait(ttsExcerpt(body), PRESETS[seat.preset]?.voice)
+        if (st.voice.tts && ttsSupported)
+          await speakAndWait(ttsExcerpt(body), PRESETS[seat.preset]?.voice, seat.slotNo)
       } catch {
         if (aliveRef.current) toast('답변을 만들지 못했어요. 다시 물어봐 주세요.', 'danger')
       } finally {
