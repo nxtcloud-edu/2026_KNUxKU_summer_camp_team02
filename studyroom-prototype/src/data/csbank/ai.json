@@ -1,0 +1,713 @@
+[
+  {
+    "id": "ai-001",
+    "domain": "ai",
+    "topic": "평가지표/불균형",
+    "kind": "counterexample",
+    "difficulty": "easy",
+    "question": "불균형 데이터에서 정확도(accuracy)가 왜 의미 없어?",
+    "answer": "양성 1%, 음성 99%인 데이터에서 모든 표본을 음성이라 찍는 상수 모델은 정확도 99%를 얻는다. 그러나 이 모델의 재현율(recall)은 0이어서 양성을 단 하나도 잡지 못한다. 정확도는 다수 클래스의 비율에 지배되므로, 다수 클래스만 맞혀도 높은 값이 나온다. 즉 정확도가 높다는 사실은 소수 클래스 성능에 대해 아무 정보도 주지 않는다. 불균형에서는 정밀도, 재현율, F1, PR-AUC처럼 양성 클래스를 직접 보는 지표를 함께 봐야 한다. 기준선은 '무작위'가 아니라 '다수 클래스 상수 예측'의 점수다.",
+    "verify": {
+      "lang": "python",
+      "code": "y   = [0]*990 + [1]*10\npred= [0]*1000                      # 항상 음성이라고 찍는 상수 모델\nacc = sum(a==b for a,b in zip(y,pred)) / len(y)\ntp  = sum(1 for a,b in zip(y,pred) if a==1 and b==1)\nfn  = sum(1 for a,b in zip(y,pred) if a==1 and b==0)\nrecall = tp/(tp+fn)\nprint(abs(acc-0.99) < 1e-12 and recall == 0.0)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "양성이 1%인 데이터에서 전부 음성이라고 찍으면 정확도가 얼마나 나오고, 뭐가 문제야?",
+      "accept": [
+        "99",
+        "재현율",
+        "recall",
+        "재현율 0",
+        "소수 클래스"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-002",
+    "domain": "ai",
+    "topic": "평가지표/혼동행렬",
+    "kind": "derivation",
+    "difficulty": "easy",
+    "question": "혼동행렬이 TP=40, FP=10, FN=20, TN=930일 때 정밀도·재현율·F1을 어떻게 계산해?",
+    "answer": "정밀도는 예측한 양성 중 맞은 비율이라 TP/(TP+FP)=40/50=0.8이다. 재현율은 실제 양성 중 잡은 비율이라 TP/(TP+FN)=40/60≈0.6667이다. F1은 둘의 조화평균이며 2PR/(P+R)로도, 분모를 정리한 2TP/(2TP+FP+FN)=80/110≈0.7273으로도 같은 값이 나온다. 정확도는 (TP+TN)/전체=970/1000=0.97로 셋과 크게 어긋난다. 분모가 무엇인지가 핵심이다. 정밀도의 분모는 예측 양성, 재현율의 분모는 실제 양성이고 이 둘을 뒤집는 것이 가장 흔한 실수다.",
+    "verify": {
+      "lang": "python",
+      "code": "TP, FP, FN, TN = 40, 10, 20, 930\nP  = TP/(TP+FP)\nR  = TP/(TP+FN)\nF1 = 2*P*R/(P+R)\nacc = (TP+TN)/(TP+FP+FN+TN)\nok = (abs(P-0.8) < 1e-12\n      and abs(R-2/3) < 1e-12\n      and abs(F1 - 2*TP/(2*TP+FP+FN)) < 1e-12   # 두 F1 공식이 동일\n      and abs(F1-80/110) < 1e-12\n      and abs(acc-0.97) < 1e-12)\nprint(ok)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "TP=40, FP=10, FN=20일 때 정밀도와 재현율은?",
+      "accept": [
+        "0.8",
+        "0.67",
+        "0.6667",
+        "2/3"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-003",
+    "domain": "ai",
+    "topic": "평가지표/F1",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "F1은 왜 정밀도와 재현율의 산술평균이 아니라 조화평균이야?",
+    "answer": "조화평균은 작은 쪽에 끌려간다. 정밀도 1.0, 재현율 0.02인 모델은 산술평균이 0.51로 준수해 보이지만 F1은 2(1)(0.02)/1.02≈0.039로 낮다. 이 모델은 확신하는 한두 건만 예측해 정밀도를 인위적으로 올린 것이므로 실제로는 쓸모가 없고, F1은 그것을 드러낸다. 일반적으로 F1은 항상 산술평균 이하이며 두 값이 같을 때만 등호가 성립한다. 즉 F1은 두 지표를 모두 높이라고 강제하는 지표이고, 한쪽을 희생해 다른 쪽을 올리는 꼼수를 막는 것이 설계 의도다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random\ndef f1(p,r): return 0.0 if p+r==0 else 2*p*r/(p+r)\nP, R = 1.0, 0.02\ncase = abs((P+R)/2 - 0.51) < 1e-12 and abs(f1(P,R) - 2*0.02/1.02) < 1e-12 and f1(P,R) < 0.04\nrandom.seed(0)\nalways_le = True   # F1 <= 산술평균, 등호는 P==R 일 때만\nfor _ in range(200000):\n    p = random.random(); r = random.random()\n    if f1(p,r) > (p+r)/2 + 1e-12: always_le = False\neq = abs(f1(0.6,0.6) - 0.6) < 1e-12\nprint(case and always_le and eq)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "정밀도 1.0, 재현율 0.02일 때 F1은 대략 얼마고 왜 산술평균보다 훨씬 낮아?",
+      "accept": [
+        "0.04",
+        "0.039",
+        "조화평균",
+        "작은 쪽"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-004",
+    "domain": "ai",
+    "topic": "평가지표/ROC-PR",
+    "kind": "comparison",
+    "difficulty": "hard",
+    "question": "ROC-AUC랑 PR-AUC 중에 언제 뭘 봐야 해?",
+    "answer": "ROC-AUC는 재현율과 위양성률을 쓰는데 위양성률의 분모가 음성 전체다. 음성이 압도적으로 많으면 위양성 50건이 위양성률 0.05로 희석되어 ROC-AUC가 계속 높게 나온다. 양성 10개, 음성 1000개에서 각 양성 위에 음성 50개가 깔린 순위를 만들면 ROC-AUC는 0.95지만 평균정밀도(PR-AUC)는 약 0.097에 그친다. PR 곡선은 분모가 예측 양성이라 위양성이 바로 정밀도를 깎는다. 양성이 희소하고 양성 예측의 비용이 중요한 문제에서는 PR-AUC를 봐야 한다. PR-AUC의 무작위 기준선은 0.5가 아니라 양성 비율이다.",
+    "verify": {
+      "lang": "python",
+      "code": "# 순위: 음성 50개 -> 양성 10개 -> 음성 950개\nscores = [(-i, 0) for i in range(50)] + [(-100-i, 1) for i in range(10)] + [(-1000-i, 0) for i in range(950)]\nscores.sort(key=lambda x: -x[0])\nlabels = [l for _, l in scores]\nnpos = sum(labels); nneg = len(labels) - npos\n\n# ROC-AUC = Mann-Whitney: 무작위 양성이 무작위 음성보다 높은 순위일 확률\nbelow = 0; neg_seen = 0\nfor l in reversed(labels):          # 낮은 점수부터\n    if l == 0: neg_seen += 1\n    else: below += neg_seen\nauc = below / (npos*nneg)\n\n# 평균정밀도(PR-AUC): 각 양성을 맞춘 시점의 정밀도 평균\ntp = 0; ap = 0.0\nfor k, l in enumerate(labels, 1):\n    if l == 1:\n        tp += 1\n        ap += tp/k\nap /= npos\nbaseline = npos/len(labels)\nprint(abs(auc-0.95) < 1e-9 and 0.09 < ap < 0.11 and ap > baseline and baseline < 0.01)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "음성이 압도적으로 많을 때 ROC-AUC가 0.95여도 안심하면 안 되는 이유는?",
+      "accept": [
+        "위양성률",
+        "분모",
+        "희석",
+        "PR",
+        "정밀도"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-005",
+    "domain": "ai",
+    "topic": "평가지표/다중분류",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "다중분류에서 macro 평균이랑 micro 평균은 뭐가 달라?",
+    "answer": "micro는 모든 클래스의 TP, FP, FN을 먼저 다 더한 뒤 지표를 계산해서 표본이 많은 클래스가 결과를 지배한다. macro는 클래스별로 지표를 따로 계산한 뒤 단순 평균해서 클래스마다 동일한 가중치를 준다. 900:50:50인 데이터에서 소수 클래스를 50개 중 2개만 맞히는 모델은 micro-F1이 0.90인데 macro-F1은 0.37로 떨어진다. 소수 클래스 성능을 보고 싶으면 macro를, 전체 표본 단위 성능을 보고 싶으면 micro를 쓴다. 논문에서 macro만 보고하거나 micro만 보고하는 이유가 여기에 있다.",
+    "verify": {
+      "lang": "python",
+      "code": "y    = [0]*900 + [1]*50 + [2]*50\npred = [0]*900 + [0]*48 + [1]*2 + [0]*48 + [2]*2   # 다수 클래스만 잘 맞힘\ndef counts(c):\n    tp = sum(1 for a,b in zip(y,pred) if a==c and b==c)\n    fp = sum(1 for a,b in zip(y,pred) if a!=c and b==c)\n    fn = sum(1 for a,b in zip(y,pred) if a==c and b!=c)\n    return tp, fp, fn\ndef f1(tp,fp,fn):\n    return 0.0 if tp==0 else 2*tp/(2*tp+fp+fn)\nper = [f1(*counts(c)) for c in (0,1,2)]\nmacro = sum(per)/3\nTP = sum(counts(c)[0] for c in (0,1,2))\nFP = sum(counts(c)[1] for c in (0,1,2))\nFN = sum(counts(c)[2] for c in (0,1,2))\nmicro = f1(TP,FP,FN)\nprint(0.90 < micro < 0.91 and 0.36 < macro < 0.38 and micro - macro > 0.5)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "클래스가 900:50:50인데 macro-F1과 micro-F1 중 소수 클래스 실패를 드러내는 건?",
+      "accept": [
+        "macro",
+        "매크로"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-006",
+    "domain": "ai",
+    "topic": "평가지표/다중분류",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "단일 레이블 다중분류에서 micro-F1이 정확도랑 같다는데 진짜야?",
+    "answer": "맞다. 표본마다 정확히 한 클래스를 예측하는 단일 레이블 설정에서, 맞힌 표본은 해당 클래스의 TP로 딱 한 번 세어지고 틀린 표본은 예측한 클래스의 FP와 정답 클래스의 FN으로 각각 한 번씩 세어진다. 따라서 ΣTP=맞힌 수, ΣFP=ΣFN=틀린 수가 되어 micro 정밀도와 micro 재현율이 둘 다 맞힌 수/전체가 되고, 같은 값의 조화평균이므로 micro-F1도 같은 값이다. 결국 micro-F1은 정확도와 동일한 지표이며, 불균형에서 정확도가 가진 문제를 그대로 물려받는다. 다중 레이블에서는 이 등식이 성립하지 않는다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random\nrandom.seed(1)\nK, N = 5, 3000\ny    = [random.randrange(K) for _ in range(N)]\npred = [y[i] if random.random() < 0.7 else random.randrange(K) for i in range(N)]\nacc = sum(a==b for a,b in zip(y,pred))/N\nTP=FP=FN=0\nfor c in range(K):\n    TP += sum(1 for a,b in zip(y,pred) if a==c and b==c)\n    FP += sum(1 for a,b in zip(y,pred) if a!=c and b==c)\n    FN += sum(1 for a,b in zip(y,pred) if a==c and b!=c)\nmicroP = TP/(TP+FP); microR = TP/(TP+FN)\nmicroF1 = 2*microP*microR/(microP+microR)\nprint(FP == FN and abs(microF1-acc) < 1e-12 and abs(microP-acc) < 1e-12)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "단일 레이블 다중분류에서 micro-F1은 어떤 지표와 같아?",
+      "accept": [
+        "정확도",
+        "accuracy"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-007",
+    "domain": "ai",
+    "topic": "평가지표/임계값",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "분류 임계값을 올리면 정밀도는 항상 올라가는 거 아니야?",
+    "answer": "아니다. 재현율은 임계값을 올릴수록 단조 비증가지만 정밀도는 단조가 아니다. 점수 0.9(양성), 0.8(음성), 0.7(양성)인 세 표본에서 임계값을 0.65로 두면 TP=2, FP=1이라 정밀도는 0.667이다. 임계값을 0.75로 올리면 남는 예측은 0.9(양성)과 0.8(음성)뿐이라 TP=1, FP=1이 되어 정밀도가 0.5로 떨어진다. 임계값을 올릴 때 잘린 표본이 양성이면 정밀도가 오히려 내려간다. PR 곡선이 톱니처럼 오르내리는 것도 같은 이유다.",
+    "verify": {
+      "lang": "python",
+      "code": "scores = [0.9, 0.8, 0.7]\ny      = [1,   0,   1  ]\ndef pr(th):\n    tp = sum(1 for s,l in zip(scores,y) if s>=th and l==1)\n    fp = sum(1 for s,l in zip(scores,y) if s>=th and l==0)\n    fn = sum(1 for s,l in zip(scores,y) if s< th and l==1)\n    p = tp/(tp+fp) if tp+fp else float('nan')\n    r = tp/(tp+fn) if tp+fn else float('nan')\n    return p, r\np_lo, r_lo = pr(0.65)\np_hi, r_hi = pr(0.75)\nprint(abs(p_lo-2/3) < 1e-12 and abs(p_hi-0.5) < 1e-12 and p_hi < p_lo and r_hi <= r_lo)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "임계값을 올렸는데 정밀도가 떨어질 수도 있어? 왜?",
+      "accept": [
+        "있다",
+        "그렇",
+        "단조",
+        "양성",
+        "잘려"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-008",
+    "domain": "ai",
+    "topic": "평가지표/선택",
+    "kind": "tradeoff",
+    "difficulty": "medium",
+    "question": "정밀도랑 재현율 중에 뭘 우선해야 해?",
+    "answer": "지표만 보고는 정할 수 없고 오분류 비용이 정한다. 암 선별검사처럼 놓친 양성(FN)의 비용이 헛걸음(FP)보다 압도적으로 크면 재현율을 우선하고 임계값을 낮춘다. 스팸 차단처럼 중요한 메일을 잘못 버리는 FP가 치명적이면 정밀도를 우선하고 임계값을 올린다. F1은 두 비용이 대략 같다고 가정한 지표이므로 기본값처럼 쓰면 안 된다. 비용비가 β배라면 F-beta를 쓰거나, 아예 비용 행렬로 기대손실을 최소화하는 임계값을 고르는 것이 정직한 방법이다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "어느 지표를 우선할지는 응용 도메인의 오분류 비용에 달린 규범적 판단이므로 코드로 참·거짓을 정할 수 없다. 다만 비용비가 주어지면 최적 임계값 계산은 검산 가능하다.",
+    "quiz": {
+      "q": "암 선별검사에서는 정밀도와 재현율 중 뭘 우선하고 그 이유는?",
+      "accept": [
+        "재현율",
+        "recall",
+        "놓친",
+        "FN",
+        "비용"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-009",
+    "domain": "ai",
+    "topic": "과적합/학습곡선",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "훈련·검증 곡선만 보고 과소적합인지 과적합인지 어떻게 구분해?",
+    "answer": "훈련 오차 자체의 높낮이와 두 곡선의 간격을 따로 봐야 한다. 훈련 오차와 검증 오차가 둘 다 높고 붙어 있으면 과소적합이고 모델 표현력이나 특징이 부족한 것이다. 훈련 오차는 거의 0인데 검증 오차만 크게 벌어지면 과적합이고 데이터를 늘리거나 정규화를 걸어야 한다. 잡음 섞인 사인 함수 15점에 다항식을 맞춰보면 1차는 훈련·검증 오차가 둘 다 0.2 근처로 붙어 있고, 점을 그대로 통과하는 14차는 훈련 오차가 0인데 검증 오차가 3차의 70배 넘게 폭발하며, 3차가 검증 오차 최소다. 검증 오차 하나만 보면 어느 쪽 처방을 써야 하는지 알 수 없다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np, warnings\nwarnings.simplefilter(\"ignore\")\nrng = np.random.default_rng(0)\nxtr = np.linspace(-1, 1, 15)\nytr = np.sin(3*xtr) + 0.3*rng.standard_normal(15)\nxva = np.linspace(-1, 1, 200)\nyva = np.sin(3*xva)                      # 참 함수 = 잡음 없는 신호\ndef errs(deg):\n    c = np.linalg.lstsq(np.vander(xtr, deg+1), ytr, rcond=None)[0]\n    return (float(np.mean((np.polyval(c,xtr)-ytr)**2)),\n            float(np.mean((np.polyval(c,xva)-yva)**2)))\nt1,v1   = errs(1)     # 과소적합\nt3,v3   = errs(3)     # 적정\nt14,v14 = errs(14)    # 과적합(15점을 그대로 통과)\nprint(t1 > 0.1 and v1 > 0.1 and abs(t1-v1) < 0.05   # 둘 다 높고 붙어 있음\n      and t14 < 1e-15 and v14 > v3*70               # 훈련 0, 검증 폭발\n      and v3 < v1 and v3 < v14)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "훈련 오차도 크고 검증 오차도 큰데 둘이 붙어 있으면 과적합이야 과소적합이야?",
+      "accept": [
+        "과소적합",
+        "underfit",
+        "표현력"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-010",
+    "domain": "ai",
+    "topic": "정규화/L1",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "L1 정규화는 왜 가중치를 정확히 0으로 만들고 L2는 못 만들어?",
+    "answer": "1차원 문제 min 0.5(w-a)^2 + λ|w|를 풀면 해가 sign(a)·max(|a|-λ, 0)인 연성 임계(soft-thresholding)다. |a| ≤ λ이면 해가 정확히 0이다. |w|의 기울기가 0 근처에서도 크기 λ로 유지되어 데이터가 주는 인력을 이길 수 있기 때문이다. 반면 L2는 min 0.5(w-a)^2 + λw^2의 해가 a/(1+2λ)라서 a가 0이 아닌 한 절대 0이 되지 않는다. w^2의 기울기 2λw가 w→0에서 함께 0으로 사라져 마지막 한 걸음을 밀어주지 못한다. L1이 희소성을 만드는 것은 이 기울기의 불연속 때문이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\ndef brute(a, lam, pen):\n    w = np.linspace(-3, 3, 6000001)\n    obj = 0.5*(w-a)**2 + lam*(np.abs(w) if pen=='l1' else w**2)\n    return float(w[np.argmin(obj)])\nlam = 0.5\nok = True\nfor a in (0.3, -0.4, 1.2, -2.0):\n    l1_hat = np.sign(a)*max(abs(a)-lam, 0.0)     # 연성 임계 공식\n    l2_hat = a/(1+2*lam)\n    ok &= abs(brute(a,lam,'l1') - l1_hat) < 1e-3\n    ok &= abs(brute(a,lam,'l2') - l2_hat) < 1e-3\nok &= (np.sign(0.3)*max(0.3-lam,0.0) == 0.0)     # |a|<=lam 이면 정확히 0\nok &= (abs(0.3/(1+2*lam)) > 0.1)                 # L2 해는 0이 아님\nprint(bool(ok))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "L1이 가중치를 정확히 0으로 만드는 이유를 한 줄로?",
+      "accept": [
+        "임계",
+        "soft",
+        "기울기",
+        "λ",
+        "lam",
+        "사라지지"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-011",
+    "domain": "ai",
+    "topic": "정규화/드롭아웃",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "드롭아웃은 추론할 때 뭘 어떻게 조정해?",
+    "answer": "현대 구현인 역드롭아웃(inverted dropout)에서는 추론 시 아무것도 하지 않는다. 훈련 중에 살아남은 유닛을 유지확률 p로 나눠 미리 보정하기 때문에 출력의 기댓값이 원래 활성값과 같아지고, 추론에서는 드롭아웃 층을 통과만 시키면 된다. 원조 구현은 반대로 훈련에서 보정하지 않고 추론에서 가중치에 p를 곱했다. 둘을 섞어 훈련에서 나누고 추론에서도 p를 곱하면 활성이 p배로 줄어 성능이 무너진다. 핵심은 훈련과 추론의 기댓값을 일치시키는 것 한 가지이고, 어느 쪽에서 보정하느냐는 구현 선택이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\nrng = np.random.default_rng(0)\nx = np.array([1.0, 2.0, -3.0, 0.5])\np = 0.8                      # 유지확률\nT = 400000\ninv = np.zeros(4); naive = np.zeros(4)\nfor _ in range(T):\n    m = (rng.random(4) < p)\n    inv   += x*m/p           # 역드롭아웃: 훈련에서 p로 나눔\n    naive += x*m             # 보정 없음\ninv /= T; naive /= T\nprint(bool(np.allclose(inv, x, atol=0.02)              # 추론(=x)과 기댓값 일치\n      and np.allclose(naive, p*x, atol=0.02)           # 보정 없으면 p배로 축소\n      and not np.allclose(naive, x, atol=0.02)))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "역드롭아웃을 쓰면 추론할 때 출력에 p를 곱해야 해?",
+      "accept": [
+        "아니",
+        "안 곱",
+        "필요 없",
+        "그대로",
+        "훈련"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-012",
+    "domain": "ai",
+    "topic": "최적화/경사소실",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "시그모이드를 깊게 쌓으면 왜 경사가 사라져?",
+    "answer": "시그모이드의 도함수는 s(1-s)이고 s=0.5일 때 최대 0.25다. 역전파는 층마다 이 도함수를 곱하므로 가중치가 1이라 해도 L층을 지나면 기울기가 최대 0.25^L배로 줄어든다. 10층이면 약 9.5e-7, 20층이면 약 9e-13이라 앞쪽 층은 사실상 학습되지 않는다. 입력이 포화 구간으로 가면 도함수가 0.25보다 훨씬 작아져 더 빨리 죽는다. ReLU는 양수 구간 도함수가 정확히 1이라 이 곱셈 감쇠가 없고, 잔차 연결은 항등 경로로 기울기를 그대로 통과시켜 같은 문제를 우회한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\ndef sig(z): return 1/(1+math.exp(-z))\ndef dsig(z): s = sig(z); return s*(1-s)\nzs = [i/1000 for i in range(-20000, 20001)]\nmx = max(dsig(z) for z in zs)\narg = max(zs, key=dsig)\nprod10 = 0.25**10\nprod20 = 0.25**20\nprint(abs(mx-0.25) < 1e-9 and abs(arg) < 1e-3\n      and prod10 < 1e-6 and prod20 < 1e-11\n      and dsig(6) < 0.0025)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "시그모이드 도함수의 최댓값은 얼마고 10층을 지나면 기울기는 얼마나 줄어?",
+      "accept": [
+        "0.25",
+        "1/4",
+        "0.25^10",
+        "10^-6",
+        "1e-6"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-013",
+    "domain": "ai",
+    "topic": "최적화/학습률",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "학습률이 너무 크면 왜 발산해? 경계가 있어?",
+    "answer": "f(x)=x^2에서 f'(x)=2x이므로 갱신식은 x ← x - η·2x = (1-2η)x다. 수렴 조건은 |1-2η| < 1, 즉 0 < η < 1이다. 일반적으로 곡률 L을 가진 이차함수에서 조건은 η < 2/L이고 여기서는 L=2라 η < 1이 된다. η=0.9면 부호가 뒤집히며 진동하지만 크기는 줄어 수렴하고, η=1이면 크기가 그대로라 영원히 진동하며, η=1.1이면 매 스텝 1.2배씩 커져 발산한다. 학습률이 너무 작으면 발산하지는 않지만 (1-2η)^t로 줄어드는 속도가 느려 학습이 지연될 뿐이다.",
+    "verify": {
+      "lang": "python",
+      "code": "def run(eta, steps=200, x=1.0):\n    for _ in range(steps):\n        x = x - eta*(2*x)\n    return abs(x)\nsmall = run(0.1)      # 느리지만 수렴\ngood  = run(0.9)      # 진동하며 수렴\nedge  = run(1.0)      # 진동, 크기 유지\nblow  = run(1.1)      # 발산\nprint(small < 1e-15 and good < 1e-15\n      and abs(edge - 1.0) < 1e-12\n      and blow > 1e15\n      and abs(run(0.9,1) - 0.8) < 1e-12)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "f(x)=x^2에 경사하강을 쓸 때 발산하지 않는 학습률 범위는?",
+      "accept": [
+        "0 < η < 1",
+        "1보다",
+        "2/L",
+        "1 미만",
+        "0과 1"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-014",
+    "domain": "ai",
+    "topic": "최적화/Adam",
+    "kind": "tradeoff",
+    "difficulty": "hard",
+    "question": "Adam이 SGD보다 항상 나은 거 아니야?",
+    "answer": "아니다. Adam은 기울기를 그 크기의 이동 RMS로 나누기 때문에 스텝 크기가 사실상 학습률 근처로 정규화된다. 기울기가 크든 작든 한 걸음이 대략 η이므로, 기울기가 큰 구간에서 크게 움직여야 할 때 오히려 느리다. f(x)=0.5x^2를 x=10에서 시작하면 학습률 0.1의 순수 경사하강은 200스텝 만에 1e-9 수준으로 수렴하지만, 기본 학습률 0.001의 Adam은 스텝당 약 0.001씩만 움직여 200스텝 뒤에도 9.8 근처에 머문다. Adam은 조율 없이 쓸 만한 기본값이라는 장점이 있을 뿐, 잘 조율된 SGD보다 항상 빠르거나 일반화가 좋은 것은 아니다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\ndef gd(eta, steps=200, x=10.0):\n    for _ in range(steps): x -= eta*x     # f=0.5x^2, f'=x\n    return abs(x)\ndef adam(eta, steps=200, x=10.0, b1=0.9, b2=0.999, eps=1e-8):\n    m = v = 0.0\n    for t in range(1, steps+1):\n        g = x\n        m = b1*m + (1-b1)*g\n        v = b2*v + (1-b2)*g*g\n        mh = m/(1-b1**t); vh = v/(1-b2**t)\n        x -= eta*mh/(math.sqrt(vh)+eps)\n    return abs(x)\na = adam(0.001); g = gd(0.1)\nprint(g < 1e-8 and a > 9.0 and abs(a - (10-0.001*200)) < 0.1)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "f=0.5x^2에서 x=10부터 시작할 때 기본 학습률 Adam이 잘 맞춘 SGD보다 느린 이유는?",
+      "accept": [
+        "정규화",
+        "나누",
+        "스텝",
+        "학습률",
+        "크기"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-015",
+    "domain": "ai",
+    "topic": "데이터 누수/전처리",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "정규화(스케일링)를 분할 전에 하면 왜 안 돼?",
+    "answer": "전체 데이터로 평균과 표준편차를 구하면 그 통계량에 테스트 데이터가 섞여 들어가고, 그 값으로 훈련 데이터를 변환하므로 훈련 과정이 테스트 정보를 본 셈이 된다. 검증 방법은 테스트 값 하나만 바꿔보면 된다. 잘못된 파이프라인에서는 테스트 표본 하나를 바꿨을 뿐인데 훈련 데이터의 변환 결과가 달라지고, 올바른 파이프라인에서는 전혀 달라지지 않는다. 올바른 순서는 분할, 훈련셋으로만 fit, 그 통계량으로 훈련·테스트 모두 transform이다. 결측치 대치, PCA, 인코딩 등 데이터로부터 파라미터를 학습하는 모든 전처리에 같은 원칙이 적용된다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\nX = np.arange(20, dtype=float).reshape(-1,1)\nXtr, Xte = X[:10].copy(), X[10:].copy()\ndef wrong(tr, te):                    # 전체로 fit  (누수)\n    full = np.vstack([tr, te]); return (tr-full.mean())/full.std()\ndef right(tr, te):                    # 훈련셋으로만 fit\n    return (tr-tr.mean())/tr.std()\nXte2 = Xte.copy(); Xte2[0] = 1000.0   # 테스트 값 하나만 변경\nw1, w2 = wrong(Xtr,Xte), wrong(Xtr,Xte2)\nr1, r2 = right(Xtr,Xte), right(Xtr,Xte2)\nprint(bool((w1 != w2).any() and np.array_equal(r1, r2)))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "StandardScaler를 언제 fit해야 하고 왜?",
+      "accept": [
+        "훈련",
+        "train",
+        "분할 후",
+        "누수"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-016",
+    "domain": "ai",
+    "topic": "데이터 누수/특징선택",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "특징 선택을 교차검증 밖에서 한 번만 하면 안 돼?",
+    "answer": "안 된다. 완전한 잡음으로도 높은 정확도를 만들어낼 수 있다. 표본 100개, 무작위 특징 5000개, 무작위 레이블인 데이터에서 전체 데이터로 클래스 간 평균 차가 큰 20개를 먼저 고르고 5겹 교차검증을 돌리면 정확도가 0.89까지 나온다. 선택 단계가 레이블 전체를 봤기 때문에 검증 폴드의 정답이 이미 특징에 새겨진 것이다. 같은 데이터에서 선택을 각 폴드 안으로 옮기면 정확도는 0.42로 무작위 수준이 된다. 특징 선택은 모델의 일부이므로 반드시 교차검증 루프 안에서 훈련 폴드만으로 수행해야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\nrng = np.random.default_rng(0)\nn, p, k = 100, 5000, 20\nX = rng.standard_normal((n, p))\ny = rng.integers(0, 2, n)               # 레이블은 순수 잡음\nfolds = np.array_split(np.arange(n), 5)\ndef cv(select_inside, global_idx=None):\n    accs = []\n    for te in folds:\n        tr = np.setdiff1d(np.arange(n), te)\n        if select_inside:\n            d = np.abs(X[tr][y[tr]==1].mean(0) - X[tr][y[tr]==0].mean(0))\n            idx = np.argsort(-d)[:k]\n        else:\n            idx = global_idx\n        Xtr, Xte = X[tr][:,idx], X[te][:,idx]\n        c1 = Xtr[y[tr]==1].mean(0); c0 = Xtr[y[tr]==0].mean(0)\n        pred = (np.linalg.norm(Xte-c1,axis=1) < np.linalg.norm(Xte-c0,axis=1)).astype(int)\n        accs.append((pred == y[te]).mean())\n    return float(np.mean(accs))\nd_all = np.abs(X[y==1].mean(0) - X[y==0].mean(0))\nleaky  = cv(False, np.argsort(-d_all)[:k])\nhonest = cv(True)\nprint(leaky > 0.8 and honest < 0.6 and leaky - honest > 0.3)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "무작위 잡음 데이터인데 교차검증 정확도가 0.89 나왔어. 뭘 잘못했을까?",
+      "accept": [
+        "특징 선택",
+        "밖에서",
+        "전체",
+        "누수",
+        "레이블"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-017",
+    "domain": "ai",
+    "topic": "데이터 누수/시계열",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "시계열에도 그냥 무작위 k-겹 교차검증 쓰면 되지 않아?",
+    "answer": "안 된다. 무작위 분할은 미래 시점을 훈련에, 과거 시점을 검증에 넣어 모델이 검증 구간의 앞뒤를 모두 보게 만든다. 그러면 예측이 아니라 보간이 된다. 랜덤워크 300스텝에 1-최근접이웃을 적용하면 무작위 5겹 교차검증 MSE는 약 1.0이지만, 과거로만 학습해 다음 구간을 맞히는 전진 검증(forward chaining)에서는 약 41.9로 40배 커진다. 원리상 예측 불가능한 계열인데 무작위 분할은 잘 맞는 것처럼 보이게 만든다. 시계열에서는 시간 순서를 지키는 전진 검증을 쓰고, 필요하면 훈련과 검증 사이에 간격(embargo)을 둔다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\nrng = np.random.default_rng(3)\nT = 300\ny = np.cumsum(rng.standard_normal(T))          # 랜덤워크: 원리상 예측 불가\nt = np.arange(T, dtype=float).reshape(-1,1)\ndef knn1(tr, te):\n    nn = np.argmin(np.abs(t[te] - t[tr].ravel()), axis=1)\n    return float(np.mean((y[tr][nn] - y[te])**2))\nidx = np.arange(T)\nsh = rng.permutation(idx)\nrand_cv = np.mean([knn1(np.setdiff1d(idx,f), f) for f in np.array_split(sh,5)])\nfwd_cv  = np.mean([knn1(idx[:s], idx[s:s+60]) for s in (60,120,180,240)])\nprint(bool(rand_cv < 2 and fwd_cv > 20 and fwd_cv/rand_cv > 10))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "시계열에 무작위 k-겹 교차검증을 쓰면 뭐가 문제고 대신 뭘 써?",
+      "accept": [
+        "미래",
+        "전진",
+        "forward",
+        "순서",
+        "보간"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-018",
+    "domain": "ai",
+    "topic": "데이터 누수/오버샘플링",
+    "kind": "counterexample",
+    "difficulty": "medium",
+    "question": "불균형이니까 SMOTE나 오버샘플링을 먼저 하고 분할하면 되잖아?",
+    "answer": "순서가 반대다. 분할 전에 소수 클래스를 복제하면 같은 표본의 사본이 훈련셋과 테스트셋에 동시에 들어간다. 그러면 테스트는 사실상 이미 외운 데이터를 다시 묻는 셈이 되어 1-최근접이웃 정확도가 1.0 가까이 나온다. 실험에서 분할 전 오버샘플링은 테스트 표본의 상당수가 훈련셋에 완전히 동일한 행으로 존재했고 정확도가 0.9를 넘었지만, 분할 후 훈련셋에만 오버샘플링하면 중복이 0개이고 정확도는 무작위 수준으로 떨어졌다. SMOTE는 이웃을 보간해 만들기 때문에 복제가 아니어도 같은 원본에서 파생된 점들이 양쪽에 흩어져 동일한 누수를 일으킨다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\nrng = np.random.default_rng(5)\nn_maj, n_min = 200, 20\nX = np.vstack([rng.standard_normal((n_maj,4)), rng.standard_normal((n_min,4))])\ny = np.array([0]*n_maj + [1]*n_min)          # 두 클래스가 같은 분포 = 학습 불가\ndef dup(X, y, times=10):\n    m = y == 1\n    return np.vstack([X] + [X[m]]*times), np.concatenate([y] + [y[m]]*times)\ndef knn1(Xtr,ytr,Xte,yte):\n    d = ((Xte[:,None,:]-Xtr[None,:,:])**2).sum(-1)\n    return float((ytr[np.argmin(d,axis=1)] == yte).mean())\ndef dupes(Xtr, Xte):\n    s = {r.tobytes() for r in Xtr}\n    return sum(1 for r in Xte if r.tobytes() in s)\n\n# 잘못된 순서: 오버샘플링 -> 분할\nXo, yo = dup(X, y)\nperm = rng.permutation(len(yo)); Xo, yo = Xo[perm], yo[perm]\ncut = int(0.7*len(yo))\nw_acc = knn1(Xo[:cut], yo[:cut], Xo[cut:], yo[cut:])\nw_dup = dupes(Xo[:cut], Xo[cut:])\n\n# 올바른 순서: 분할 -> 훈련셋만 오버샘플링\nperm = rng.permutation(len(y)); Xs, ys = X[perm], y[perm]\ncut = int(0.7*len(ys))\nXtr, ytr = dup(Xs[:cut], ys[:cut])\nr_acc = knn1(Xtr, ytr, Xs[cut:], ys[cut:])\nr_dup = dupes(Xs[:cut], Xs[cut:])\nprint(w_acc > 0.9 and w_dup > 50 and r_dup == 0 and r_acc < 0.9)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "오버샘플링과 훈련·테스트 분할 중 뭐가 먼저야?",
+      "accept": [
+        "분할",
+        "split",
+        "나눈",
+        "먼저"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-019",
+    "domain": "ai",
+    "topic": "트랜스포머/복잡도",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "셀프 어텐션이 O(n^2)인 이유를 유도해줘.",
+    "answer": "길이 n, 차원 d에서 Q, K, V는 각각 n×d다. 점수 행렬 QK^T는 n×n개 원소를 만들고 원소마다 길이 d의 내적을 하므로 n^2·d번의 곱셈이 필요하다. 소프트맥스를 거친 뒤 n×n 가중치와 n×d의 V를 곱하는 것도 n^2·d다. 합쳐서 2n^2·d이므로 시퀀스 길이에 대해 제곱이다. 실제로 n을 2배로 늘리면 연산량이 정확히 4배가 된다. 반면 Q, K, V 투영과 FFN은 n·d^2에 비례해 길이에 선형이다. 두 항의 크기가 뒤집히는 지점은 n ≈ d 부근이라, d=768인 모델에서 n이 수천이 되면 어텐션이 비용을 지배한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\nclass Counter:\n    def __init__(self): self.mul = 0\ndef attention(X, Wq, Wk, Wv, c):\n    n, d = X.shape\n    Q, K, V = X@Wq, X@Wk, X@Wv\n    S = np.zeros((n,n))\n    for i in range(n):\n        for j in range(n):\n            S[i,j] = float(Q[i]@K[j]); c.mul += d      # QK^T\n    S = np.exp(S - S.max(1, keepdims=True)); S /= S.sum(1, keepdims=True)\n    O = np.zeros((n,d))\n    for i in range(n):\n        for j in range(n):\n            O[i] += S[i,j]*V[j]; c.mul += d            # (softmax S) V\n    return O\nrng = np.random.default_rng(0); d = 4\nWq, Wk, Wv = (rng.standard_normal((d,d)) for _ in range(3))\ncounts = {}\nfor n in (8, 16, 32):\n    c = Counter(); attention(rng.standard_normal((n,d)), Wq, Wk, Wv, c)\n    counts[n] = c.mul\nexact  = all(counts[n] == 2*n*n*d for n in counts)\nquad   = counts[16]/counts[8] == 4 and counts[32]/counts[16] == 4\nprint(exact and quad)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "시퀀스 길이를 2배로 늘리면 셀프 어텐션 연산량은 몇 배가 돼?",
+      "accept": [
+        "4배",
+        "네 배",
+        "제곱"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-020",
+    "domain": "ai",
+    "topic": "트랜스포머/파라미터",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "트랜스포머 인코더 층 하나의 파라미터 수를 세는 법 알려줘. BERT-base가 왜 110M이야?",
+    "answer": "d를 은닉 차원, FFN 내부를 4d라 하면 층 하나는 다음과 같다. 어텐션의 Q, K, V, 출력 투영이 각각 d^2+d로 4d^2+4d, FFN 첫 층이 4d^2+4d, 둘째 층이 4d^2+d, LayerNorm 두 개가 4d다. 합치면 12d^2+13d이고 d=768이면 7,087,872다. 12층이면 85,054,464. 여기에 임베딩(어휘 30522×768, 위치 512×768, 세그먼트 2×768, LayerNorm)이 23,837,184, 풀러가 590,592 더해져 총 109,482,240이 되고 이것이 흔히 말하는 110M이다. 파라미터 수는 시퀀스 길이와 무관하며 층 파라미터는 d에 제곱으로 늘어난다.",
+    "verify": {
+      "lang": "python",
+      "code": "d, L, V, Pos, Seg = 768, 12, 30522, 512, 2\nattn = 4*(d*d + d)                 # Q,K,V,O\nffn  = (d*4*d + 4*d) + (4*d*d + d) # 확장 + 축소\nln   = 2*(2*d)                     # LayerNorm 2개 (gamma, beta)\nlayer = attn + ffn + ln\nemb  = V*d + Pos*d + Seg*d + 2*d\npooler = d*d + d\ntotal = emb + L*layer + pooler\nprint(layer == 12*d*d + 13*d\n      and layer == 7_087_872\n      and L*layer == 85_054_464\n      and emb == 23_837_184\n      and total == 109_482_240\n      and abs(total/1e6 - 110) < 1)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "은닉 차원 d인 트랜스포머 층 하나의 파라미터 수는 d에 대해 어떻게 늘어나?",
+      "accept": [
+        "제곱",
+        "d^2",
+        "12d",
+        "d²"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-021",
+    "domain": "ai",
+    "topic": "트랜스포머/위치인코딩",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "위치 인코딩이 왜 꼭 필요해? 어텐션이 순서를 못 봐?",
+    "answer": "셀프 어텐션은 순열 등변(permutation equivariant)이다. 입력 토큰의 순서를 바꾸면 출력도 정확히 같은 순서로 바뀔 뿐, 각 토큰이 얻는 표현은 변하지 않는다. 점수가 Q_i와 K_j의 내적으로만 정해지고 i, j의 위치 자체는 식 어디에도 들어가지 않기 때문이다. 실제로 입력 행을 섞어 어텐션을 통과시킨 결과는 원래 출력을 같은 순열로 섞은 것과 수치적으로 일치한다. 따라서 위치 정보를 넣지 않으면 '개가 사람을 물었다'와 '사람이 개를 물었다'가 같은 표현 집합이 된다. 사인 인코딩, 학습형 임베딩, RoPE는 모두 이 대칭을 깨는 장치다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\nrng = np.random.default_rng(0)\nn, d = 6, 8\nX = rng.standard_normal((n,d))\nWq, Wk, Wv = (rng.standard_normal((d,d)) for _ in range(3))\ndef attn(X):\n    Q, K, V = X@Wq, X@Wk, X@Wv\n    S = Q@K.T/np.sqrt(d)\n    S = np.exp(S - S.max(1,keepdims=True)); S /= S.sum(1,keepdims=True)\n    return S@V\nP = rng.permutation(n)\nout_perm_input = attn(X[P])     # 순서를 섞어 넣은 결과\nout_then_perm  = attn(X)[P]     # 원래 결과를 같은 순서로 섞은 것\nsame = np.allclose(out_perm_input, out_then_perm, atol=1e-10)\n# 위치 인코딩을 더하면 대칭이 깨진다\npos = np.array([[p/10.0]*d for p in range(n)])\nbroken = not np.allclose(attn(X[P]+pos), (attn(X+pos))[P], atol=1e-6)\nprint(bool(same and broken))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "위치 인코딩 없이 셀프 어텐션만 쓰면 토큰 순서를 바꿨을 때 출력이 어떻게 돼?",
+      "accept": [
+        "같다",
+        "같아",
+        "순열",
+        "등변",
+        "동일",
+        "순서대로"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-022",
+    "domain": "ai",
+    "topic": "트랜스포머/스케일링",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "어텐션에서 왜 하필 sqrt(d_k)로 나눠?",
+    "answer": "q와 k의 각 성분이 평균 0, 분산 1로 독립이면 내적 q·k는 독립 항 d_k개의 합이라 분산이 d_k, 표준편차가 sqrt(d_k)다. d_k=512면 로짓이 표준편차 약 22.6으로 흩어지고, 소프트맥스에 넣으면 최대 로짓 하나가 거의 확률 1을 독점해 사실상 원핫이 된다. 그 구간에서 소프트맥스의 기울기는 p(1-p)에 비례해 0으로 죽으므로 학습이 되지 않는다. sqrt(d_k)로 나누면 로짓의 분산이 1로 돌아와 분포가 완만해지고 기울기가 살아난다. d_k=512, 키 64개 실험에서 나누지 않으면 최대 확률 평균이 0.92이고 실제 참조하는 유효 키가 1.3개뿐인데, 나누면 최대 확률 0.11에 유효 키 40개가 된다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\nrng = np.random.default_rng(0)\ndk, n, T = 512, 64, 2000\ndef softmax(z):\n    e = np.exp(z - z.max()); return e/e.sum()\ndef eff(p):                                    # 유효 참조 키 수 = exp(엔트로피)\n    return float(np.exp(-(p*np.log(p+1e-300)).sum()))\nraw_var = []; mx_raw = []; mx_sc = []; eff_raw = []; eff_sc = []\nfor _ in range(T):\n    q = rng.standard_normal(dk)\n    K = rng.standard_normal((n, dk))\n    logits = K@q\n    raw_var.append(logits.var())\n    a = softmax(logits); b = softmax(logits/np.sqrt(dk))\n    mx_raw.append(a.max()); mx_sc.append(b.max())\n    eff_raw.append(eff(a)); eff_sc.append(eff(b))\nprint(bool(abs(np.mean(raw_var)/dk - 1) < 0.05      # 내적의 분산 ~ d_k\n      and np.mean(mx_raw) > 0.9                      # 사실상 원핫\n      and np.mean(mx_sc) < 0.15                      # 완만\n      and np.mean(eff_raw) < 1.5                     # 키 1개만 봄\n      and np.mean(eff_sc) > 30))                     # 64개 중 40개쯤을 봄\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "어텐션 로짓을 sqrt(d_k)로 안 나누면 소프트맥스가 어떻게 돼?",
+      "accept": [
+        "원핫",
+        "포화",
+        "one-hot",
+        "기울기",
+        "1에 가까"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-023",
+    "domain": "ai",
+    "topic": "오개념/인과",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "상관이 강하면 인과가 있다고 봐도 되지 않아?",
+    "answer": "아니다. 공통 원인이 있으면 인과 없이도 강한 상관이 생긴다. Z를 잠재 교란변수로 두고 X = Z + 잡음, Y = Z + 잡음처럼 X와 Y를 각각 Z에서만 생성하면 X는 Y에 아무 영향도 주지 않는데 표본 상관은 0.5 근처로 나온다. Z를 통제한 편상관을 계산하면 0으로 사라진다. 즉 상관은 X→Y, Y→X, Z→둘 다, 선택 편향 중 어느 것으로도 설명될 수 있고 데이터만으로는 구별되지 않는다. 인과를 주장하려면 무작위 배정 실험이나 도구변수처럼 개입에 준하는 설계가 필요하며, 특징 중요도가 높다는 사실도 인과의 근거가 아니다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\nrng = np.random.default_rng(0)\nN = 200000\nZ = rng.standard_normal(N)               # 공통 원인\nX = Z + rng.standard_normal(N)           # Y가 X에 전혀 안 들어감\nY = Z + rng.standard_normal(N)\nr_xy = np.corrcoef(X, Y)[0,1]\n# Z를 통제한 편상관: 각각 Z로 회귀한 잔차끼리의 상관\nrx = X - np.polyval(np.polyfit(Z, X, 1), Z)\nry = Y - np.polyval(np.polyfit(Z, Y, 1), Z)\npartial = np.corrcoef(rx, ry)[0,1]\nprint(bool(0.4 < r_xy < 0.6 and abs(partial) < 0.02))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "X와 Y의 상관이 0.5인데 인과가 전혀 없을 수 있어? 어떻게?",
+      "accept": [
+        "교란",
+        "공통 원인",
+        "confound",
+        "제3의",
+        "있다"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-024",
+    "domain": "ai",
+    "topic": "오개념/집계",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "모든 하위 그룹에서 A가 나은데 전체에서는 B가 나을 수 있어?",
+    "answer": "가능하다. 심슨의 역설이다. 치료 A는 작은 결석 81/87(93.1%), 큰 결석 192/263(73.0%)으로 두 그룹 모두 치료 B의 234/270(86.7%), 55/80(68.8%)보다 낫다. 그런데 전체를 합치면 A는 273/350(78.0%), B는 289/350(82.6%)로 뒤집힌다. A가 성공률이 낮은 큰 결석 환자에 몰려 있고 B가 쉬운 환자에 몰려 있어서, 그룹 크기가 가중치로 작용한 결과다. 데이터를 합치거나 나누는 방식이 결론을 뒤집을 수 있으므로 집계 수준을 바꿔볼 필요가 있고, 어느 쪽이 맞는지는 인과 구조가 정한다.",
+    "verify": {
+      "lang": "python",
+      "code": "A = {'small': (81, 87), 'large': (192, 263)}\nB = {'small': (234, 270), 'large': (55, 80)}\nrate = lambda t: t[0]/t[1]\nsub = all(rate(A[g]) > rate(B[g]) for g in ('small','large'))\ntot = lambda D: sum(v[0] for v in D.values())/sum(v[1] for v in D.values())\nflip = tot(B) > tot(A)\nprint(sub and flip\n      and abs(tot(A)-0.78) < 1e-9\n      and abs(tot(B)-289/350) < 1e-12\n      and abs(rate(A['small'])-81/87) < 1e-12)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "심슨의 역설이 뭐야? 한 줄 예시로.",
+      "accept": [
+        "하위",
+        "그룹",
+        "뒤집",
+        "역전",
+        "전체"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-025",
+    "domain": "ai",
+    "topic": "오개념/차원의 저주",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "차원의 저주가 구체적으로 뭘 망가뜨려?",
+    "answer": "가장 먼저 거리가 무의미해진다. [0,1]^d 균등 분포에서 한 점에 대해 가장 가까운 이웃과 가장 먼 점의 거리 비는 차원이 커질수록 1로 수렴한다. 점 1000개를 뿌리면 d=2에서는 (최대−최소)/최소가 100을 넘지만 d=1000에서는 0.12까지 떨어져 모든 점이 사실상 등거리가 된다. k-NN, 커널, 클러스터링처럼 거리에 의존하는 방법이 무너지는 이유가 이것이다. 부피도 껍질로 몰린다. 단위 초입방체에서 바깥 10% 껍질이 차지하는 부피가 1−0.9^d이므로 d=100이면 99.997%이고, 데이터가 중심이 아니라 경계에 놓여 보간이 아닌 외삽이 된다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\ndef contrast(d, n=1000, seed=0):\n    rng = np.random.default_rng(seed)\n    X = rng.random((n, d)); q = rng.random(d)\n    dist = np.sqrt(((X-q)**2).sum(1))\n    return float((dist.max()-dist.min())/dist.min())\nc2    = np.mean([contrast(2,    seed=s) for s in range(20)])\nc1000 = np.mean([contrast(1000, seed=s) for s in range(20)])\nshell100 = 1 - 0.9**100      # 단위 초입방체 바깥 10% 껍질의 부피 비율\nshell10  = 1 - 0.9**10\nprint(bool(c2 > 20 and c1000 < 0.2 and c2 > c1000*50\n      and shell100 > 0.9999 and shell10 < 0.7))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "차원이 커지면 최근접 이웃과 최원점의 거리 비가 어떻게 돼?",
+      "accept": [
+        "1에 가까",
+        "같아",
+        "비슷",
+        "수렴",
+        "등거리"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "ai-026",
+    "domain": "ai",
+    "topic": "오개념/모델선택",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "딥러닝이 항상 더 나은 거 아니야? 표현력이 크면 좋잖아.",
+    "answer": "표현력이 크다는 것은 신호뿐 아니라 잡음까지 외울 수 있다는 뜻이다. 2차원 점 30개에 완전히 무작위인 레이블을 붙인 데이터에서 은닉 512짜리 신경망은 훈련 정확도 1.0에 도달하지만 테스트 정확도는 0.51로 동전 던지기와 같다. 같은 데이터에서 로지스틱 회귀는 훈련 정확도가 0.70에 그치는데, 이는 결함이 아니라 외우지 못하도록 하는 제약이 작동한 것이다. 표본이 적고 특징이 표 형태이며 신호가 대체로 선형이거나 규칙적인 문제에서는 선형 모델과 트리 앙상블이 흔히 더 낫다. 모델은 데이터 양과 구조에 맞춰 고르는 것이지 표현력 순으로 고르는 것이 아니다.",
+    "verify": {
+      "lang": "python",
+      "code": "import numpy as np\nrng = np.random.default_rng(7)\nn = 30\nX = rng.standard_normal((n,2)); y = rng.integers(0,2,n).astype(float)\nXte = rng.standard_normal((2000,2)); yte = rng.integers(0,2,2000).astype(float)\nsig = lambda z: 1/(1+np.exp(-z))\ndef mlp(h=512, steps=30000, lr=0.3):\n    g = np.random.default_rng(1)\n    W1 = g.standard_normal((2,h))/np.sqrt(2); b1 = np.zeros(h)\n    W2 = g.standard_normal((h,1))/np.sqrt(h); b2 = np.zeros(1)\n    for _ in range(steps):\n        H = np.tanh(X@W1+b1); dz = (sig((H@W2+b2).ravel())-y)/n\n        gW2 = H.T@dz[:,None]; gb2 = dz.sum(keepdims=True)\n        dH = dz[:,None]@W2.T*(1-H**2)\n        W1 -= lr*(X.T@dH); b1 -= lr*dH.sum(0); W2 -= lr*gW2; b2 -= lr*gb2\n    f = lambda A: (sig((np.tanh(A@W1+b1)@W2+b2).ravel())>0.5).astype(float)\n    return (f(X)==y).mean(), (f(Xte)==yte).mean()\ndef logistic(steps=30000, lr=0.5):\n    w = np.zeros(2); b = 0.0\n    for _ in range(steps):\n        dz = (sig(X@w+b)-y)/n\n        w -= lr*(X.T@dz); b -= lr*dz.sum()\n    f = lambda A: (sig(A@w+b)>0.5).astype(float)\n    return (f(X)==y).mean(), (f(Xte)==yte).mean()\nmtr, mte = mlp(); ltr, lte = logistic()\nprint(bool(mtr == 1.0 and abs(mte-0.5) < 0.05\n      and ltr < 0.85 and abs(lte-0.5) < 0.05))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "파이썬으로 실행해 True를 확인했다.",
+    "quiz": {
+      "q": "무작위 레이블 30개를 신경망이 훈련 정확도 100%로 맞혔어. 이게 좋은 신호야?",
+      "accept": [
+        "아니",
+        "암기",
+        "외운",
+        "잡음",
+        "과적합"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  }
+]

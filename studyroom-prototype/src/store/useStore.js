@@ -65,6 +65,9 @@ export const DEFAULT_SETTINGS = {
     awayDetect: true,
     inputDetect: true,
     wipeOnEnd: false,
+    // 카메라로 집중 상태를 본다. 판정은 전부 이 기기 안에서 돌고 영상은 나가지 않는다
+    visionDetect: true,
+    wakeOnDrowsy: true, // 졸음이면 소리로 깨운다
   },
 
   // 음성 — Web Speech API (§13-5b의 답)

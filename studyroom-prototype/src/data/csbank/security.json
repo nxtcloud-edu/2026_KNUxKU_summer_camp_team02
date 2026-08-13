@@ -1,0 +1,735 @@
+[
+  {
+    "id": "sec-001",
+    "domain": "security",
+    "topic": "RSA",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "작은 수로 RSA 키를 만들고 암복호가 되는지 직접 확인하려면 어떻게 해?",
+    "answer": "p=61, q=53으로 잡으면 n=pq=3233, φ(n)=(p-1)(q-1)=3120이다. e=17을 고르면 개인지수 d는 17d≡1 (mod 3120)의 해인 2753이다. m=65를 암호화하면 c=65^17 mod 3233=2790이고, 2790^2753 mod 3233=65로 정확히 복원된다. n이 서로 다른 두 소수의 곱이면 0부터 n-1까지 모든 m에 대해 m^(ed)≡m (mod n)이 성립한다. 학부생이 놓치는 지점은 φ(n)이 공개값이 아니라는 것이다. n은 공개해도 소인수분해 없이는 φ(n)을 구할 수 없고, φ(n)을 모르면 e로부터 d를 계산할 수 없다. 안전성의 근거가 바로 여기에 있다.",
+    "verify": {
+      "lang": "python",
+      "code": "p, q = 61, 53\nn = p * q\nphi = (p - 1) * (q - 1)\ne = 17\nd = pow(e, -1, phi)\nm = 65\nc = pow(m, e, n)\nback = pow(c, d, n)\nroundtrip_all = all(pow(x, e * d, n) == x for x in range(n))\nprint(n == 3233 and phi == 3120 and d == 2753 and c == 2790 and back == 65 and roundtrip_all)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "p=61,q=53,e=17,d=2753,c=2790 및 모든 잉여류의 왕복을 코드로 확인했다.",
+    "quiz": {
+      "q": "RSA에서 n은 공개해도 되는데, 왜 φ(n)은 공개하면 안 될까?",
+      "accept": [
+        "개인키",
+        "복호",
+        "역원",
+        "계산",
+        "d를 구"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-002",
+    "domain": "security",
+    "topic": "RSA",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "RSA 개인지수 d를 e의 역원으로 구할 때 법(modulus)이 n이야 φ(n)이야?",
+    "answer": "d는 mod φ(n)에서 구한다. mod n에서 구하면 복호화가 실패한다. 이유는 지수가 곱셈군의 위수를 법으로 순환하기 때문이다. 오일러 정리에 의해 m^φ(n)≡1 (mod n)이므로 m^k는 k를 φ(n)으로 나눈 나머지에만 의존한다. 즉 ed≡1 (mod φ(n))이어야 m^(ed)=m^(1+kφ(n))≡m이 된다. n=3233, e=17에서 mod n으로 잘못 구한 역원은 mod φ(n)으로 구한 2753과 다른 값이고, 그 값으로 복호화하면 원문이 나오지 않는다. 밑(base)은 mod n에서 계산하고 지수는 mod φ(n)에서 계산한다는 두 층을 분리해서 기억해야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "p, q = 61, 53\nn = p * q\nphi = (p - 1) * (q - 1)\ne = 17\nd_wrong = pow(e, -1, n)     # 지수를 mod n 에서 역원으로 잘못 구한 경우\nd_right = pow(e, -1, phi)   # 올바른 경우: 지수는 mod phi(n)\nm = 1234\nc = pow(m, e, n)\n# 오일러 정리: m^phi(n) = 1 (mod n) 이므로 지수는 phi(n)을 법으로 순환한다\ncycle = pow(m, phi, n) == 1\nprint(d_wrong != d_right and pow(c, d_wrong, n) != m and pow(c, d_right, n) == m and cycle)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "잘못된 법으로 구한 역원의 복호화 실패와 올바른 역원의 복호화 성공을 함께 확인했다.",
+    "quiz": {
+      "q": "RSA에서 d를 구할 때 어떤 값을 법으로 e의 역원을 계산하지?",
+      "accept": [
+        "φ",
+        "phi",
+        "파이",
+        "오일러",
+        "(p-1)(q-1)"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-003",
+    "domain": "security",
+    "topic": "RSA 패딩",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "RSA로 암호화했으면 패딩 없어도 안전한 거 아니야?",
+    "answer": "패딩 없는 교과서 RSA는 두 가지 이유로 안전하지 않다. 첫째, 결정적이다. 같은 평문은 항상 같은 암호문이 되므로 평문 후보가 적을 때(예/아니오, 카드 뒷자리, 주가) 후보를 전부 암호화해 맞춰보면 대조된다. 둘째, m^e가 모듈러스보다 작으면 모듈러 감소가 아예 일어나지 않아 암호문의 정수 e제곱근이 곧 평문이다. e=3에 짧은 평문이면 바로 이 상황이 된다. OAEP 같은 패딩은 매번 다른 난수를 섞어 같은 평문도 매번 다른 암호문으로 만들고 평문을 모듈러스 크기까지 늘려 두 문제를 동시에 없앤다.",
+    "verify": {
+      "lang": "python",
+      "code": "def iroot(x, k):\n    r = int(round(x ** (1.0 / k)))\n    while r ** k > x:\n        r -= 1\n    while (r + 1) ** k <= x:\n        r += 1\n    return r\n\nn, e = 3233, 17\n# (1) 패딩 없는 RSA는 결정적이다: 같은 평문 -> 항상 같은 암호문\ndet = pow(42, e, n) == pow(42, e, n) and pow(42, e, n) != pow(43, e, n)\n\n# (2) m^e 가 모듈러스보다 작으면 모듈러 감소가 일어나지 않아 정수 e제곱근으로 평문이 복원된다\nN = 10 ** 20 + 39\ne2 = 3\nm = 1234\nc = pow(m, e2, N)\nsmall = (m ** e2) < N and iroot(c, e2) == m\n\n# 랜덤 패딩을 붙이면 같은 평문도 매번 다른 암호문이 되고 m 이 충분히 커진다\nimport random\nrandom.seed(0)\npads = {pow(int(str(random.randrange(10 ** 18, 10 ** 19)) + \"1234\"), e2, N) for _ in range(5)}\nprint(det and small and len(pads) == 5)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "결정성, 작은 지수에서의 정수 e제곱근 복원, 랜덤 패딩 적용 시 암호문이 매번 달라짐을 확인했다.",
+    "quiz": {
+      "q": "교과서 RSA가 결정적이면 뭐가 문제야?",
+      "accept": [
+        "같은",
+        "동일",
+        "대조",
+        "후보",
+        "비교"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-004",
+    "domain": "security",
+    "topic": "대칭 vs 비대칭",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "비대칭 암호가 더 좋아 보이는데 왜 데이터 전체를 RSA로 암호화하지 않아?",
+    "answer": "두 가지 제약 때문이다. 하나는 크기다. RSA는 평문을 정수로 보고 mod n에서 계산하므로 평문이 n보다 크면 나머지만 남아 원문이 복원되지 않는다. n=3233에서 5000을 암호화해 복호화하면 5000이 아니라 1767이 나온다. 다른 하나는 속도다. 공개키 연산은 큰 수의 모듈러 거듭제곱이라 대칭 암호보다 수백~수천 배 느리다. 대칭 암호는 길이 제약이 없고 빠르다. 그래서 실제 프로토콜은 하이브리드로 간다. 비대칭은 16~32바이트짜리 세션 키를 합의하거나 나르는 데만 쓰고, 본문은 그 대칭 키로 AES-GCM 같은 방식으로 암호화한다.",
+    "verify": {
+      "lang": "python",
+      "code": "n, e, d = 3233, 17, 2753\nm_big = 5000                      # 모듈러스보다 큰 평문\nback = pow(pow(m_big, e, n), d, n)\nlost = back != m_big and back == m_big % n     # n 으로 나눈 나머지만 남는다 -> 원문 손실\n\n# 대칭키(여기서는 XOR 스트림 모델)는 메시지 길이에 상한이 없다\nimport hashlib\ndef ks(key, l):\n    out, ctr = b\"\", 0\n    while len(out) < l:\n        out += hashlib.sha256(key + ctr.to_bytes(4, \"big\")).digest()\n        ctr += 1\n    return out[:l]\nmsg = b\"x\" * 100000\nkey = b\"k\" * 16\nct = bytes(a ^ b for a, b in zip(msg, ks(key, len(msg))))\nsym_ok = bytes(a ^ b for a, b in zip(ct, ks(key, len(msg)))) == msg\n\n# 그래서 실무는 하이브리드다: 비대칭으로는 대칭키(16바이트)만 나른다\nsess = 0x0123456789ABCDEF\nwrapped = pow(sess % n, e, n)   # 실제로는 n 이 2048비트라 16바이트 키가 그대로 들어간다\nprint(lost and sym_ok and len(msg) == 100000 and 16 * 8 < 2048)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "모듈러스보다 큰 평문의 복원 실패(나머지만 남음)와 대칭 스트림의 길이 무제한 왕복을 확인했다.",
+    "quiz": {
+      "q": "RSA로 큰 파일을 통째로 암호화하지 않는 이유 하나만 말해봐.",
+      "accept": [
+        "느리",
+        "속도",
+        "크기",
+        "n보다",
+        "모듈러스",
+        "길이"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-005",
+    "domain": "security",
+    "topic": "블록 암호 운용모드",
+    "kind": "counterexample",
+    "difficulty": "medium",
+    "question": "ECB 모드가 왜 위험해? 블록마다 제대로 암호화하는 거 아니야?",
+    "answer": "ECB는 각 블록에 같은 키로 같은 함수를 독립적으로 적용한다. 함수가 결정적이므로 같은 평문 블록은 언제나 같은 암호문 블록이 된다. 블록 내용은 감춰지지만 어느 위치와 어느 위치가 같은 값인지는 그대로 노출된다. 펭귄 이미지를 ECB로 암호화하면 윤곽이 남는 이유가 이것이고, 반복이 많은 구조화된 데이터에서는 더 치명적이다. 실제로 이는 IND-CPA 기밀성 정의를 정면으로 위반한다. CBC는 앞 블록 암호문과 XOR한 뒤 암호화하고 CTR은 블록마다 다른 카운터를 쓰기 때문에 같은 평문 블록이라도 매번 다른 암호문이 되어 이 패턴이 사라진다.",
+    "verify": {
+      "lang": "python",
+      "code": "import hashlib, os\n\ndef E(key, block):          # 결정적 블록 암호(키+블록 -> 블록) 모델\n    return hashlib.sha256(key + block).digest()[:8]\n\ndef xor(a, b):\n    return bytes(x ^ y for x, y in zip(a, b))\n\nkey = b\"k\" * 16\nplain = b\"AAAABBBB\" * 4 + b\"CCCCDDDD\" + b\"AAAABBBB\"\nblocks = [plain[i:i + 8] for i in range(0, len(plain), 8)]\n\necb = [E(key, b) for b in blocks]\nsame_plain = [i for i, b in enumerate(blocks) if b == blocks[0]]\nsame_cipher = [i for i, c in enumerate(ecb) if c == ecb[0]]\n# ECB: 평문 블록의 반복 구조가 암호문에 그대로 남는다\necb_leaks = same_plain == same_cipher and len(same_plain) == 5\n\niv = os.urandom(8)\nprev, cbc = iv, []\nfor b in blocks:\n    prev = E(key, xor(b, prev))\n    cbc.append(prev)\n# CBC: 같은 평문 블록이라도 앞 블록에 연쇄되어 반복이 드러나지 않는다\ncbc_hides = len(set(cbc)) == len(cbc)\nprint(ecb_leaks and cbc_hides)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "결정적 블록 암호 모델에서 ECB의 반복 블록 위치가 암호문에 그대로 보존되고 CBC에서는 사라짐을 확인했다.",
+    "quiz": {
+      "q": "ECB 모드에서 같은 평문 블록을 암호화하면 어떻게 돼?",
+      "accept": [
+        "같은",
+        "동일",
+        "패턴",
+        "반복",
+        "노출"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-006",
+    "domain": "security",
+    "topic": "IV/논스 재사용",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "IV나 논스는 비밀도 아닌데 재사용하면 뭐가 문제야?",
+    "answer": "스트림 방식(CTR, GCM 등)에서 논스를 재사용하면 같은 키스트림이 두 번 쓰인다. 그러면 두 암호문을 XOR할 때 키스트림이 소거되어 c1⊕c2=m1⊕m2가 되고, 키를 전혀 몰라도 두 평문 사이의 관계가 드러난다. 한쪽 평문 일부를 알면 다른 쪽 같은 위치가 그대로 노출된다. CBC에서도 IV를 고정하면 앞부분이 같은 두 평문이 같은 암호문 블록으로 시작해 동일 여부가 드러난다. 결론은 IV/논스는 비밀일 필요는 없지만 유일해야 하고, CBC에서는 예측 불가능해야 한다는 것이다. GCM은 논스 재사용 시 인증 키까지 위험해져 위조가 가능해진다.",
+    "verify": {
+      "lang": "python",
+      "code": "import hashlib, os\n\ndef keystream(key, nonce, l):\n    out, ctr = b\"\", 0\n    while len(out) < l:\n        out += hashlib.sha256(key + nonce + ctr.to_bytes(4, \"big\")).digest()\n        ctr += 1\n    return out[:l]\n\ndef xor(a, b):\n    return bytes(x ^ y for x, y in zip(a, b))\n\nkey = b\"k\" * 16\nm1 = b\"TRANSFER 100 USD\"\nm2 = b\"HELLO WORLD 1234\"\n\n# 논스를 재사용하면 같은 키스트림이 두 번 쓰이고, 암호문끼리 XOR 할 때 키스트림이 소거된다\nn0 = b\"n\" * 8\nc1 = xor(m1, keystream(key, n0, 16))\nc2 = xor(m2, keystream(key, n0, 16))\ncancels = xor(c1, c2) == xor(m1, m2)\n\n# 논스를 바꾸면 키스트림이 달라 이 관계가 성립하지 않는다\nc2b = xor(m2, keystream(key, b\"n\" * 7 + b\"x\", 16))\nfixed = xor(c1, c2b) != xor(m1, m2)\n\n# CBC 에서도 IV 가 같으면 두 평문의 첫 블록이 같은지 여부가 암호문만으로 드러난다\ndef E(k, b):\n    return hashlib.sha256(k + b).digest()[:8]\niv = b\"i\" * 8\na1 = E(key, xor(b\"LOGIN AA\", iv))\na2 = E(key, xor(b\"LOGIN AA\", iv))\na3 = E(key, xor(b\"LOGIN BB\", iv))\niv_leak = (a1 == a2) and (a1 != a3)\nprint(cancels and fixed and iv_leak)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "논스 재사용 시 c1^c2 == m1^m2 성립, 논스 변경 시 불성립, CBC 고정 IV의 첫 블록 노출을 확인했다.",
+    "quiz": {
+      "q": "CTR 모드에서 같은 논스를 두 번 쓰면 암호문끼리 XOR하면 뭐가 나와?",
+      "accept": [
+        "평문",
+        "m1",
+        "XOR",
+        "키스트림",
+        "소거"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-007",
+    "domain": "security",
+    "topic": "해시 vs 암호화",
+    "kind": "misconception",
+    "difficulty": "easy",
+    "question": "비밀번호를 SHA-256으로 암호화해서 저장했다고 하면 되는 거지?",
+    "answer": "해시는 암호화가 아니다. 암호화는 키로 되돌릴 수 있는 가역 변환이고, 해시는 임의 길이 입력을 고정 길이로 줄이는 단방향 요약이다. SHA-256은 입력이 0바이트든 100KB든 항상 256비트를 낸다. 입력 공간이 출력 공간보다 훨씬 크므로 비둘기집 원리에 의해 서로 다른 입력이 같은 값을 갖는 경우가 반드시 존재하고, 따라서 역함수 자체가 정의될 수 없다. 해시를 되돌린다는 말은 실제로는 후보를 대입해 맞춰본다는 뜻이다. 용어를 구분해야 하는 실질적 이유도 있다. 암호화 저장은 키만 있으면 원문이 복구되므로 유출 시 비밀번호가 그대로 드러난다.",
+    "verify": {
+      "lang": "python",
+      "code": "import hashlib\n\nh = lambda s: hashlib.sha256(s).hexdigest()\n# 입력 길이가 얼마든 출력은 256비트 고정\nfixed_len = {len(h(b\"a\" * k)) for k in (0, 1, 1000, 100000)} == {64}\n\n# 출력 공간이 유한하므로 비둘기집 원리상 서로 다른 입력이 같은 값을 갖는 경우가 반드시 존재한다\n# (8비트로 절단하면 257개 입력 중 충돌이 수학적으로 보장된다)\nt = lambda s: hashlib.sha256(s).digest()[0]\nseen, collision = {}, None\nfor i in range(257):\n    v = t(str(i).encode())\n    if v in seen:\n        collision = (seen[v], i)\n        break\n    seen[v] = i\n# 따라서 해시는 단방향 요약이며 복호화(역함수)가 정의될 수 없다\nprint(fixed_len and collision is not None and t(str(collision[0]).encode()) == t(str(collision[1]).encode()))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "출력 길이 고정과 비둘기집 원리에 의한 충돌 존재(8비트 절단에서 257개 입력)를 확인했다.",
+    "quiz": {
+      "q": "해시가 암호화와 결정적으로 다른 점은 뭐야?",
+      "accept": [
+        "단방향",
+        "복호",
+        "되돌",
+        "역함수",
+        "가역",
+        "불가"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-008",
+    "domain": "security",
+    "topic": "생일 문제",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "해시 충돌 확률을 생일 문제로 계산하면 어떻게 나와?",
+    "answer": "n개를 뽑을 때 전부 다를 확률은 (d/d)((d-1)/d)…((d-n+1)/d)이고, 충돌 확률은 그 여사건이다. d=365면 n=23에서 0.5073, n=50에서 0.9704가 나온다. 사람이 직관적으로 틀리는 이유는 비교 대상이 n이 아니라 쌍의 수 n(n-1)/2이기 때문이다. 여기서 근사식 1-exp(-n(n-1)/2d)가 나오고, 확률이 50%가 되는 지점은 n≈1.1774·√d이다. 이 식을 해시에 그대로 적용하면 32비트 출력에서 약 77,163개만 모아도 충돌 확률이 50%를 넘는다. 40억 개가 필요할 것 같지만 실제로는 7만 개 남짓이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math, random\n\ndef exact(n, d):            # 서로 다른 n개 표본이 모두 다를 확률의 여사건\n    p = 1.0\n    for i in range(n):\n        p *= (d - i) / d\n    return 1 - p\n\ndef approx(n, d):           # 1 - exp(-n(n-1)/2d)\n    return 1 - math.exp(-n * (n - 1) / (2 * d))\n\np23 = exact(23, 365)\np50 = exact(50, 365)\nrandom.seed(7)\nhit, T = 0, 200000\nfor _ in range(T):\n    hit += len({random.randrange(365) for _ in range(23)}) < 23\nmc = hit / T\n\n# 해시 출력이 b비트면 충돌 50% 지점은 약 1.1774 * 2^(b/2) -> 2^b 가 아니라 2^(b/2)\nd32 = 2 ** 32\nn50 = 1.1774 * math.sqrt(d32)\nhalf = abs(approx(n50, d32) - 0.5) < 0.01\nprint(abs(p23 - 0.5073) < 0.0005 and abs(p50 - 0.9704) < 0.0005\n      and abs(approx(23, 365) - p23) < 0.01 and abs(mc - p23) < 0.01\n      and half and abs(n50 - 77163) < 50)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "정확 공식, 지수 근사, 몬테카를로 20만 회, 32비트 50% 지점을 모두 대조했다.",
+    "quiz": {
+      "q": "생일 문제에서 확률이 직관보다 훨씬 높은 이유가 뭐야?",
+      "accept": [
+        "쌍이",
+        "쌍의",
+        "조합",
+        "n(n-1)",
+        "경우의 수",
+        "제곱"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-009",
+    "domain": "security",
+    "topic": "충돌 저항성",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "128비트 해시면 충돌 내려면 2^128번 시도해야 하는 거 아니야?",
+    "answer": "아니다. 출력이 b비트면 첫 충돌까지 필요한 시행 수의 기댓값은 약 √(π/2·2^b)=1.2533·2^(b/2)이다. 즉 충돌 저항 강도는 b가 아니라 b/2다. 128비트 해시의 충돌 저항은 128비트가 아니라 64비트 수준이다. 24비트로 절단한 SHA-256에서 실제로 세어 보면 첫 충돌까지 평균 5,000여 회로 이론값 1.2533·2^12≈5,133에 들어맞는다. 이 절반 규칙 때문에 서명이나 인증서처럼 충돌 저항이 필요한 용도에는 256비트 이상을 쓴다. 반대로 HMAC처럼 충돌 저항이 필수가 아닌 용도는 요구 조건이 다르다.",
+    "verify": {
+      "lang": "python",
+      "code": "import hashlib, math\n\ndef trunc(x, bits):\n    h = int.from_bytes(hashlib.sha256(str(x).encode()).digest(), \"big\")\n    return h >> (256 - bits)\n\nbits = 24\nd = 2 ** bits\nneed = []\nfor t in range(40):                     # 서로 겹치지 않는 입력 구간 40회 반복\n    seen, i, base = set(), 0, t * 10 ** 7\n    while True:\n        v = trunc(base + i, bits)\n        if v in seen:\n            need.append(i + 1)\n            break\n        seen.add(v)\n        i += 1\navg = sum(need) / len(need)\ntheory = math.sqrt(math.pi / 2 * d)     # 첫 충돌까지 기대 시행수 ~= 1.2533 * 2^(b/2)\nprint(0.75 * theory < avg < 1.35 * theory and abs(theory - 5133) < 5)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "24비트 절단 해시로 40회 반복 실측한 평균 시행 수가 이론값 1.2533*2^(b/2)와 일치함을 확인했다.",
+    "quiz": {
+      "q": "b비트 해시의 충돌 저항 강도는 대략 몇 비트야?",
+      "accept": [
+        "b/2",
+        "절반",
+        "제곱근",
+        "2^(b/2)"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-010",
+    "domain": "security",
+    "topic": "충돌 vs 역상",
+    "kind": "comparison",
+    "difficulty": "hard",
+    "question": "해시가 깨졌다는 말이 충돌 저항이 깨진 건지 역상 저항이 깨진 건지 왜 구분해?",
+    "answer": "필요한 계산량이 완전히 다르기 때문이다. 충돌 저항은 같은 값을 갖는 아무 두 입력이나 찾으면 되므로 생일 경계에 따라 약 2^(b/2)이다. 역상 저항은 이미 정해진 목표값 하나를 맞춰야 하므로 약 2^b이다. 20비트로 절단해 실측하면 충돌은 수천 회, 특정 목표값의 역상은 백만 회 규모로 수백 배 차이가 난다. MD5는 충돌이 실용적으로 계산 가능해 인증서나 서명에는 쓸 수 없지만, 임의의 해시값에 대한 역상은 아직 실용적이지 않다. 그래서 어떤 성질이 깨졌는지에 따라 그 해시를 계속 써도 되는 용도가 갈린다.",
+    "verify": {
+      "lang": "python",
+      "code": "import hashlib\n\nBITS = 20\n\ndef t(x):\n    return int.from_bytes(hashlib.sha256(str(x).encode()).digest(), \"big\") >> (256 - BITS)\n\n# (1) 충돌 저항: 아무 두 입력이나 같으면 되므로 ~2^(b/2) 시행\nseen, coll = {}, 0\ni = 0\nwhile True:\n    v = t(i)\n    coll += 1\n    if v in seen:\n        break\n    seen[v] = i\n    i += 1\n\n# (2) 역상 저항: 미리 정해진 목표값 하나를 맞춰야 하므로 ~2^b 시행\ntarget = t(\"fixed-target\")\npre, j = 0, 10 ** 9\nwhile True:\n    pre += 1\n    if t(j) == target:\n        break\n    j += 1\n\nprint(coll < 4000 and pre > 100000 and pre > 25 * coll and 2 ** (BITS // 2) == 1024)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "20비트 절단 해시에서 첫 충돌까지의 시행 수와 고정 목표값 역상까지의 시행 수를 실제로 세어 25배 이상 차이를 확인했다.",
+    "quiz": {
+      "q": "충돌 찾기와 역상 찾기 중 어느 쪽이 더 어렵고 대략 몇 번 필요해?",
+      "accept": [
+        "역상",
+        "2^b",
+        "preimage",
+        "목표",
+        "b비트"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-011",
+    "domain": "security",
+    "topic": "솔트",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "솔트를 붙이면 비밀번호 대입 공격이 막히는 거야?",
+    "answer": "솔트가 막는 것과 못 막는 것을 나눠야 한다. 막는 것은 미리 계산해 둔 표의 재사용이다. 레인보우 테이블과 사전 해시 목록은 솔트 없는 해시 기준이라 솔트가 붙으면 맞지 않고, 계정마다 솔트가 다르므로 한 번의 계산으로 여러 계정을 동시에 공격할 수 없다. 같은 비밀번호를 쓴 두 계정의 해시가 달라져 DB만 보고 동일 비번을 알아내는 것도 막힌다. 못 막는 것은 특정 계정 하나를 노린 대입이다. 솔트는 비밀이 아니라 DB에 함께 저장되므로 그 솔트를 붙여 후보를 넣어보는 계산은 그대로 성립한다. 그래서 솔트만으로는 부족하고 느린 KDF가 함께 필요하다.",
+    "verify": {
+      "lang": "python",
+      "code": "import hashlib\n\ndef h(pw, salt):\n    return hashlib.sha256(salt + pw).hexdigest()\n\npw = b\"password123\"\ns1, s2 = b\"salt-alice\", b\"salt-bob\"\n\n# (1) 솔트가 막는 것 A: 같은 비밀번호를 쓴 두 계정의 해시가 달라진다 -> DB만 보고 동일 비번을 알 수 없다\nunlinkable = h(pw, s1) != h(pw, s2)\n\n# (2) 솔트가 막는 것 B: 미리 계산된 표(레인보우 테이블)는 솔트 없는 해시 기준이라 맞지 않는다\nprecomputed = {hashlib.sha256(c).hexdigest(): c for c in [b\"123456\", b\"password123\", b\"qwerty\"]}\ntable_useless = h(pw, s1) not in precomputed\n\n# (3) 솔트가 못 막는 것: 솔트는 DB에 함께 저장되므로, 그 솔트를 붙여 후보를 대입하는 계산은 그대로 성립한다\ntarget = h(pw, s1)\nguessed = any(h(c, s1) == target for c in [b\"123456\", b\"qwerty\", b\"password123\"])\nprint(unlinkable and table_useless and guessed)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "같은 비밀번호의 서로 다른 해시, 사전 계산표 무력화, 솔트를 알 때 후보 대입이 여전히 성립함을 확인했다.",
+    "quiz": {
+      "q": "솔트가 막아주지 못하는 공격은 뭐야?",
+      "accept": [
+        "대입",
+        "무차별",
+        "brute",
+        "후보",
+        "사전",
+        "개별",
+        "특정"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-012",
+    "domain": "security",
+    "topic": "패스워드 KDF",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "비밀번호 저장에 SHA-256 대신 bcrypt나 argon2를 쓰라는 이유가 뭐야?",
+    "answer": "SHA-256은 빠르도록 설계된 해시다. 빠르다는 성질이 비밀번호 저장에서는 그대로 약점이 된다. 방어자는 로그인 때 한 번 계산하지만 공격자는 같은 속도로 초당 수억 회를 대입할 수 있기 때문이다. PBKDF2, bcrypt, argon2는 반대로 의도적으로 느리게 만든 함수이고 비용을 파라미터로 조절한다. PBKDF2 10만 반복은 SHA-256 한 번보다 1만 배 이상 비싸고 비용이 반복 수에 거의 비례한다. 여기에 argon2와 bcrypt는 메모리를 많이 요구해 GPU나 ASIC의 대량 병렬화 이점을 줄인다. 핵심은 계산 비용 자체를 방어 수단으로 삼는 것이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import hashlib, time\n\npw, salt = b\"password\", b\"salt\"\nhashlib.pbkdf2_hmac(\"sha256\", pw, salt, 1000)          # 워밍업\n\ndef best(fn, n=5):                                     # 측정 잡음을 줄이려고 최소값 사용\n    out = []\n    for _ in range(n):\n        s = time.perf_counter()\n        fn()\n        out.append(time.perf_counter() - s)\n    return min(out)\n\nt_sha = best(lambda: [hashlib.sha256(salt + pw).digest() for _ in range(2000)]) / 2000\nt_1k = best(lambda: hashlib.pbkdf2_hmac(\"sha256\", pw, salt, 1000))\nt_100k = best(lambda: hashlib.pbkdf2_hmac(\"sha256\", pw, salt, 100000))\n\n# (1) 비용이 반복 횟수에 거의 비례한다 -> 파라미터 하나로 방어 강도를 올릴 수 있다\nlinear = 40 < t_100k / t_1k < 250\n# (2) 단순 SHA-256 1회보다 1만 배 이상 비싸다 -> 초당 대입 시도 횟수가 그만큼 줄어든다\ncostly = t_100k / t_sha > 10000\nprint(linear and costly)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "PBKDF2 1천/10만 반복 시간이 선형으로 증가하고 SHA-256 1회 대비 1만 배 이상 비싸다는 것을 실측했다.",
+    "quiz": {
+      "q": "bcrypt나 argon2가 SHA-256보다 비밀번호 저장에 나은 이유는?",
+      "accept": [
+        "느리",
+        "비용",
+        "반복",
+        "메모리",
+        "작업증명",
+        "시간"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-013",
+    "domain": "security",
+    "topic": "HMAC",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "메시지 인증할 때 sha256(비밀키 + 메시지)로 하면 되는 거 아니야?",
+    "answer": "그 방식은 SHA-256처럼 Merkle-Damgard 구조를 쓰는 해시에서 길이 확장 문제를 안는다. 이 구조는 최종 출력이 내부 상태와 같기 때문에, 태그 값을 아는 사람이 그 상태에서 이어서 계산해 뒤에 데이터를 덧붙인 메시지의 유효한 태그를 키 없이 만들어낼 수 있다. HMAC은 키를 ipad와 opad로 각각 XOR해 안쪽 해시와 바깥쪽 해시로 두 번 감싼다. 바깥 해시가 안쪽 결과를 다시 요약하므로 내부 상태가 그대로 노출되지 않는다. SHA-3나 BLAKE2는 구조가 달라 이 문제가 없지만, 표준 상호운용성 때문에 HMAC을 쓰는 편이 안전하다. 태그 비교는 상수 시간 비교 함수로 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import hmac, hashlib\n\ndef my_hmac(key, msg, H=hashlib.sha256, B=64):\n    if len(key) > B:\n        key = H(key).digest()\n    key = key.ljust(B, b\"\\x00\")\n    inner = H(bytes(x ^ 0x36 for x in key) + msg).digest()\n    return H(bytes(x ^ 0x5C for x in key) + inner).hexdigest()\n\nk, m = b\"secret-key\", b\"transfer=100\"\nmatches = my_hmac(k, m) == hmac.new(k, m, hashlib.sha256).hexdigest()\n\n# 비밀키를 그냥 앞에 붙인 sha256(key||msg) 는 HMAC 과 다른 값이며 구조도 다르다\nnaive = hashlib.sha256(k + m).hexdigest()\ndifferent = naive != my_hmac(k, m)\n\n# HMAC 은 키를 두 번, 서로 다른 패드로 감싼 중첩 구조다\nnested = my_hmac(k, m) == hashlib.sha256(\n    bytes(x ^ 0x5C for x in k.ljust(64, b\"\\x00\"))\n    + hashlib.sha256(bytes(x ^ 0x36 for x in k.ljust(64, b\"\\x00\")) + m).digest()\n).hexdigest()\n\n# 상수시간 비교: 값 비교는 compare_digest 로 해야 한다\nct = hmac.compare_digest(my_hmac(k, m), hmac.new(k, m, hashlib.sha256).hexdigest())\nprint(matches and different and nested and ct)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "HMAC 정의식(ipad/opad 이중 감싸기)을 직접 구현해 표준 hmac 모듈 결과와 일치함을 확인했고 단순 연결 해시와 다름을 확인했다.",
+    "quiz": {
+      "q": "sha256(키+메시지) 방식이 HMAC보다 위험한 이유는?",
+      "accept": [
+        "길이 확장",
+        "length",
+        "확장",
+        "내부 상태",
+        "이어",
+        "덧붙"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-014",
+    "domain": "security",
+    "topic": "JWT",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "JWT는 서명이 있으니까 안에 뭘 넣어도 안전한 거지?",
+    "answer": "두 가지를 구분해야 한다. 첫째, JWT의 헤더와 페이로드는 base64url 인코딩일 뿐 암호화가 아니다. 키가 없어도 누구나 디코딩해 내용을 읽을 수 있으므로 개인정보나 비밀을 넣으면 안 된다. 서명이 보장하는 것은 기밀성이 아니라 무결성이다. 둘째, 서명 검증에서 토큰 헤더의 alg 값을 그대로 믿으면 안 된다. 검증기가 alg를 따라가면 alg를 none으로 바꾼 토큰이나 알고리즘을 바꿔치기한 토큰을 받아들일 수 있다. 서버가 기대하는 알고리즘을 고정해 놓고 그것과 다르면 즉시 거부하는 것이 방어다. 만료 시각과 발급자, 대상도 함께 검증해야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import base64, json, hmac, hashlib\n\nb64u = lambda b: base64.urlsafe_b64encode(b).rstrip(b\"=\").decode()\nb64ud = lambda s: base64.urlsafe_b64decode(s + \"=\" * (-len(s) % 4))\nj = lambda o: json.dumps(o, separators=(\",\", \":\")).encode()\n\nKEY = b\"server-secret\"\nh = b64u(j({\"alg\": \"HS256\", \"typ\": \"JWT\"}))\np = b64u(j({\"sub\": \"42\", \"role\": \"user\"}))\nsig = b64u(hmac.new(KEY, f\"{h}.{p}\".encode(), hashlib.sha256).digest())\ntoken = f\"{h}.{p}.{sig}\"\n\n# (1) JWT 는 서명이지 암호화가 아니다: 키 없이 페이로드가 그대로 읽힌다\nreadable = json.loads(b64ud(token.split(\".\")[1])) == {\"sub\": \"42\", \"role\": \"user\"}\n\n# (2) 검증기는 토큰 헤더의 alg 를 믿지 말고 서버가 기대하는 알고리즘을 고정해야 한다\ndef verify(tok, key, expected_alg=\"HS256\"):\n    parts = tok.split(\".\")\n    if len(parts) != 3:\n        return False\n    hh, pp, ss = parts\n    if json.loads(b64ud(hh)).get(\"alg\") != expected_alg:   # alg 고정\n        return False\n    want = b64u(hmac.new(key, f\"{hh}.{pp}\".encode(), hashlib.sha256).digest())\n    return hmac.compare_digest(ss, want)\n\n# 권한만 바꾸고 alg=none 으로 서명을 비운 토큰\nnone_tok = b64u(j({\"alg\": \"none\", \"typ\": \"JWT\"})) + \".\" + b64u(j({\"sub\": \"42\", \"role\": \"admin\"})) + \".\"\n# 서명은 그대로 두고 페이로드만 바꾼 토큰\ntampered = f\"{h}.{b64u(j({'sub':'42','role':'admin'}))}.{sig}\"\n\nprint(readable and verify(token, KEY) and not verify(none_tok, KEY) and not verify(tampered, KEY))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "페이로드가 키 없이 디코딩되는 점, alg 고정 검증기가 alg=none 토큰과 페이로드 변조 토큰을 모두 거부하는 점을 확인했다.",
+    "quiz": {
+      "q": "JWT 검증할 때 토큰 헤더의 alg를 그대로 믿으면 왜 안 돼?",
+      "accept": [
+        "none",
+        "고정",
+        "바꿔",
+        "변조",
+        "지정",
+        "서버가"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-015",
+    "domain": "security",
+    "topic": "세션 vs 토큰",
+    "kind": "tradeoff",
+    "difficulty": "medium",
+    "question": "세션 쿠키랑 JWT 중에 뭘 써야 해?",
+    "answer": "축은 상태를 어디에 두느냐다. 서버 세션은 상태가 서버에 있어서 로그아웃이나 권한 회수가 즉시 반영되고 세션 내용을 언제든 바꿀 수 있다. 대신 서버가 여러 대면 세션 저장소를 공유해야 하고 매 요청마다 조회가 생긴다. JWT는 무상태라 조회 없이 서명만 검증하면 되고 수평 확장과 서비스 간 전달이 쉽다. 대신 발급된 토큰은 만료 전에 취소하기 어렵다. 블랙리스트를 두면 결국 상태가 생겨 무상태라는 장점이 줄어든다. 실무 절충은 수명이 짧은 액세스 토큰과 서버가 관리하는 리프레시 토큰을 함께 쓰는 것이다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "운영 환경의 확장성·취소 정책 트레이드오프라 단일 스크립트 실행으로 참·거짓을 판정할 수 없다. 각 방식의 동작 자체는 표준(RFC 7519, 쿠키 세션)에 정의된 것을 정리했다.",
+    "quiz": {
+      "q": "JWT를 쓸 때 세션 대비 가장 불편한 점은 뭐야?",
+      "accept": [
+        "취소",
+        "폐기",
+        "만료",
+        "로그아웃",
+        "무효",
+        "블랙리스트"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-016",
+    "domain": "security",
+    "topic": "SQL 인젝션",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "파라미터 바인딩이 SQL 인젝션을 막는 원리가 정확히 뭐야?",
+    "answer": "SQL 텍스트와 데이터가 섞이는 시점을 분리하기 때문이다. 준비된 문장은 플레이스홀더가 들어간 SQL을 먼저 파서에 넘겨 구문 트리를 확정한다. 값은 그 다음에 이미 확정된 트리의 자리에 데이터로 전달되므로, 값 안의 따옴표나 OR 1=1 같은 문자열은 구문 요소로 재해석될 기회가 없다. 실제로 이름 조건에 그런 문자열을 바인딩하면 조건이 참이 되는 것이 아니라 그런 이름을 가진 행을 찾다가 0건이 나오고, 그대로 저장하면 따옴표를 포함한 이름 문자열로 들어간다. 이스케이프나 블랙리스트는 문자셋과 컨텍스트에 따라 새지만 바인딩은 경계 자체를 없앤다.",
+    "verify": {
+      "lang": "python",
+      "code": "import sqlite3\n\ncon = sqlite3.connect(\":memory:\")\ncur = con.cursor()\ncur.execute(\"create table users(name text, role text)\")\ncur.executemany(\"insert into users values(?,?)\", [(\"alice\", \"admin\"), (\"bob\", \"user\")])\n\npayload = \"' OR '1'='1\"\n\n# 파라미터 바인딩: SQL 문장은 먼저 파싱되고 값은 나중에 데이터로만 채워진다\nrows = cur.execute(\"select * from users where name = ?\", (payload,)).fetchall()\nno_bypass = rows == []                       # 조건이 참이 되지 않는다\n\n# 그 문자열은 따옴표가 아니라 그냥 이름 문자열로 저장된다\ncur.execute(\"insert into users values(?,?)\", (payload, \"user\"))\nstored = cur.execute(\"select name from users where name = ?\", (payload,)).fetchall()\nliteral = stored == [(payload,)]\n\n# 준비된 문장은 값이 바뀌어도 구문 트리가 그대로다 (플레이스홀더 개수 고정)\nfixed_shape = cur.execute(\"select count(*) from users\").fetchone()[0] == 3\nprint(no_bypass and literal and fixed_shape)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "sqlite3에서 인젝션 문자열을 바인딩했을 때 조건이 참이 되지 않고 리터럴 데이터로만 취급됨을 확인했다.",
+    "quiz": {
+      "q": "파라미터 바인딩에서 SQL 구문이 확정되는 시점은 값이 들어오기 전이야 후야?",
+      "accept": [
+        "전에",
+        "먼저",
+        "미리",
+        "파싱",
+        "구문",
+        "데이터"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-017",
+    "domain": "security",
+    "topic": "SQL 인젝션",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "모든 값을 바인딩했으면 SQL 인젝션은 끝난 거 아니야?",
+    "answer": "플레이스홀더는 값 자리에만 쓸 수 있다. 테이블명, 컬럼명, ORDER BY 대상, 정렬 방향, LIMIT 위치 같은 것은 값이 아니라 구문 요소라서 바인딩되지 않는다. sqlite에서 테이블명 자리에 플레이스홀더를 쓰면 구문 오류가 나고, ORDER BY 자리에 넣으면 오류는 없어도 상수 하나로 취급되어 정렬이 일어나지 않는다. 그래서 정렬 컬럼을 사용자 입력으로 받는 화면은 바인딩만으로 안전해지지 않는다. 이런 자리는 허용 목록을 두고 입력을 그 목록의 값으로 매핑한 뒤에만 문자열에 넣어야 한다. 저장 프로시저 안에서 문자열을 이어붙여 실행하는 경우도 같은 함정이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import sqlite3\n\ncon = sqlite3.connect(\":memory:\")\ncur = con.cursor()\ncur.execute(\"create table t(a int, b int)\")\ncur.executemany(\"insert into t values(?,?)\", [(2, 9), (1, 8)])\n\n# 플레이스홀더는 '값' 자리에만 쓸 수 있다. 테이블명/컬럼명/정렬방향은 값이 아니라 구문 요소다\nident_fails = False\ntry:\n    cur.execute(\"select * from ?\", (\"t\",))\nexcept sqlite3.OperationalError:\n    ident_fails = True\n\norder_fails = False\ntry:\n    cur.execute(\"select * from t order by ?\", (\"a\",))\n    # 오류는 안 나지만 상수 하나로 취급되어 정렬이 일어나지 않는다\n    order_fails = cur.execute(\"select a from t order by ?\", (\"a\",)).fetchall() == [(2,), (1,)]\nexcept sqlite3.OperationalError:\n    order_fails = True\n\n# 그래서 식별자는 바인딩이 아니라 화이트리스트로 검증한 뒤에만 문자열에 넣는다\nALLOWED = {\"a\", \"b\"}\ncol = \"a\"\nok = col in ALLOWED and cur.execute(f\"select {col} from t order by {col}\").fetchall() == [(1,), (2,)]\nprint(ident_fails and order_fails and ok)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "sqlite3에서 테이블명 바인딩이 OperationalError를 내고 ORDER BY 바인딩이 정렬로 동작하지 않음을, 화이트리스트 방식은 정상 동작함을 확인했다.",
+    "quiz": {
+      "q": "파라미터 바인딩으로 처리할 수 없는 SQL 자리를 하나 말해봐.",
+      "accept": [
+        "테이블",
+        "컬럼",
+        "ORDER",
+        "정렬",
+        "식별자",
+        "LIMIT"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-018",
+    "domain": "security",
+    "topic": "XSS",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "저장형, 반사형, DOM 기반 XSS는 정확히 뭐가 달라?",
+    "answer": "입력이 어디를 거쳐 어디서 HTML이나 스크립트로 해석되는지가 다르다. 반사형은 값이 요청에 실려 서버로 갔다가 같은 응답에 되돌아온다. 공격이 성립하려면 링크를 클릭시켜야 하고 흔적이 서버 로그에 남는다. 저장형은 값이 DB 같은 저장소에 남아 이후 그 페이지를 여는 모든 사용자에게 반복 전달되므로 피해 범위가 가장 크다. DOM 기반은 서버 응답 자체는 멀쩡하고 클라이언트 자바스크립트가 location.hash 같은 값을 innerHTML에 넣으면서 발생한다. 프래그먼트는 요청에 실리지 않으므로 서버 로그나 WAF에 흔적이 없고, 고쳐야 할 곳도 서버 템플릿이 아니라 클라이언트 코드다.",
+    "verify": {
+      "lang": "python",
+      "code": "from urllib.parse import urlsplit\n\nu = \"https://site.example/search?q=hello#tpl=<x>\"\ns = urlsplit(u)\n\n# 브라우저가 서버로 보내는 요청 대상에는 프래그먼트(#)가 포함되지 않는다\nrequest_target = s.path + (\"?\" + s.query if s.query else \"\")\nfrag_local = request_target == \"/search?q=hello\" and \"#\" not in request_target\n\n# 반사형: 값이 요청에 실려 서버로 갔다가 응답에 되돌아온다 -> 서버 로그/WAF가 볼 수 있다\nreflected_visible = \"q=hello\" in request_target\n# DOM형: 값이 프래그먼트에만 있어 요청에 아예 실리지 않는다 -> 서버 로그에 흔적이 없다\ndom_invisible = \"tpl=\" in s.fragment and \"tpl=\" not in request_target\n\n# 저장형은 요청 1회가 아니라 저장소를 거쳐 이후 모든 열람자에게 반복 전달된다\ndb = []\ndb.append(\"<x>\")                      # 한 번 저장\nviews = [db[0] for _ in range(3)]     # 서로 다른 사용자 3명이 각각 열람\nstored_repeats = len(views) == 3 and all(v == \"<x>\" for v in views) and len(db) == 1\nprint(frag_local and reflected_visible and dom_invisible and stored_repeats)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "URL 분해로 프래그먼트가 요청 대상에 포함되지 않음을, 저장형은 한 번 저장 후 여러 열람자에게 반복 전달됨을 확인했다.",
+    "quiz": {
+      "q": "DOM 기반 XSS가 서버 로그에 잘 안 잡히는 이유는?",
+      "accept": [
+        "프래그먼트",
+        "해시",
+        "#",
+        "요청",
+        "클라이언트",
+        "안 보내",
+        "전송되지"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-019",
+    "domain": "security",
+    "topic": "XSS 방어",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "XSS는 입력에서 위험한 문자를 걸러내면 막히는 거 아니야?",
+    "answer": "방어 지점은 입력 필터가 아니라 출력 시점의 컨텍스트별 인코딩이다. 같은 값이라도 HTML 본문, 속성, URL, 자바스크립트, CSS 중 어디에 들어가느냐에 따라 문법이 다르고 필요한 인코딩도 다르다. HTML 이스케이프는 본문에서는 태그 해석을 막지만 링크 href에 들어가는 javascript: 스킴은 전혀 걸러주지 못하므로 스킴 허용 목록이 따로 필요하다. 속성에 넣을 때 따옴표를 이스케이프하지 않으면 속성 경계를 벗어난다. 스크립트 안에 JSON을 넣을 때는 문자열 이스케이프만으로 </script>를 막지 못한다. 템플릿 엔진의 자동 이스케이프를 컨텍스트에 맞게 쓰고 CSP를 함께 둔다.",
+    "verify": {
+      "lang": "python",
+      "code": "import html, json\n\npayload = '<img src=x onerror=BAD>'\n\n# HTML 본문 컨텍스트: 이스케이프하면 태그로 파싱되지 않는다\nesc = html.escape(payload, quote=True)\nhtml_ok = \"<\" not in esc and \">\" not in esc and esc.startswith(\"&lt;\")\n\n# 속성 컨텍스트: 따옴표까지 이스케이프해야 속성 경계를 못 벗어난다\nattr_payload = 'x\" onmouseover=BAD \"'\nattr_ok = '\"' not in html.escape(attr_payload, quote=True)\nattr_bad = '\"' in html.escape(attr_payload, quote=False)      # quote=False 면 그대로 새어 나간다\n\n# URL 컨텍스트: 같은 HTML 이스케이프가 스킴을 전혀 걸러주지 못한다\nu = \"javascript:BAD\"\nurl_untouched = html.escape(u) == u                            # 통과된다 -> 스킴 화이트리스트가 따로 필요\nurl_ok = u.split(\":\")[0].lower() in {\"http\", \"https\"}          # False\n\n# 스크립트 컨텍스트: JSON 직렬화만으로는 </script> 를 막지 못한다\nscript_break = \"</script>\" in json.dumps(\"</script>\")\nprint(html_ok and attr_ok and attr_bad and url_untouched and not url_ok and script_break)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "html.escape가 본문/속성에서는 유효하지만 javascript: 스킴을 통과시키고 JSON 직렬화가 </script>를 남긴다는 점을 확인했다.",
+    "quiz": {
+      "q": "XSS 방어는 입력 필터링과 출력 인코딩 중 어디가 핵심이야?",
+      "accept": [
+        "출력",
+        "인코딩",
+        "이스케이프",
+        "컨텍스트",
+        "렌더"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-020",
+    "domain": "security",
+    "topic": "CSRF",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "CSRF는 로그인 인증이 뚫려서 생기는 거야?",
+    "answer": "아니다. 인증은 정상적으로 동작하고 있고, 문제는 브라우저가 크로스 사이트로 나가는 요청에도 그 사이트의 쿠키를 자동으로 붙여준다는 점이다. 공격자 페이지가 폼을 제출하게 만들면 서버 입장에서는 로그인한 사용자의 정상 요청과 구분되지 않는다. 그래서 서버는 신원이 아니라 요청의 의도를 확인해야 한다. 예측 불가능한 CSRF 토큰을 폼에 넣어 대조하는 것이 기본이고, 쿠키에 SameSite=Lax나 Strict를 걸어 자동 첨부 자체를 줄이며, Origin이나 Referer 헤더를 검사한다. 다만 SameSite=Lax는 최상위 GET 이동은 허용하므로 GET으로 상태를 바꾸는 엔드포인트가 있으면 여전히 위험하다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "브라우저의 쿠키 자동 첨부와 SameSite 정책 동작이라 파이썬 단독 실행으로 재현할 수 없다. 서술 근거는 RFC 6265bis의 SameSite 정의와 OWASP CSRF 방어 지침이다.",
+    "quiz": {
+      "q": "CSRF가 가능한 근본 원인이 뭐야?",
+      "accept": [
+        "쿠키",
+        "자동",
+        "첨부",
+        "브라우저",
+        "함께 전송"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-021",
+    "domain": "security",
+    "topic": "CORS",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "CORS를 제대로 설정하면 API가 보호되는 거지?",
+    "answer": "CORS는 접근 통제가 아니라 동일 출처 정책의 예외를 허용하는 완화 장치다. 판단 주체가 서버가 아니라 브라우저이고, 결정하는 것은 요청을 보낼지가 아니라 받은 응답을 스크립트에게 넘겨줄지다. 단순 요청은 응답을 읽지 못할 뿐 서버에는 이미 도달해 처리된다. 따라서 부수 효과가 있는 엔드포인트는 CORS로 막히지 않는다. 또 브라우저 밖에서 오는 curl이나 서버 간 호출에는 CORS가 아무 영향을 주지 않는다. Access-Control-Allow-Origin을 *로 두는 것은 보안 강화가 아니라 완화이며, 인증이 필요한 API는 토큰이나 세션 검증으로 막아야 한다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "브라우저가 응답 노출 여부를 판단하는 동작이라 서버 측 스크립트 실행만으로 검증할 수 없다. 서술 근거는 Fetch 표준의 CORS 프로토콜 정의다.",
+    "quiz": {
+      "q": "CORS 설정은 누가 강제하고 무엇을 결정해?",
+      "accept": [
+        "브라우저",
+        "응답",
+        "읽기",
+        "읽을",
+        "노출",
+        "클라이언트"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-022",
+    "domain": "security",
+    "topic": "TLS 핸드셰이크",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "TLS 핸드셰이크가 정확히 무엇을 보장해주는 거야?",
+    "answer": "세 가지다. 첫째 서버 신원으로, 인증서 체인 검증과 호스트명 일치로 확인한다. 둘째 키 합의로, ECDHE 같은 임시 키 교환으로 양쪽이 같은 세션 키에 도달한다. 임시 키를 세션마다 새로 뽑기 때문에 나중에 서버 개인키가 유출되어도 과거 트래픽은 복호화되지 않는다. 셋째 무결성으로, AEAD 태그가 전송 중 변조를 잡는다. 중요한 것은 키 교환 자체는 상대가 누구인지 알려주지 않는다는 점이다. 중간자가 양쪽과 각각 키를 맺으면 두 구간 모두 수학적으로 정상 성립한다. 이를 막는 것이 서버가 핸드셰이크 값에 인증서 개인키로 서명하는 단계다.",
+    "verify": {
+      "lang": "python",
+      "code": "import secrets, hashlib\n\n# RFC 3526 1536비트 MODP 그룹\np = int(\"FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74\"\n        \"020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F1437\"\n        \"4FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7ED\"\n        \"EE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF05\"\n        \"98DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB\"\n        \"9ED529077096966D670C354E4ABC9804F1746C08CA237327FFFFFFFFFFFFFFFF\", 16)\ng = 2\n\ndef kx():\n    a = secrets.randbelow(p - 3) + 2\n    return a, pow(g, a, p)\n\n# 1) 양쪽이 서로 다른 난수를 쓰고도 같은 공유 비밀에 도달한다\na, A = kx()\nb, B = kx()\nagree = pow(B, a, p) == pow(A, b, p)\n\n# 2) 세션마다 임시 키를 새로 뽑으므로 세션 키가 매번 달라진다 (전방 비밀성의 근거)\nc, C = kx()\nd, D = kx()\nfresh = pow(D, c, p) != pow(B, a, p)\n\n# 3) 그러나 DH 자체는 상대가 누구인지 확인하지 않는다.\n#    중간자가 양쪽과 따로 키를 맺으면 두 구간 모두 정상적으로 성립한다 -> 인증서 서명이 필요한 이유\nm1, M1 = kx()\nm2, M2 = kx()\nleft = pow(M1, a, p) == pow(A, m1, p)     # 클라이언트 <-> 중간자\nright = pow(M2, b, p) == pow(B, m2, p)    # 중간자 <-> 서버\nunauthenticated = left and right and pow(M1, a, p) != pow(M2, b, p)\nprint(agree and fresh and unauthenticated)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "1536비트 MODP 그룹에서 공유 비밀 일치, 세션마다 다른 키, 인증 없는 키교환에서 중간자가 양쪽과 각각 정상 성립함을 확인했다.",
+    "quiz": {
+      "q": "키 교환만으로는 부족해서 인증서 서명이 필요한 이유는?",
+      "accept": [
+        "중간자",
+        "MITM",
+        "신원",
+        "누구",
+        "인증",
+        "상대"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-023",
+    "domain": "security",
+    "topic": "인증서 체인",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "인증서 검증은 서명만 확인하면 끝나는 거야?",
+    "answer": "서명 검증은 여러 단계 중 하나다. 리프 인증서의 서명을 중간 CA의 공개키로 확인하고, 중간 CA 인증서의 서명을 상위 공개키로 확인하며 올라가서 OS나 브라우저의 신뢰 저장소에 있는 루트에 도달해야 한다. 신뢰 앵커에 닿지 못하면 서명이 수학적으로 유효해도 의미가 없다. 아무나 만든 CA로 서명한 인증서가 검증에 실패하는 이유가 이것이다. 서명이 통과한 뒤에도 확인할 것이 남는다. 접속하려는 호스트명이 인증서의 SAN과 일치하는지, 유효기간 안인지, 폐기되지 않았는지, 용도가 맞는지다. 실무에서 가장 흔한 사고는 호스트명 검증을 빠뜨리거나 검증을 통째로 끄는 것이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import hashlib\n\ndef is_prime(x):\n    if x < 2:\n        return False\n    i = 2\n    while i * i <= x:\n        if x % i == 0:\n            return False\n        i += 1\n    return True\n\ndef keygen(p, q, e=65537):\n    assert is_prime(p) and is_prime(q)\n    n, phi = p * q, (p - 1) * (q - 1)\n    return (n, e), (n, pow(e, -1, phi))\n\ndef H(m, n):\n    return int.from_bytes(hashlib.sha256(m).digest(), \"big\") % n\n\nca_pub, ca_priv = keygen(1000003, 1000033)          # 신뢰 앵커(루트 CA)\nrogue_pub, rogue_priv = keygen(1000081, 1000099)    # 아무나 만든 CA\n\ndef sign(msg, priv):\n    return pow(H(msg, priv[0]), priv[1], priv[0])\n\ndef check(msg, sig, pub):\n    return pow(sig, pub[1], pub[0]) == H(msg, pub[0])\n\ncert = b\"CN=shop.example;pubkey=AAAA\"\n# 1) CA 개인키로 서명한 인증서는 CA 공개키로 검증된다\ngood = check(cert, sign(cert, ca_priv), ca_pub)\n# 2) 다른 키로 서명한 인증서는 신뢰 앵커의 공개키로 검증하면 실패한다\nbad = not check(cert, sign(cert, rogue_priv), ca_pub)\n# 3) 내용이 한 글자만 바뀌어도 서명 검증이 깨진다\ntamper = not check(b\"CN=shop.example;pubkey=BBBB\", sign(cert, ca_priv), ca_pub)\n# 4) 서명이 유효해도 이름이 접속 대상과 다르면 거부해야 한다 (호스트명 검증은 별도 단계)\nother = b\"CN=evil.example;pubkey=CCCC\"\nsig_valid = check(other, sign(other, ca_priv), ca_pub)\nhost_match = other.decode().split(\";\")[0].split(\"=\")[1] == \"shop.example\"\nprint(good and bad and tamper and sig_valid and not host_match)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "토이 RSA로 정상 서명 검증 성공, 다른 CA 서명 실패, 내용 변조 시 실패, 서명은 유효하지만 호스트명이 불일치하는 경우를 확인했다.",
+    "quiz": {
+      "q": "인증서 서명 검증을 통과한 뒤에도 반드시 확인해야 하는 건 뭐야?",
+      "accept": [
+        "호스트",
+        "도메인",
+        "SAN",
+        "이름",
+        "유효기간",
+        "폐기"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-024",
+    "domain": "security",
+    "topic": "HTTPS와 HSTS",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "HTTPS로 접속하면 안전한 거 아니야?",
+    "answer": "TLS가 보호하는 범위는 클라이언트와 서버 사이 전송 구간뿐이다. 서버가 비밀번호를 평문으로 저장하거나 SQL 인젝션과 XSS가 있으면 HTTPS는 아무것도 막지 못한다. 자물쇠 아이콘은 그 연결이 해당 도메인의 인증서로 보호되고 있다는 뜻이지 사이트가 정직하다는 뜻이 아니며, 피싱 사이트도 인증서를 받는다. 게다가 사용자가 주소를 http로 처음 입력하면 https로 리디렉션되기 전 첫 요청이 평문이라 그 지점을 가로채 계속 http로 붙들어 두는 것이 가능하다. HSTS 헤더는 브라우저가 그 도메인을 이후 항상 https로만 접속하게 강제하고, preload 목록에 등재하면 최초 방문까지 덮는다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "브라우저의 HSTS 정책 저장과 네트워크 경로상의 다운그레이드 동작이라 로컬 스크립트로 재현할 수 없다. 서술 근거는 RFC 6797의 HSTS 정의다.",
+    "quiz": {
+      "q": "HTTPS를 쓰는데도 HSTS가 필요한 이유는?",
+      "accept": [
+        "첫 요청",
+        "첫 접속",
+        "첫 번",
+        "최초",
+        "평문",
+        "http",
+        "리디렉션",
+        "다운그레이드",
+        "스트리핑"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-025",
+    "domain": "security",
+    "topic": "커크호프스 원리",
+    "kind": "misconception",
+    "difficulty": "easy",
+    "question": "코드랑 알고리즘을 난독화해서 감추면 그게 보안 아니야?",
+    "answer": "난독화는 비밀이 방법에만 있기 때문에 방법이 알려지는 순간 무너진다. base64로 감싸거나 문자열을 뒤집거나 고정된 값으로 XOR한 데이터는 키가 없으므로 절차만 파악하면 누구나 원문으로 되돌린다. 클라이언트에 배포된 코드는 분석 대상이 되므로 그 안에 넣은 API 키는 난독화해도 결국 드러난다. 커크호프스 원리는 알고리즘이 전부 공개되어도 키만 비밀이면 안전해야 한다고 말한다. 표준 암호는 명세와 구현이 공개된 상태에서 검증을 거쳤고, 128비트 키 공간은 전수 조사가 불가능하다. 난독화는 분석 비용을 조금 올리는 보조 수단일 뿐 보안 경계가 될 수 없다.",
+    "verify": {
+      "lang": "python",
+      "code": "import base64, hashlib, secrets\n\nsecret = b\"api_key=SW-9931\"\n\n# 난독화: 비밀이 '방법'에만 있다 -> 방법을 아는 순간 키 없이 되돌아간다\nobf = base64.b64encode(secret[::-1])\ndeobf = base64.b64decode(obf)[::-1] == secret\n\n# 암호: 알고리즘을 전부 공개해도 키를 모르면 복원되지 않는다\ndef stream(key, l):\n    out, c = b\"\", 0\n    while len(out) < l:\n        out += hashlib.sha256(key + c.to_bytes(4, \"big\")).digest()\n        c += 1\n    return out[:l]\n\nkey = secrets.token_bytes(16)\nct = bytes(a ^ b for a, b in zip(secret, stream(key, len(secret))))\nwith_key = bytes(a ^ b for a, b in zip(ct, stream(key, len(secret)))) == secret\nwithout_key = all(\n    bytes(a ^ b for a, b in zip(ct, stream(secrets.token_bytes(16), len(secret)))) != secret\n    for _ in range(200)\n)\n# 키 공간이 2^128 이라 전수조사가 불가능하다는 점이 안전성의 근거다\nkeyspace = 2 ** 128 > 10 ** 38\nprint(deobf and with_key and without_key and keyspace)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "키 없는 난독화는 절차만으로 원문 복원, 키 기반 암호는 알고리즘 공개 상태에서 잘못된 키 200개로 전부 복원 실패함을 확인했다.",
+    "quiz": {
+      "q": "커크호프스 원리에 따르면 비밀로 지켜야 하는 건 뭐야?",
+      "accept": [
+        "키만",
+        "키를",
+        "키는",
+        "key",
+        "알고리즘이 아니",
+        "열쇠"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "sec-026",
+    "domain": "security",
+    "topic": "패스워드 엔트로피",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "특수문자 섞은 8자리가 소문자 16자리보다 안전한 거 아니야?",
+    "answer": "엔트로피는 길이×log2(문자 종류 수)라서 길이에는 선형이고 문자 종류에는 로그로만 는다. 95종을 쓴 8자는 8×log2(95)=52.6비트이고, 소문자만 쓴 16자는 16×log2(26)=75.2비트다. 22.6비트, 즉 약 640만 배 차이로 긴 쪽이 앞선다. 단어 목록 7776개에서 무작위로 고른 4단어 패스프레이즈는 51.7비트로 특수문자 8자와 비슷하고, 6단어면 77.5비트가 된다. 다만 이 계산은 각 문자나 단어를 균등 무작위로 뽑았을 때만 성립한다. 사람이 규칙에 맞추려고 만든 P@ssw0rd! 같은 변형은 규칙 기반 사전에 이미 들어 있어 실제 엔트로피가 계산값보다 훨씬 낮다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\n\nent = lambda charset, length: length * math.log2(charset)\n\na = ent(95, 8)          # 대소문자+숫자+특수문자 8자\nb = ent(26, 16)         # 소문자만 16자\nc = 4 * math.log2(7776) # 단어목록 7776개에서 무작위 4단어\n\n# 복잡도 규칙을 지킨 8자보다, 규칙 없이 긴 16자가 엔트로피가 더 크다\nlonger_wins = b > a\n# 4단어 패스프레이즈는 특수문자 8자와 비슷한 수준이고, 6단어면 훨씬 크다\npassphrase = abs(c - a) < 2 and 6 * math.log2(7776) > b\n\n# 초당 10^10 회 대입을 가정한 평균 소요 시간(초)\ncrack = lambda bits: 2 ** (bits - 1) / 1e10\ngap = crack(b) / crack(a)   # 엔트로피 22.6비트 차이 -> 약 2^22.6 배\nprint(longer_wins and passphrase\n      and abs(a - 52.56) < 0.01 and abs(b - 75.21) < 0.01 and abs(c - 51.70) < 0.01\n      and abs(gap - 2 ** (b - a)) < 1e-6 * gap and gap > 6e6)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "각 조합의 엔트로피 값과 두 방식의 평균 소요 시간 비가 2^(엔트로피 차)와 일치함을 확인했다.",
+    "quiz": {
+      "q": "비밀번호 엔트로피를 올릴 때 길이와 문자 종류 중 뭐가 더 효과적이야?",
+      "accept": [
+        "길이",
+        "긴 것",
+        "더 긴",
+        "선형",
+        "log",
+        "로그"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  }
+]

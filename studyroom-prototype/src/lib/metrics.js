@@ -34,6 +34,14 @@ export class MetricsTracker {
     this.lastInputAt = Date.now()
     this.restingHint = false // §6-3 채팅으로 휴식을 알린 구간
 
+    /**
+     * 카메라가 본 것. 총 시간은 계속 세고 **집중 시간에서만** 뺀다.
+     * 화면 앞에 앉아 있던 시간은 사실이고, 그중 실제로 집중한 시간이 따로 있는 것이다.
+     */
+    this.vision = { absent: false, phone: false, drowsy: false }
+    this.visionSec = { absent: 0, phone: 0, drowsy: 0 }
+    this.visionActive = false
+
     this._listeners = new Set()
     this._tick = null
     this._hb = null
@@ -42,7 +50,14 @@ export class MetricsTracker {
 
   /** 감지가 꺼져 있으면 집중 관련 지표를 산출하지 않는다 (§8-3) */
   get canMeasureFocus() {
-    return this.opts.awayDetect || this.opts.inputDetect
+    return this.opts.awayDetect || this.opts.inputDetect || this.visionActive
+  }
+
+  /** 카메라 판정이 실제로 돌고 있는지. 꺼져 있으면 집중 지표를 만들지 않는다 */
+  setVisionActive(on) {
+    this.visionActive = !!on
+    if (!on) this.vision = { absent: false, phone: false, drowsy: false }
+    this._emit()
   }
 
   onChange(fn) {
@@ -54,6 +69,16 @@ export class MetricsTracker {
     this._listeners.forEach((f) => f(s))
   }
 
+  /** 지금 집중 시간이 멈춰 있는가, 그리고 왜 */
+  get pausedBy() {
+    if (this.isAway) return 'away'
+    // 얼굴이 안 보이면 폰·졸음은 판단할 수 없다. 순서가 곧 우선순위다
+    if (this.vision.absent) return 'absent'
+    if (this.vision.phone) return 'phone'
+    if (this.vision.drowsy) return 'drowsy'
+    return null
+  }
+
   snapshot() {
     const focusable = this.canMeasureFocus
     return {
@@ -63,8 +88,26 @@ export class MetricsTracker {
       awayCount: focusable ? this.awayCount : null,
       bestStreakSec: focusable ? this.bestStreakSec : null,
       isAway: this.isAway,
+      pausedBy: this.pausedBy,
+      visionSec: { ...this.visionSec },
       scoreMode: focusable ? 'full' : 'time-only',
       integrity: this.opts.relaxed ? 'relaxed' : 'strict',
+    }
+  }
+
+  /**
+   * 카메라 판정을 받는다. 값이 바뀔 때만 부르면 되고, 매 프레임 불러도 안전하다.
+   * 흔들림 제거(몇 초 이상 지속됐는지)는 **호출부가** 한다 — 여기서는 결과만 받는다.
+   *
+   * @param {{absent?:boolean, phone?:boolean, drowsy?:boolean}} v
+   */
+  setVisionSignal(v) {
+    const before = this.pausedBy
+    this.vision = { ...this.vision, ...v }
+    const after = this.pausedBy
+    if (before !== after) {
+      db.logEvent(this.sessionId, 'focus_pause', { from: before, to: after })
+      this._emit()
     }
   }
 
@@ -123,9 +166,13 @@ export class MetricsTracker {
       if (idleMs > this.opts.idleMin * 60 * 1000) this._enterAway('idle')
     }
 
-    if (this.isAway) {
+    // 총 시간(studySec)은 위에서 이미 늘렸다 — 화면 앞에 있던 시간은 사실이다.
+    // 집중 시간은 studySec - awaySec 이므로, 여기서 빼는 건 전부 집중 시간에서만 빠진다.
+    const paused = this.pausedBy
+    if (paused) {
       this.awaySec += 1
       this.currentStreakSec = 0
+      if (paused !== 'away') this.visionSec[paused] += 1
     } else {
       this.currentStreakSec += 1
       if (this.currentStreakSec > this.bestStreakSec) this.bestStreakSec = this.currentStreakSec

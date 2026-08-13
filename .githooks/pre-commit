@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# 비밀값이 커밋되는 걸 막는 마지막 방어선.
+# .gitignore가 1차, 이게 2차다. 실수로 git add -f 해도 여기서 걸린다.
+#
+# 급할 때는 git commit --no-verify 로 건너뛸 수 있지만,
+# 이 훅이 막았다면 대개 진짜 문제가 있는 것이다.
+
+set -uo pipefail
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+fail=0
+say() { printf '\033[1;31m✗ %s\033[0m\n' "$1"; }
+
+# ── 1. 파일 이름으로 거르기 ──────────────────────────────────
+while IFS= read -r f; do
+  case "$f" in
+    *.env|.env|.env.*|env.txt|*.pem|*.key|*credentials*|*secrets*)
+      # .env.example 은 값이 비어 있는 템플릿이라 통과시킨다
+      case "$f" in *.env.example|*env.example) continue ;; esac
+      say "비밀값으로 보이는 파일이 스테이징됐습니다: $f"
+      fail=1
+      ;;
+  esac
+done <<< "$staged"
+
+# ── 2. 내용에서 실제 키 형태 찾기 ────────────────────────────
+# 각 제공자의 키 접두사. 값이 충분히 길 때만 잡아 오탐을 줄인다.
+patterns='sk-ant-[A-Za-z0-9_-]{20,}|sk-proj-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gsk_[A-Za-z0-9]{30,}|sk-or-v1-[A-Za-z0-9]{30,}|AIza[0-9A-Za-z_-]{30,}'
+
+while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  case "$f" in *.githooks/*) continue ;; esac   # 이 훅 자신은 검사에서 제외
+  if git show ":$f" 2>/dev/null | grep -nEq "$patterns"; then
+    say "API 키로 보이는 문자열이 들어 있습니다: $f"
+    git show ":$f" | grep -nE "$patterns" | head -3 | sed 's/^/      /'
+    fail=1
+  fi
+done <<< "$staged"
+
+if [ "$fail" -ne 0 ]; then
+  cat <<'MSG'
+
+  커밋을 중단했습니다.
+
+  · 키는 .env 에 두고 커밋하지 마세요 (.gitignore가 이미 막고 있습니다)
+  · 이미 스테이징했다면:  git restore --staged <파일>
+  · 정말 의도한 것이라면:  git commit --no-verify
+
+MSG
+  exit 1
+fi
+exit 0
