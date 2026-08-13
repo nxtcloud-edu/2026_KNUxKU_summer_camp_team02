@@ -23,7 +23,8 @@ import {
   IMAGE_KEYS,
   seatFromPreset,
 } from '../lib/presets'
-import { canIntervene, interventionLine, pickInterventionSpeaker, routeReply } from '../lib/mockAgent'
+import { canIntervene, pickInterventionSpeaker, routeReply } from '../lib/mockAgent'
+import { toneOf, toneSample } from '../lib/agent/tone'
 import { sttSupported, ttsSupported, speechSupportNote } from '../lib/speech'
 import {
   Section,
@@ -1456,7 +1457,7 @@ function PreviewDrawer({ open, onClose, settings, seats }) {
       verdict: '개입함',
       reason: '방해 방지·개입 빈도·재개입 대기 시간을 모두 통과했어요.',
       speakers: speaker ? [speaker] : [],
-      line: speaker ? interventionLine(speaker, situation.line || 'cheer') : '',
+      line: speaker ? toneSample(toneOf(speaker), situation.line === 'away' ? '복귀' : '개념') : '',
       styles,
       facts,
     }
