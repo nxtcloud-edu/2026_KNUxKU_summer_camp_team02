@@ -41,6 +41,7 @@ import { useVision } from '../lib/vision/useVision'
 import { wakeChime } from '../lib/chime'
 import { planDocument, toPrompt, asInlineFile } from '../lib/docReader'
 import { rememberDocument, searchUserDocs, toUserDocContext } from '../lib/userDocs'
+import { routeFunction } from '../lib/agent/functions'
 import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
 
 /* ── 지역 헬퍼 (새 의존 파일을 만들지 않는다) ─────────────────── */
@@ -349,6 +350,18 @@ export default function StudyRoomScreen() {
   const voiceBufRef = useRef('')
   const voiceIdleRef = useRef(null) // 말끝이 애매할 때 기다리는 타이머
   const docRef = useRef(null) // 마지막으로 올린 자료의 본문 — 이후 질문에 같이 넘긴다
+
+  /**
+   * 직전 답변의 기능과 본문.
+   *
+   * 에스컬레이션("방금 그거 더 자세히") 판정에 쓴다. **세션 전역 1슬롯**이다 —
+   * 좌석별로 두면 "미나에게 물음 → 테오와 딴 얘기 → '더 자세히'"에서
+   * 죽은 맥락이 되살아난다.
+   */
+  const lastTurnRef = useRef(null)
+
+  /** 이번 세션 목표 원문. 목표 추적(F4)과 출제(F3)의 범위가 된다 */
+  const goalRef = useRef('')
   const replyChainRef = useRef(Promise.resolve()) // 답변 루프를 한 줄로 세운다
   const lastCheerStreakRef = useRef(0) // 마지막으로 칭찬한 집중 구간
   const [typingSlots, setTypingSlots] = useState([]) // 타이핑 인디케이터 (§6-3)
@@ -793,6 +806,20 @@ export default function StudyRoomScreen() {
                 ? `${pastContext}\n\n${text}`
                 : text
 
+          /**
+           * 무엇으로 답할지 정한다 (agent/functions.js).
+           *
+           * 화자 선택(routeReply)과 **따로** 돈다. 예전에는 한 함수가 둘을 같이 정해서,
+           * "정리해줘"에 답할 사람을 고르는 규칙과 "정리 형식으로 답하라"는 규칙이
+           * 한 덩어리로 엉켜 있었다.
+           */
+          const { funcId, rule } = routeFunction(text, {
+            lastFunc: lastTurnRef.current?.funcId,
+            lastAt: lastTurnRef.current?.at,
+            now: Date.now(),
+          })
+          if (import.meta.env.DEV) console.debug('[route]', funcId, rule, text.slice(0, 30))
+
           for (const seat of repliers) {
             if (!aliveRef.current) return
             // 답변자마다 순차로: 타이핑 인디케이터 → 생성 → 말풍선 → 읽어주기
@@ -802,12 +829,27 @@ export default function StudyRoomScreen() {
                 text: payload,
                 images: docImages,
                 withDoc: wantsDoc, // 자료를 놓고 묻는 질문은 상위 모델로
+                funcId,
+                state: {
+                  goalText: goalRef.current || '',
+                  // 심화 해설은 직전 답을 알아야 같은 말을 되풀이하지 않는다
+                  lastAnswer: funcId === 'F6' ? lastTurnRef.current?.text || '' : '',
+                },
                 settings: st,
                 // 방금 넣은 사용자 발화는 서버가 message로 따로 받으므로 뺀다
                 history: historyRef.current.slice(0, -1).slice(-MAX_HISTORY_TURNS),
                 summary: summaryRef.current,
               }),
             )
+          }
+
+          // 다음 턴의 에스컬레이션 판정에 쓴다. **세션 전역 1슬롯**이다 —
+          // 좌석별로 두면 "미나에게 물음 → 테오와 딴 얘기 → '더 자세히'"에서
+          // 죽은 맥락이 되살아난다
+          lastTurnRef.current = {
+            funcId,
+            at: Date.now(),
+            text: (historyRef.current[historyRef.current.length - 1]?.text || '').slice(0, 600),
           }
           // 답변을 낸 뒤에 백그라운드로 접는다. 입력 직후에 하면 그 지연이 그대로 체감된다
           compactIfNeeded()

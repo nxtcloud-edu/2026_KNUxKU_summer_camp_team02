@@ -13,7 +13,10 @@ import { poolFromEnv } from './keyPool.mjs'
 import { PROVIDERS, redact, HttpError } from './providers.mjs'
 import { search, toContext, bankStats } from './retrieve.mjs'
 import { assemble, needsTruncation, splitForSummary, summaryRequest, budgetReport } from './memory.mjs'
-import { buildSystemPrompt } from '../src/lib/agent/persona.js'
+import { buildPrompt } from '../src/lib/agent/prompt.js'
+import { effectiveSpec } from '../src/lib/agent/functions.js'
+import { postprocess } from '../src/lib/agent/postprocess.js'
+import { toneOf } from '../src/lib/agent/tone.js'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const BANK_DIR = join(root, 'src', 'data', 'csbank')
@@ -76,7 +79,27 @@ function routeProvider(prefer) {
  * @param {string} [body.kind]    'reply' | 'intervention'
  */
 export async function handleChat(body) {
-  const { seat, settings = {}, turns = [], message = '', summary = '', kind = 'reply', images = [], mode, withDoc = false } = body || {}
+  const {
+    seat,
+    settings = {},
+    turns = [],
+    message = '',
+    summary = '',
+    kind = 'reply',
+    images = [],
+    mode,
+    withDoc = false,
+    /**
+     * 어느 기능으로 답할 것인가 (F1~F6 / sys:*). 라우터가 브라우저에서 정한다.
+     *
+     * ⚠️ 미지정을 400 으로 거절하지 않는다. 예전 화면이 아직 이 값을 안 보내고,
+     *    거절하면 그 브라우저는 **모든 대화가 목업으로 떨어져** 가짜 답변만 보게 된다.
+     *    화면은 멀쩡하고 답변만 엉터리가 되는, 제일 알아채기 어려운 고장이다.
+     */
+    funcId = mode === 'extract' ? 'sys:extract' : 'F1',
+    /** 프롬프트의 [지금 상태] 블록에 들어갈 값 */
+    state = {},
+  } = body || {}
   if (mode !== 'extract' && (!seat || !seat.name)) throw new HttpError(400, { error: 'seat 이 필요합니다' })
 
   let route = routeProvider(settings.provider)
@@ -84,9 +107,11 @@ export async function handleChat(body) {
 
   // ── 전공 근거 검색 ──
   // 개입 턴에는 넣지 않는다. 연관 낮은 조각이 긴 컨텍스트에서 답을 더 흐린다.
+  const spec = effectiveSpec(funcId, settings)
+
   let hits = []
   let knowledge = ''
-  if (kind === 'reply' && message && !images.length) {
+  if (spec.useKnowledge && message && !images.length) {
     hits = search(message, BANK_DIR)
     knowledge = toContext(hits)
   }
@@ -99,7 +124,7 @@ export async function handleChat(body) {
    *  - 자료를 읽거나(extract) 자료를 놓고 묻는 질문(withDoc) → 긴 자료를 정확히 다뤄야 한다
    *  - 그림이 붙음 → 작은 모델에는 버겁다
    */
-  const wantsPro = proPool && (hits.length > 0 || images.length > 0 || mode === 'extract' || withDoc)
+  const wantsPro = proPool && (hits.length > 0 || images.length > 0 || spec.wantsPro || withDoc)
   if (wantsPro) route = { name: 'gemini', pool: proPool, model: MODELS.pro }
 
   /**
@@ -109,16 +134,8 @@ export async function handleChat(body) {
    * 자료에서 글을 뽑아내는 일은 성격이 없어야 한다 — 뽑아낸 글로 캐릭터가
    * 말하는 건 그다음 순서다.
    */
-  const system =
-    mode === 'extract'
-      ? [
-          '너는 문서를 글로 옮기는 도구다. 성격도 말투도 없다.',
-          '- 자료에 적힌 내용을 빠짐없이 한국어로 옮겨 적는다',
-          '- 표는 표 형태를 유지한다',
-          '- 자료에 없는 내용을 덧붙이지 않는다. 해석도 하지 않는다',
-          '- 인사말이나 서론 없이 곧바로 내용부터 쓴다',
-        ].join('\n')
-      : buildSystemPrompt(seat, settings)
+  const system = buildPrompt({ seat: seat || { name: '도구' }, funcId, state, settings }).system
+
   const history = [...turns]
   if (message || images.length) {
     history.push(images.length ? { role: 'user', text: message, images } : { role: 'user', text: message })
@@ -143,7 +160,7 @@ export async function handleChat(body) {
    * 출력 1,000토큰이 $0.0025 라 넉넉히 줘도 부담이 아니다 — 잘리는 쪽이 훨씬 비싸다.
    * (한국어 1토큰 ≈ 1.7자. detailed 2000토큰 ≈ 3,400자까지 쓸 수 있다는 뜻)
    */
-  const maxOut = mode === 'extract' ? 4000 : ({ short: 200, brief: 700, detailed: 2000 }[settings.replyLength] ?? 700)
+  const maxOut = spec.maxTokens
 
   /**
    * 사고 단계는 답변 길이에 맞춘다.
@@ -154,7 +171,7 @@ export async function handleChat(body) {
    *
    * high 는 쓰지 않는다. 예산 2000에서도 답이 끝나기 전에 잘렸다.
    */
-  const thinking = kind === 'intervention' ? 'low' : { short: 'low', brief: 'medium', detailed: 'medium' }[settings.replyLength] ?? 'medium'
+  const thinking = spec.thinking
   const call = PROVIDERS[route.name]
   let lastErr = null
 
@@ -170,6 +187,17 @@ export async function handleChat(body) {
         maxTokens: maxOut,
         temperature: kind === 'intervention' ? 1.0 : 0.9,
         thinking,
+        /**
+         * 구글 검색으로 근거를 보탠다.
+         *
+         * **뱅크가 비었을 때만** 켠다. 뱅크에 있는 162항목은 검산까지 마친 자료라
+         * 검색 결과보다 믿을 만하고, 검색은 왕복이 한 번 더 늘어 첫 응답이 눈에 띄게 늦다.
+         * 그래서 "우리가 아는 것에 없을 때"의 마지막 수단이다.
+         *
+         * 유료키(S1)에서만 실제로 동작한다 — 무료키로 켜면 거절당한다.
+         * 그래서 상위 모델로 올라간 호출에만 붙인다.
+         */
+        search: spec.useSearch && wantsPro && hits.length === 0,
       }
       let r = await call(opts)
 
@@ -187,9 +215,16 @@ export async function handleChat(body) {
       route.pool.report(k.id, { ok: true })
       if (!r.text) throw new HttpError(502, { error: `빈 응답 (finish=${r.finish})` })
 
+      // 지시로 못 막는 것만 코드가 확인한다 — 이모지·웃음표기·길이 상한.
+      // 실측에서 상한 120자짜리 기능이 184자로 나왔다. 예산으로는 막을 수 없다
+      const cleaned = postprocess(r.text, spec, toneOf(seat || {}))
+
       return {
-        text: r.text,
+        text: cleaned.text,
         meta: {
+          funcId,
+          fixed: cleaned.changed, // 후처리가 무엇을 고쳤는지 — 프롬프트 튜닝의 단서
+          searched: r.searched || 0,
           provider: route.name,
           model: route.model || MODELS[route.name],
           keyId: k.id,

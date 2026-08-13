@@ -224,9 +224,33 @@ export async function generateReply({
   summary = '',
   kind = 'reply',
   images = [],
+  /**
+   * 올린 자료를 놓고 묻는 질문인가.
+   *
+   * 화면은 이 값을 넘기고 있었는데 여기서 받지 않아 **서버까지 가지 않았다.**
+   * 서버는 이 값으로 상위 모델(S1) 승급을 판단한다(chat.mjs 의 wantsPro).
+   * 그래서 자료를 읽는 것만 상위 모델로 가고, 정작 **그 자료에 대한 질문은
+   * 값싼 모델로 답하고 있었다.** 화면·서버 양쪽이 멀쩡해 보여서 눈에 띄지 않았다.
+   */
+  withDoc = false,
+  /** 어느 기능으로 답할 것인가. 라우터(agent/functions.js)가 정한다 */
+  funcId = 'F1',
+  /** 프롬프트의 [지금 상태] 블록에 들어갈 값 */
+  state = {},
 }) {
   try {
-    const r = await requestReply({ seat, settings, turns: history, message: text, summary, kind, images })
+    const r = await requestReply({
+      seat,
+      settings,
+      turns: history,
+      message: text,
+      summary,
+      kind,
+      images,
+      withDoc,
+      funcId,
+      state,
+    })
     if (r?.text) return { text: r.text, meta: r.meta }
   } catch (e) {
     console.warn('[agent] 서버 호출 실패 → 목업으로 대체', e.message)

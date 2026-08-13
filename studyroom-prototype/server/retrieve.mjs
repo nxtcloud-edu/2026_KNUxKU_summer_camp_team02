@@ -131,7 +131,20 @@ export function search(query, dir, { topK = TOP_K, minScore = MIN_SCORE } = {}) 
 /** 검색 결과를 프롬프트에 넣을 문자열로. 길이 상한을 지킨다 */
 export function toContext(hits) {
   if (!hits.length) return ''
-  const lines = ['[참고 자료 — 아래 내용을 근거로 답하되, 그대로 읽지 말고 네 말투로 풀어서 설명한다]']
+  /**
+   * 헤더 문구가 답을 통째로 죽일 수 있다.
+   *
+   * 예전엔 "아래 내용을 **근거로** 답하라"였다. 그런데 검색이 엉뚱한 걸 물어오면
+   * — "라프트 합의 알고리즘"에 '알고리즘'이 맞아 "조인/알고리즘"이 딸려온 실측이 있다 —
+   * 모델이 그 자료에 답이 없는 걸 보고 **"나도 확실치 않아"라고 정직하게 포기한다.**
+   * 아는 걸 못 말하게 만든 셈이다.
+   *
+   * 그래서 자료를 **참고**로 낮추고, 관련 없으면 무시하라고 명시한다.
+   * 검색 정밀도를 올리는 것과 별개로, 헤더 한 줄이 최후의 안전장치다.
+   */
+  const lines = [
+    '[참고 자료 — 도움이 되면 근거로 쓴다. 질문과 관련이 없으면 **무시하고 네가 아는 대로 답한다.**]',
+  ]
   let used = 0
   for (const { item } of hits) {
     const body = `\n· ${item.topic}: ${item.answer}`
@@ -140,7 +153,7 @@ export function toContext(hits) {
     used += body.length
   }
   if (lines.length === 1) return ''
-  lines.push('\n[참고 자료 끝. 자료에 없는 내용을 지어내지 않는다.]')
+  lines.push('\n[참고 자료 끝. 이 자료의 내용을 왜곡하거나 없는 말을 보태지 않는다.]')
   return lines.join('')
 }
 

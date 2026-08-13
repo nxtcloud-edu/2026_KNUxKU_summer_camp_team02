@@ -57,6 +57,13 @@ export async function callGemini({
   maxTokens = 400,
   temperature = 0.9,
   thinking = 'low',
+  /**
+   * 구글 검색으로 근거를 보탠다 (grounding).
+   *
+   * 유료 계정 키에서만 동작한다. 무료키로 켜면 호출 자체가 거절되므로
+   * 켤지 말지는 호출부(chat.mjs)가 정한다 — 상위 모델로 올라간 요청에만 붙인다.
+   */
+  search = false,
 }) {
   const t0 = Date.now()
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
@@ -73,6 +80,7 @@ export async function callGemini({
         ...(m.text ? [{ text: m.text }] : []),
       ],
     })),
+    ...(search ? { tools: [{ google_search: {} }] } : {}),
     generationConfig: {
       // 답변 몫 + 사고 몫. 사고 몫을 안 얹으면 답이 잘린다 (위 주석 참고)
       maxOutputTokens: maxTokens + (THINK_ALLOWANCE[thinking] ?? 0),
@@ -93,6 +101,8 @@ export async function callGemini({
     outTok: u.candidatesTokenCount ?? null,
     ms: Date.now() - t0,
     finish: cand?.finishReason,
+    // 검색을 실제로 썼는지. 진단에서 "검색이 켜졌는데 안 돌았다"를 구분하려면 필요하다
+    searched: (cand?.groundingMetadata?.webSearchQueries || []).length || 0,
   }
 }
 
