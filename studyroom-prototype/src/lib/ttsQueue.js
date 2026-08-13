@@ -84,14 +84,20 @@ if (ttsSupported && typeof window.speechSynthesis.addEventListener === 'function
 /* ── 상태 ─────────────────────────────────────────────────── */
 
 const queue = []
-let current = null // { text, resolve }
+let current = null // { text, resolve, speakerId }
 let pumping = false
 let keepalive = null
 const listeners = new Set()
+const speakerListeners = new Set()
 
 /** 지금 누가 소리내어 말하는 중인가 */
 export function isSpeaking() {
   return current !== null || queue.length > 0
+}
+
+/** 지금 실제로 재생 중인 화자의 id (없으면 null). speakAndWait의 3번째 인자로 넘긴 값. */
+export function currentSpeakerId() {
+  return current?.speakerId ?? null
 }
 
 /** 발화 시작·종료를 구독한다. 마이크 게이트가 여기에 붙는다 */
@@ -101,23 +107,43 @@ export function onSpeakingChange(fn) {
   return () => listeners.delete(fn)
 }
 
+/** 현재 재생 중인 화자 id 변화를 구독한다. 캐릭터 스프라이트가 여기 붙어 입을 움직인다. */
+export function onSpeakerChange(fn) {
+  speakerListeners.add(fn)
+  fn(currentSpeakerId())
+  return () => speakerListeners.delete(fn)
+}
+
 /** 진단용 — 구독자가 실제로 붙었는지 확인할 때 쓴다 */
 export function _debug() {
   return { listeners: listeners.size, queued: queue.length, speaking: isSpeaking(), lastEmitted }
 }
 
 let lastEmitted = false
+let lastSpeakerEmitted = null
 
 /** 값이 실제로 바뀔 때만 알린다. 마이크 게이트가 여기 붙으므로 중복 통지는 곧 인식기 재시작이다 */
 function emit() {
   const on = isSpeaking()
-  if (on === lastEmitted) return
-  lastEmitted = on
-  for (const fn of listeners) {
-    try {
-      fn(on)
-    } catch (e) {
-      console.warn('[tts] 구독자 오류', e)
+  if (on !== lastEmitted) {
+    lastEmitted = on
+    for (const fn of listeners) {
+      try {
+        fn(on)
+      } catch (e) {
+        console.warn('[tts] 구독자 오류', e)
+      }
+    }
+  }
+  const sid = currentSpeakerId()
+  if (sid !== lastSpeakerEmitted) {
+    lastSpeakerEmitted = sid
+    for (const fn of speakerListeners) {
+      try {
+        fn(sid)
+      } catch (e) {
+        console.warn('[tts] 화자 구독자 오류', e)
+      }
     }
   }
 }
@@ -205,20 +231,21 @@ async function pump() {
  * 한 마디를 읽어준다. **실제 재생이 끝나야** 약속이 풀린다.
  * @param {string} text
  * @param {{pitch?:number, rate?:number, voiceIndex?:number}} opts
+ * @param {*} [speakerId] 화자 식별자(예: seat.slotNo). onSpeakerChange 구독자가 이 값으로 자기 차례를 안다.
  * @returns {Promise<void>}
  */
-export function speakAndWait(text, opts = {}) {
+export function speakAndWait(text, opts = {}, speakerId = null) {
   if (!ttsSupported || !text) return Promise.resolve()
   return new Promise((resolve) => {
-    queue.push({ text, opts, resolve })
+    queue.push({ text, opts, resolve, speakerId })
     emit()
     pump()
   })
 }
 
 /** 기다리지 않고 던져 두는 쪽 — 예전 호출부 호환용 */
-export function speak(text, opts = {}) {
-  void speakAndWait(text, opts)
+export function speak(text, opts = {}, speakerId = null) {
+  void speakAndWait(text, opts, speakerId)
 }
 
 /** 전부 멈춘다. 대기 중인 약속도 풀어 준다 (호출부가 매달려 있지 않게) */
