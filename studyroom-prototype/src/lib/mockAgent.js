@@ -7,6 +7,7 @@
  */
 
 import { PRESETS, ANIMATION_STATES } from './presets'
+import { requestReply } from './agent/client'
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
 
@@ -112,11 +113,42 @@ const LINES = {
     theo: ['오늘 진짜 잘하고 있는데?!', '이대로만 가자!'],
     juno: ['괜찮네.', '나쁘지 않아.'],
   },
+  // 고개가 계속 끄덕여질 때. 재우지 말고 깨우되, 다그치지는 않는다
+  drowsy: {
+    mina: [
+      '졸리죠? 5분만 눈 붙이거나, 일어나서 물 한 잔 어때요?',
+      '고개가 자꾸 떨어져요. 잠깐 일어났다 올까요?',
+    ],
+    theo: ['야야 자면 안 돼! 같이 스트레칭 한 번 하자', '어어 졸고 있는데? 세수라도 하고 오자!'],
+    juno: ['졸고 있네. 그냥 자는 게 나을 수도.', '지금은 머리에 안 들어갈걸. 좀 쉬었다 해.'],
+  },
+  // 휴대폰이 계속 잡힐 때
+  phone: {
+    mina: ['폰 잠깐 뒤집어 둘까요? 다시 흐름 잡아드릴게요.', '집중 끊긴 김에 딱 3분만 쉬고 올까요?'],
+    theo: ['폰 재밌지 ㅋㅋ 근데 우리 아직 안 끝났어!', '나도 보고 싶다… 근데 조금만 더 하고 보자!'],
+    juno: ['폰 오래 보고 있네.', '볼 거면 아예 쉬는 걸로 치자.'],
+  },
 }
 
 export function interventionLine(seat, kind) {
   const bucket = LINES[kind] || LINES.cheer
   return pick(bucket[seat.preset] || bucket.mina)
+}
+
+/**
+ * "@이름" 을 찾는 정규식.
+ *
+ * `\b` 를 쓰면 안 된다. `\b` 는 [A-Za-z0-9_] 기준이라 **한글 뒤에서는 경계가 성립하지 않는다.**
+ * "@미나 이거 뭐야" 가 /@미나\b/ 에 안 걸려서, 이름을 한글로 바꾸는 순간 @멘션이 통째로 죽었다.
+ *
+ * 대신 이름 뒤에 호격·접속 조사만 허용하고 그 밖의 글자는 막는다.
+ * "@미나야"·"@미나랑" 은 부르는 것이고 "@민아"·"@미나비" 는 다른 이름이다.
+ */
+const NAME_SUFFIX =
+  '(?:이야|이랑|한테|에게|하고|보고|더러|야|아|님|씨|랑|은|는|이|가|을|를|도|만|의|에|와|과)?'
+
+export function mentionRe(name) {
+  return new RegExp(`@${escapeRe(name)}${NAME_SUFFIX}(?![가-힣A-Za-z0-9_])`, 'i')
 }
 
 /* ── 답변자 라우팅 (§10 규칙 11) ────────────────────────────
@@ -127,7 +159,7 @@ export function routeReply(text, seats, settings) {
   if (!active.length) return []
 
   // 1) @멘션
-  const mentioned = active.filter((s) => new RegExp(`@${escapeRe(s.name)}\\b`, 'i').test(text))
+  const mentioned = active.filter((s) => mentionRe(s.name).test(text))
   if (mentioned.length) return mentioned.slice(0, maxRepliers(settings))
 
   // 2) 주 담당 캐릭터
@@ -174,11 +206,34 @@ const REST_REPLIES = {
 }
 
 /**
- * TODO(모델 API): 이 함수만 실제 LLM 호출로 교체하면 된다.
- *   const res = await fetch('/api/chat', { method:'POST', body: JSON.stringify({ seat, text, settings, history }) })
- *   return (await res.json()).text
+ * 모델 답변.
+ *
+ * 서버(/api/chat)를 부르고, 실패하면 아래 목업으로 떨어진다.
+ * 목업을 남겨두는 이유: 키가 없거나 한도에 걸려도 데모가 멈추면 안 되기 때문이다.
+ *
+ * @param {Array} [history]  [{role:'user'|'model', text}] 최근 대화
+ * @param {string} [summary] 압축해둔 앞부분
  */
-export async function generateReply({ seat, text, settings }) {
+export async function generateReply({ seat, text, settings, history = [], summary = '', kind = 'reply' }) {
+  try {
+    const r = await requestReply({ seat, settings, turns: history, message: text, summary, kind })
+    if (r?.text) return { text: r.text, meta: r.meta }
+  } catch (e) {
+    console.warn('[agent] 서버 호출 실패 → 목업으로 대체', e.message)
+    lastError = e.message
+  }
+  return { text: await mockReply({ seat, text, settings }), meta: { mock: true } }
+}
+
+/** 마지막 실패 사유 — 화면에 한 번 알려주기 위해 보관한다 */
+let lastError = ''
+export const takeLastError = () => {
+  const e = lastError
+  lastError = ''
+  return e
+}
+
+async function mockReply({ seat, text, settings }) {
   await sleep(700 + Math.random() * 1300) // 타이핑 인디케이터가 보이도록
   const preset = PRESETS[seat.preset] || PRESETS.mina
   const n = LENGTH_HINT[settings.replyLength] ?? 2

@@ -1,0 +1,844 @@
+[
+  {
+    "id": "algo-001",
+    "domain": "algorithm",
+    "topic": "다익스트라",
+    "kind": "counterexample",
+    "difficulty": "medium",
+    "question": "다익스트라가 음수 간선에서 실패하는 구체적인 반례를 만들어줘.",
+    "answer": "정점 A, B, C에 간선 A→B=2, A→C=3, C→B=-2를 두면 반례가 된다. 실제 최단거리는 A→C→B로 3+(-2)=1이다. 다익스트라는 A를 확정한 뒤 거리표가 B=2, C=3이 되고, 가장 작은 B(2)를 먼저 꺼내 확정한다. 그다음 C(3)를 꺼내 B를 1로 낮추려 하지만 B는 이미 확정된 정점이라 갱신되지 않는다. 결과는 dist[B]=2로 정답인 1보다 크다. 실패 원인은 음수 간선 자체가 아니라, 한 번 확정한 정점의 거리는 다시 줄어들지 않는다는 그리디 불변식이 깨지는 데 있다.",
+    "verify": {
+      "lang": "python",
+      "code": "import heapq\nV=[\"A\",\"B\",\"C\"]; E=[(\"A\",\"B\",2),(\"A\",\"C\",3),(\"C\",\"B\",-2)]\ndef dijkstra(s):\n    d={v:float(\"inf\") for v in V}; d[s]=0; done=set(); pq=[(0,s)]\n    while pq:\n        du,u=heapq.heappop(pq)\n        if u in done: continue\n        done.add(u)                      # 확정: 다시 갱신하지 않는다\n        for a,b,w in E:\n            if a==u and b not in done and du+w<d[b]:\n                d[b]=du+w; heapq.heappush(pq,(d[b],b))\n    return d\ndef bellman(s):\n    d={v:float(\"inf\") for v in V}; d[s]=0\n    for _ in range(len(V)-1):\n        for a,b,w in E:\n            if d[a]+w<d[b]: d[b]=d[a]+w\n    return d\nprint(dijkstra(\"A\")[\"B\"]==2 and bellman(\"A\")[\"B\"]==1)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "다익스트라(확정 후 재갱신 없음)와 벨만-포드를 같은 그래프에 돌려 2와 1이 나오는 것을 확인했다.",
+    "quiz": {
+      "q": "A→B=2, A→C=3, C→B=-2 그래프에서 다익스트라가 틀리는 이유를 한 문장으로 말해봐.",
+      "accept": [
+        "확정",
+        "재갱신",
+        "다시 갱신",
+        "finalize",
+        "그리디"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-002",
+    "domain": "algorithm",
+    "topic": "다익스트라",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "음수 사이클만 없으면 다익스트라 써도 되는 거 아냐?",
+    "answer": "아니다. 음수 사이클이 없다는 것은 최단거리가 -무한대로 발산하지 않는다는 뜻일 뿐, 다익스트라가 옳게 동작한다는 보장이 아니다. A→B=2, A→C=3, C→B=-2인 그래프는 방향 사이클 자체가 없으므로 음수 사이클도 당연히 없다. 그런데도 벨만-포드는 dist[B]=1을 내고 다익스트라는 2를 낸다. 음수 간선이 하나라도 있으면 다익스트라 정당성 증명의 전제가 무너진다. 이때는 벨만-포드나, 모든 쌍이 필요하면 재가중치를 쓰는 존슨 알고리즘을 써야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import heapq\nV=[\"A\",\"B\",\"C\"]; E=[(\"A\",\"B\",2),(\"A\",\"C\",3),(\"C\",\"B\",-2)]\nd={v:float(\"inf\") for v in V}; d[\"A\"]=0\nfor _ in range(len(V)-1):\n    for a,b,w in E:\n        if d[a]+w<d[b]: d[b]=d[a]+w\nhas_neg_cycle=any(d[a]+w<d[b] for a,b,w in E)   # 음수 사이클 존재 여부\ndd={v:float(\"inf\") for v in V}; dd[\"A\"]=0; done=set(); pq=[(0,\"A\")]\nwhile pq:\n    du,u=heapq.heappop(pq)\n    if u in done: continue\n    done.add(u)\n    for a,b,w in E:\n        if a==u and b not in done and du+w<dd[b]:\n            dd[b]=du+w; heapq.heappush(pq,(dd[b],b))\n# 음수 사이클이 없는데도 다익스트라는 틀린다\nprint(has_neg_cycle==False and d[\"B\"]==1 and dd[\"B\"]==2)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "같은 그래프에서 벨만-포드 V-1라운드 후 추가 완화가 없음(음수 사이클 없음)과 다익스트라 결과 2를 동시에 확인했다.",
+    "quiz": {
+      "q": "음수 사이클이 없는 그래프면 다익스트라를 써도 안전할까?",
+      "accept": [
+        "아니",
+        "안전하지 않",
+        "틀리",
+        "음수 간선",
+        "보장되지 않"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-003",
+    "domain": "algorithm",
+    "topic": "다익스트라",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "음수 간선이 있으면 모든 간선에 큰 상수를 더해서 양수로 만들면 되지 않아?",
+    "answer": "안 된다. 간선마다 c를 더하면 경로 비용은 (그 경로의 간선 개수)×c만큼 늘어난다. 간선 수가 다른 경로들끼리는 더해지는 양이 달라 대소 관계가 뒤집힌다. A→B=2, A→C=3, C→B=-2에서 최단 A→B 경로는 간선 2개짜리 A→C→B이고 비용 1이다. 모든 간선에 +2를 하면 A→C→B는 5, A→B 직행은 4가 되어 최단 경로가 바뀐다. 올바른 방법은 존슨 알고리즘의 재가중치 w'(u,v)=w(u,v)+h(u)-h(v)처럼 경로 길이와 무관하게 중간 항이 상쇄되는 보정을 쓰는 것이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import itertools\nV=[\"A\",\"B\",\"C\"]; W={(\"A\",\"B\"):2,(\"A\",\"C\"):3,(\"C\",\"B\"):-2}\ndef best(w):\n    bp=None; bc=None\n    for k in range(2,len(V)+1):\n        for p in itertools.permutations(V,k):\n            if p[0]!=\"A\" or p[-1]!=\"B\": continue\n            if any((p[i],p[i+1]) not in w for i in range(k-1)): continue\n            c=sum(w[(p[i],p[i+1])] for i in range(k-1))\n            if bc is None or c<bc: bc=c; bp=p\n    return bp,bc\np0,c0=best(W)\nW2={k:v+2 for k,v in W.items()}          # 모든 간선에 +2\np1,c1=best(W2)\n# 원래 최단경로는 간선 2개짜리, 시프트 후에는 간선 1개짜리로 바뀐다\nprint(p0==(\"A\",\"C\",\"B\") and c0==1 and p1==(\"A\",\"B\") and c1==4 and p0!=p1)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "완전 탐색으로 시프트 전 최적 경로가 A-C-B(비용 1), 시프트 후 최적 경로가 A-B(비용 4)로 달라짐을 확인했다.",
+    "quiz": {
+      "q": "모든 간선에 상수를 더해 음수를 없애는 방법이 왜 틀려?",
+      "accept": [
+        "간선 수",
+        "간선 개수",
+        "길이",
+        "경로마다",
+        "다르게"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-004",
+    "domain": "algorithm",
+    "topic": "벨만-포드",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "벨만-포드가 음수 사이클을 검출하는 원리를 단계별로 설명해줘.",
+    "answer": "음수 사이클이 없으면 모든 최단경로는 단순경로이므로 간선을 최대 V-1개만 쓴다. 완화를 V-1라운드 돌리면 길이 1인 최단경로, 2인 최단경로 순으로 확정되어 V-1라운드 뒤에는 더 줄어들 곳이 없다. 따라서 V번째 라운드에서 한 번이라도 더 완화된다면 간선을 V개 이상 쓰는 더 짧은 보행이 존재한다는 뜻이고, 비둘기집 원리로 그 보행에는 반복되는 정점, 즉 사이클이 있으며 그 사이클의 가중치 합은 음수여야 한다. 구현은 V-1라운드 후 모든 간선을 한 번 더 훑어 d[u]+w<d[v]인 간선이 있는지 보는 것이다.",
+    "verify": {
+      "lang": "python",
+      "code": "def bf(n,E):\n    d=[0]+[float(\"inf\")]*(n-1)\n    for _ in range(n-1):\n        for a,b,w in E:\n            if d[a]+w<d[b]: d[b]=d[a]+w\n    return any(d[a]+w<d[b] for a,b,w in E)   # V-1회 후에도 완화되면 음수 사이클\nneg=[(0,1,1),(1,2,-1),(2,3,-1),(3,1,-1)]     # 1->2->3->1 = -3\npos=[(0,1,1),(1,2,-1),(2,3,-1),(3,1,5)]      # 1->2->3->1 = +3\nprint(bf(4,neg)==True and bf(4,pos)==False)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "음수 사이클(-3)이 있는 그래프에서 True, 같은 구조에 사이클 가중치만 +3으로 바꾼 그래프에서 False가 나옴을 확인했다.",
+    "quiz": {
+      "q": "벨만-포드에서 몇 번째 라운드에 완화가 일어나면 음수 사이클이라고 판정해?",
+      "accept": [
+        "V번째",
+        "V 번째",
+        "n번째",
+        "V-1 이후",
+        "V-1라운드 후",
+        "한 번 더"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-005",
+    "domain": "algorithm",
+    "topic": "벨만-포드",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "벨만-포드를 돌렸는데 음수 사이클이 없다고 나오면 그래프에 정말 없는 거야?",
+    "answer": "아니다. 표준 벨만-포드는 시작점 s에서 도달 가능한 음수 사이클만 검출한다. 도달 불가능한 정점들의 거리는 계속 무한대로 남아 d[u]+w<d[v] 조건이 성립하지 않기 때문이다. 그래프 전체에 음수 사이클이 있는지 보려면 모든 정점의 거리를 0으로 초기화하고 돌리거나, 모든 정점으로 가중치 0인 간선을 갖는 슈퍼 소스를 추가한 뒤 실행해야 한다. 즉 벨만-포드는 음수 사이클을 검출한다는 문장은 s에서 도달 가능한이라는 한정어가 빠지면 틀린 문장이다.",
+    "verify": {
+      "lang": "python",
+      "code": "n=5\nE=[(0,1,1),(2,3,-1),(3,4,-1),(4,2,-1)]   # 음수 사이클 2-3-4-2 는 0에서 도달 불가\ndef detect(super_source):\n    d=[0]*n if super_source else [0]+[float(\"inf\")]*(n-1)\n    for _ in range(n-1):\n        for a,b,w in E:\n            if d[a]+w<d[b]: d[b]=d[a]+w\n    return any(d[a]+w<d[b] for a,b,w in E)\nprint(detect(False)==False and detect(True)==True)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "0에서 도달 불가한 음수 사이클을 둔 그래프에서 단일 시작점 검출은 False, 전 정점 0 초기화(슈퍼 소스) 검출은 True가 나옴을 확인했다.",
+    "quiz": {
+      "q": "시작점에서 도달할 수 없는 음수 사이클도 검출하려면 어떻게 해?",
+      "accept": [
+        "슈퍼 소스",
+        "가상",
+        "모든 정점",
+        "0으로 초기화",
+        "전부 0"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-006",
+    "domain": "algorithm",
+    "topic": "위상정렬",
+    "kind": "misconception",
+    "difficulty": "easy",
+    "question": "진입차수 0인 정점이 있으면 위상정렬이 가능한 거 아니야?",
+    "answer": "아니다. 위상정렬이 불가능한 조건은 진입차수 0인 정점이 없다가 아니라 방향 사이클이 존재한다이다. 0→1, 1→2, 2→1인 그래프를 보면 정점 0의 진입차수가 0이라 칸 알고리즘의 큐는 비어 있지 않게 시작한다. 하지만 1과 2가 서로를 가리켜 두 정점의 진입차수는 절대 0이 되지 않는다. 칸 알고리즘의 정확한 판정 기준은 출력한 정점 수가 V보다 작으면 사이클이 있다는 것이다. 이 예에서는 0 하나만 출력되어 1이 3보다 작으므로 위상정렬 불가로 판정된다.",
+    "verify": {
+      "lang": "python",
+      "code": "from collections import deque\nn=3; E=[(0,1),(1,2),(2,1)]        # 0은 진입차수 0, 그런데 1<->2 사이클\nindeg=[0]*n\nfor a,b in E: indeg[b]+=1\nhas_zero = any(x==0 for x in indeg)\nq=deque(i for i in range(n) if indeg[i]==0); order=[]\nwhile q:\n    u=q.popleft(); order.append(u)\n    for a,b in E:\n        if a==u:\n            indeg[b]-=1\n            if indeg[b]==0: q.append(b)\nprint(has_zero==True and len(order)==1 and len(order)<n)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "진입차수 0인 정점이 존재하지만 칸 알고리즘 출력 길이가 1로 V=3보다 작음을 확인했다.",
+    "quiz": {
+      "q": "칸 알고리즘에서 사이클이 있다는 걸 어떻게 판정해?",
+      "accept": [
+        "출력",
+        "개수",
+        "V보다",
+        "전부 나오지",
+        "다 못"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-007",
+    "domain": "algorithm",
+    "topic": "위상정렬",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "위상정렬 결과가 유일한 경우는 언제야?",
+    "answer": "위상 순서가 유일할 필요충분조건은 알고리즘의 매 단계에서 진입차수 0인 정점이 정확히 하나뿐인 것이고, 이는 그 DAG에 해밀턴 경로가 존재하는 것과 동치다. 어떤 위상 순서에서 연속한 두 정점 u, v 사이에 간선이 없으면 둘 사이에 경로도 없으므로 순서를 맞바꾼 또 다른 위상 순서를 만들 수 있다. 따라서 유일하려면 결과 v1, v2, ..., vn에서 (vi, vi+1)이 전부 간선이어야 하고 이것이 곧 해밀턴 경로다. 그래서 위상 순서가 유일하면 순서만 보고 전순서 관계를 읽어낼 수 있다.",
+    "verify": {
+      "lang": "python",
+      "code": "import itertools, random\ndef topo_count(n,E):\n    return sum(1 for p in itertools.permutations(range(n))\n               if all(p.index(a)<p.index(b) for a,b in E))\ndef has_hamiltonian_path(n,E):\n    s=set(E)\n    return any(all((p[i],p[i+1]) in s for i in range(n-1))\n               for p in itertools.permutations(range(n)))\nrandom.seed(1); ok=True; n=5\nfor _ in range(120):\n    perm=list(range(n)); random.shuffle(perm)\n    E=[(perm[i],perm[j]) for i in range(n) for j in range(i+1,n) if random.random()<0.45]\n    ok &= ((topo_count(n,E)==1) == has_hamiltonian_path(n,E))\nprint(ok)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "정점 5개짜리 무작위 DAG 120개에 대해 전체 위상 순서 개수가 1인 것과 해밀턴 경로 존재가 항상 일치함을 완전 탐색으로 확인했다.",
+    "quiz": {
+      "q": "위상정렬 결과가 유일하다는 건 그래프에 무엇이 있다는 뜻이야?",
+      "accept": [
+        "해밀턴",
+        "hamilton",
+        "한 줄",
+        "전부 연결",
+        "연속",
+        "경로가 존재"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-008",
+    "domain": "algorithm",
+    "topic": "유니온 파인드",
+    "kind": "tradeoff",
+    "difficulty": "medium",
+    "question": "유니온 파인드에서 경로 압축이랑 랭크를 둘 다 안 쓰면 얼마나 나빠져?",
+    "answer": "연산 하나가 O(n)까지 나빠진다. 경로 압축도 union by rank/size도 없이 parent[find(a)]=find(b)로만 합치면 트리가 한 줄로 늘어질 수 있다. union(0,1), union(1,2), ..., union(n-2,n-1)을 이 순서로 하면 0→1→2→...→n-1인 사슬이 만들어지고 find(0)은 부모를 n-1번 따라간다. n=1000이면 깊이가 정확히 999다. m번 연산이면 O(mn)이 된다. 두 최적화 중 하나만 써도 O(log n)이 되고 둘 다 쓰면 사실상 상수인 O(α(n))으로 떨어진다.",
+    "verify": {
+      "lang": "python",
+      "code": "n=1000\np=list(range(n))\ndef find(x):\n    while p[x]!=x: x=p[x]\n    return x\nfor i in range(n-1):                  # 경로압축도 랭크도 없는 순진한 union\n    p[find(i)]=find(i+1)\ndef depth(x):\n    d=0\n    while p[x]!=x: x=p[x]; d+=1\n    return d\nprint(depth(0)==n-1)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "n=1000에서 순진한 union을 순서대로 수행한 뒤 find(0)의 깊이가 999임을 실제로 셌다.",
+    "quiz": {
+      "q": "경로 압축과 union by rank를 둘 다 빼면 find 한 번의 최악 비용은?",
+      "accept": [
+        "O(n)",
+        "선형",
+        "n-1",
+        "n에 비례"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-009",
+    "domain": "algorithm",
+    "topic": "유니온 파인드",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "union by size만 써도 왜 높이가 log n으로 억제돼?",
+    "answer": "union by size는 항상 작은 트리를 큰 트리의 루트 밑에 붙인다. 어떤 원소의 깊이가 1 늘어나는 순간은 그 원소가 속한 트리가 자신보다 크거나 같은 트리에 붙을 때뿐인데, 그때 합쳐진 트리의 크기는 최소 2배가 된다. 크기는 n을 넘을 수 없으므로 한 원소의 깊이가 늘어나는 횟수는 최대 log2(n)회다. 이 상한은 느슨하지 않다. 크기가 같은 트리끼리만 계속 짝지어 병합하는 최악 시나리오를 만들면 n=1024에서 높이가 정확히 10이 된다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\nn=1024\np=list(range(n)); sz=[1]*n\ndef find(x):\n    while p[x]!=x: x=p[x]\n    return x\ncur=list(range(n))\nwhile len(cur)>1:                     # 같은 크기끼리 합치는 최악 시나리오\n    nxt=[]\n    for i in range(0,len(cur),2):\n        a,b=find(cur[i]),find(cur[i+1])\n        if sz[a]<sz[b]: a,b=b,a\n        p[b]=a; sz[a]+=sz[b]; nxt.append(a)\n    cur=nxt\ndef depth(x):\n    d=0\n    while p[x]!=x: x=p[x]; d+=1\n    return d\nh=max(depth(i) for i in range(n))\nprint(h==int(math.log2(n))==10)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "n=1024를 같은 크기끼리 계속 병합하는 최악 순서로 합쳐 최대 깊이가 정확히 log2(1024)=10임을 확인했다.",
+    "quiz": {
+      "q": "union by size에서 원소의 깊이가 1 늘어날 때 트리 크기는 어떻게 돼?",
+      "accept": [
+        "2배",
+        "두 배",
+        "최소 2",
+        "배로"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-010",
+    "domain": "algorithm",
+    "topic": "탐욕법",
+    "kind": "counterexample",
+    "difficulty": "easy",
+    "question": "동전 거스름돈에서 큰 동전부터 집는 탐욕법이 실패하는 예를 보여줘.",
+    "answer": "동전이 {1, 3, 4}이고 만들 금액이 6일 때 실패한다. 탐욕법은 4를 먼저 집고 남은 2를 1+1로 채워 동전 3개를 쓴다. 최적해는 3+3으로 2개다. 큰 동전을 집는 순간 남은 금액이 작은 동전으로만 채워지는 형태로 몰려 손해가 난다. 탐욕법이 최적인 것은 동전 집합이 정준(canonical)일 때뿐이고, 한국이나 미국 화폐 체계는 우연히 정준이라 잘 맞아떨어질 뿐이다. 임의의 동전 집합에서는 DP로 dp[i]=min(dp[i-c]+1)을 풀어야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "coins=[4,3,1]; amt=6\ng=0; r=amt\nfor c in coins: g+=r//c; r%=c          # 큰 동전부터 그리디\nINF=float(\"inf\"); dp=[0]+[INF]*amt\nfor i in range(1,amt+1):\n    for c in coins:\n        if c<=i: dp[i]=min(dp[i],dp[i-c]+1)\nprint(g==3 and dp[amt]==2)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "{1,3,4}, 금액 6에서 탐욕 결과 3개, DP 최적해 2개를 실제로 계산해 비교했다.",
+    "quiz": {
+      "q": "동전 {1,3,4}로 6원을 만들 때 탐욕법은 몇 개, 최적은 몇 개야?",
+      "accept": [
+        "3개",
+        "2개",
+        "3과 2",
+        "3, 2"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-011",
+    "domain": "algorithm",
+    "topic": "배낭 문제",
+    "kind": "counterexample",
+    "difficulty": "medium",
+    "question": "0-1 배낭에서 가치/무게 비율 탐욕법이 왜 안 돼?",
+    "answer": "무게 10에 가치 60, 20에 100, 30에 120인 물건 셋과 용량 50을 보자. 비율은 각각 6, 5, 4다. 비율이 높은 순으로 담는 탐욕법은 10과 20을 넣어 무게 30, 가치 160에서 멈춘다. 남은 용량이 20이라 무게 30짜리가 들어가지 않기 때문이다. 최적해는 20과 30을 넣어 용량 50을 정확히 채운 가치 220이다. 0-1 배낭은 물건을 쪼갤 수 없어 남는 용량이 그대로 버려지므로 지역 최적 선택이 전역 최적을 보장하지 않는다. DP로 O(nW)에 풀어야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "items=[(10,60),(20,100),(30,120)]; C=50\ncap=C; val=0\nfor w,v in sorted(items,key=lambda t:-t[1]/t[0]):   # 가치/무게 비율 그리디\n    if w<=cap: cap-=w; val+=v\ndp=[0]*(C+1)\nfor w,v in items:\n    for c in range(C,w-1,-1): dp[c]=max(dp[c],dp[c-w]+v)\nprint(val==160 and dp[C]==220)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "비율 탐욕 결과 160과 0-1 배낭 DP 최적해 220을 같은 입력에서 계산해 비교했다.",
+    "quiz": {
+      "q": "용량 50, 물건 (10,60) (20,100) (30,120)에서 비율 탐욕과 최적의 가치는?",
+      "accept": [
+        "160",
+        "220",
+        "160과 220"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-012",
+    "domain": "algorithm",
+    "topic": "배낭 문제",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "분할 가능 배낭은 왜 탐욕법으로 최적이 되는데 0-1 배낭은 안 돼?",
+    "answer": "같은 물건 (10,60), (20,100), (30,120)과 용량 50에서 분할이 허용되면 비율 탐욕법은 10과 20을 통째로 넣고 30짜리를 2/3만 잘라 넣어 60+100+80=240을 얻고 이것이 최적이다. 증명은 교환 논증이다. 최적해가 비율이 더 높은 물건을 다 안 담았다면, 비율이 낮은 부분을 같은 무게만큼 덜어내고 높은 쪽으로 바꿔도 총 가치가 줄지 않는다. 즉 용량을 항상 100% 채울 수 있어 남는 공간 문제가 사라진다. 0-1 배낭과의 차이는 오직 남는 용량을 채울 수 있느냐 하나다.",
+    "verify": {
+      "lang": "python",
+      "code": "items=[(10,60),(20,100),(30,120)]; C=50\ncap=C; val=0.0\nfor w,v in sorted(items,key=lambda t:-t[1]/t[0]):\n    take=min(w,cap); val+=v*take/w; cap-=take\npieces=[(1,v/w) for w,v in items for _ in range(w)]   # 1단위로 쪼개 0-1 배낭\ndp=[0.0]*(C+1)\nfor pw,pv in pieces:\n    for c in range(C,pw-1,-1): dp[c]=max(dp[c],dp[c-pw]+pv)\nprint(abs(val-240.0)<1e-9 and abs(dp[C]-240.0)<1e-9)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "탐욕 결과 240과, 물건을 무게 1단위 조각으로 쪼개 0-1 배낭 DP로 구한 최적값 240이 일치함을 확인했다.",
+    "quiz": {
+      "q": "분할 가능 배낭에서 탐욕법이 최적임을 보이는 증명 기법은?",
+      "accept": [
+        "교환",
+        "exchange",
+        "치환",
+        "바꿔",
+        "교체"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-013",
+    "domain": "algorithm",
+    "topic": "활동 선택",
+    "kind": "counterexample",
+    "difficulty": "medium",
+    "question": "활동 선택 문제에서 왜 하필 종료 시간이 이른 순서로 골라?",
+    "answer": "종료 시간 기준만이 남은 시간을 최대로 남기기 때문이다. 시작 시간이 이른 순은 (0,10), (1,2), (3,4)에서 (0,10)을 먼저 잡아 1개만 고르지만 최적은 (1,2)와 (3,4)로 2개다. 소요 시간이 짧은 순도 반례가 있다. (0,5), (4,7), (6,11)에서 가장 짧은 (4,7)을 먼저 잡으면 앞뒤 둘 다 겹쳐 막혀 1개가 되지만 최적은 (0,5)와 (6,11)로 2개다. 종료 시간 기준은 두 입력 모두에서 최적인 2개를 고른다. 가장 일찍 끝나는 활동을 포함하는 최적해가 항상 존재한다는 교환 논증으로 증명된다.",
+    "verify": {
+      "lang": "python",
+      "code": "import itertools\ndef ok_set(s):\n    s=sorted(s); return all(s[i][1]<=s[i+1][0] for i in range(len(s)-1))\ndef brute(acts):\n    for k in range(len(acts),0,-1):\n        for c in itertools.combinations(acts,k):\n            if ok_set(c): return k\n    return 0\ndef greedy(acts,key):\n    sel=[]\n    for a in sorted(acts,key=key):\n        if all(a[1]<=b[0] or b[1]<=a[0] for b in sel): sel.append(a)\n    return len(sel)\nA=[(0,10),(1,2),(3,4)]      # 시작 빠른 순 반례\nB=[(0,5),(4,7),(6,11)]      # 길이 짧은 순 반례\nr1 = greedy(A,lambda a:a[0])==1 and brute(A)==2\nr2 = greedy(B,lambda a:a[1]-a[0])==1 and brute(B)==2\nr3 = greedy(A,lambda a:a[1])==2 and greedy(B,lambda a:a[1])==2   # 종료 빠른 순은 최적\nprint(r1 and r2 and r3)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "세 가지 정렬 기준의 탐욕 결과를 완전 탐색 최적값과 비교해, 시작 순과 길이 순은 각각 1대2로 실패하고 종료 순만 최적임을 확인했다.",
+    "quiz": {
+      "q": "활동 선택에서 소요 시간이 짧은 순으로 고르면 왜 틀려?",
+      "accept": [
+        "가운데",
+        "양쪽",
+        "둘 다 막",
+        "두 개를 막",
+        "겹쳐"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-014",
+    "domain": "algorithm",
+    "topic": "정렬 안정성",
+    "kind": "counterexample",
+    "difficulty": "easy",
+    "question": "선택 정렬이 불안정하다는 게 무슨 말이야? 예를 들어줘.",
+    "answer": "안정 정렬은 키가 같은 원소들의 원래 순서를 보존한다. 선택 정렬은 최솟값을 찾은 뒤 멀리 떨어진 위치와 교환하기 때문에 이 순서가 깨진다. [(2,a), (2,b), (1,c)]에서 최솟값 1을 0번 자리와 교환하면 그 자리에 있던 (2,a)가 맨 뒤로 날아가 [(1,c), (2,b), (2,a)]가 된다. 키가 같은 a와 b의 원래 순서가 뒤집혔다. 퀵 정렬과 힙 정렬도 멀리 떨어진 원소를 교환해 같은 이유로 불안정하다. 반면 삽입 정렬, 병합 정렬, 버블 정렬은 인접 원소만 옮기고 같은 키에서는 멈추므로 안정적이다.",
+    "verify": {
+      "lang": "python",
+      "code": "a=[(2,\"a\"),(2,\"b\"),(1,\"c\")]\ns=a[:]\nfor i in range(len(s)):\n    m=i\n    for j in range(i+1,len(s)):\n        if s[j][0]<s[m][0]: m=j\n    s[i],s[m]=s[m],s[i]                 # 멀리 있는 원소와 교환 -> 순서 뒤집힘\nstable=sorted(a,key=lambda t:t[0])\nprint(s==[(1,\"c\"),(2,\"b\"),(2,\"a\")] and stable==[(1,\"c\"),(2,\"a\"),(2,\"b\")] and s!=stable)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "선택 정렬을 직접 돌려 [(1,c),(2,b),(2,a)]가 나오고 안정 정렬 결과 [(1,c),(2,a),(2,b)]와 다름을 확인했다.",
+    "quiz": {
+      "q": "선택 정렬이 불안정한 근본 원인이 뭐야?",
+      "accept": [
+        "멀리",
+        "떨어진",
+        "교환",
+        "swap",
+        "건너뛰"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-015",
+    "domain": "algorithm",
+    "topic": "퀵 정렬",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "퀵 정렬의 최악 입력을 실제로 구성해줘.",
+    "answer": "마지막 원소를 피벗으로 쓰는 로무토 분할이라면 이미 오름차순으로 정렬된 배열이 최악 입력이다. 피벗이 항상 구간의 최댓값이라 분할 결과가 크기 n-1과 0으로 쪼개지고 재귀 깊이가 n이 된다. 비교 횟수는 (n-1)+(n-2)+...+1 = n(n-1)/2다. n=200이면 정확히 19900회다. 내림차순 입력이나 첫 원소를 피벗으로 쓰는 구현에서도 대칭적으로 같은 일이 벌어진다. 그래서 실무 구현은 피벗을 무작위로 뽑거나 median-of-three를 쓰고, 재귀 깊이가 깊어지면 힙 정렬로 전환하는 인트로소트를 쓴다.",
+    "verify": {
+      "lang": "python",
+      "code": "import sys\nsys.setrecursionlimit(10000)\ncnt=0\ndef lomuto(a,lo,hi):\n    global cnt\n    piv=a[hi]; i=lo\n    for j in range(lo,hi):\n        cnt+=1\n        if a[j]<=piv: a[i],a[j]=a[j],a[i]; i+=1\n    a[i],a[hi]=a[hi],a[i]; return i\ndef qs(a,lo,hi):\n    if lo<hi:\n        p=lomuto(a,lo,hi); qs(a,lo,p-1); qs(a,p+1,hi)\nn=200; a=list(range(n)); qs(a,0,n-1)\nprint(cnt==n*(n-1)//2==19900)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "n=200 오름차순 배열에 로무토 퀵 정렬을 돌려 비교 횟수가 정확히 19900 = 200*199/2임을 실측했다.",
+    "quiz": {
+      "q": "마지막 원소를 피벗으로 쓰는 퀵 정렬의 최악 입력은 뭐고 비교 횟수는?",
+      "accept": [
+        "정렬된",
+        "오름차순",
+        "n(n-1)/2",
+        "19900",
+        "내림차순"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-016",
+    "domain": "algorithm",
+    "topic": "퀵 정렬",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "피벗을 랜덤으로 뽑으면 퀵 정렬 최악은 안 나오는 거지?",
+    "answer": "입력이 서로 다른 값들이면 그렇지만, 모든 원소가 같은 배열에서는 무작위 피벗이나 median-of-three를 써도 로무토 분할이 O(n^2)가 된다. a[j] <= pivot 조건이 항상 참이라 경계가 끝까지 밀리고 피벗이 매번 맨 끝에 놓여 n-1과 0으로 쪼개지기 때문이다. n=200이면 19900번 비교한다. 중복 키가 많은 실제 데이터에서 흔히 터지는 함정이다. 해결책은 3-way 분할(네덜란드 국기 문제)로 피벗과 같은 값들을 가운데 구간으로 몰아 재귀에서 아예 제외하는 것이다. 그러면 같은 입력을 n번 비교로 끝낸다.",
+    "verify": {
+      "lang": "python",
+      "code": "import sys\nsys.setrecursionlimit(10000)\nc2=0\ndef lomuto(a,lo,hi):\n    global c2\n    piv=a[hi]; i=lo\n    for j in range(lo,hi):\n        c2+=1\n        if a[j]<=piv: a[i],a[j]=a[j],a[i]; i+=1\n    a[i],a[hi]=a[hi],a[i]; return i\ndef qs2(a,lo,hi):\n    if lo<hi:\n        p=lomuto(a,lo,hi); qs2(a,lo,p-1); qs2(a,p+1,hi)\nn=200; qs2([7]*n,0,n-1)\nc3=0\ndef qs3(a):                              # 3-way(네덜란드 국기) 분할\n    global c3\n    if len(a)<=1: return a\n    p=a[len(a)//2]; lt=[];eq=[];gt=[]\n    for x in a:\n        c3+=1\n        (lt if x<p else (gt if x>p else eq)).append(x)\n    return qs3(lt)+eq+qs3(gt)\nqs3([7]*n)\nprint(c2==n*(n-1)//2==19900 and c3==n)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "길이 200 동일 원소 배열에서 로무토 비교 19900회, 3-way 분할 비교 200회를 실측해 비교했다.",
+    "quiz": {
+      "q": "모든 원소가 같은 배열에서 퀵 정렬이 O(n^2)가 되는 걸 막으려면?",
+      "accept": [
+        "3-way",
+        "3way",
+        "세 갈래",
+        "네덜란드",
+        "dutch",
+        "삼분할"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-017",
+    "domain": "algorithm",
+    "topic": "힙 정렬",
+    "kind": "comparison",
+    "difficulty": "hard",
+    "question": "힙 정렬도 O(n log n)인데 왜 실제로는 퀵 정렬보다 느려?",
+    "answer": "둘 다 O(n log n)이지만 숨은 상수가 다르다. n=20000 난수 배열에서 실측하면 힙 정렬의 비교 횟수는 약 1.79 n log2(n), 퀵 정렬은 약 1.49 n log2(n)이다. 힙 정렬은 sift-down마다 두 자식을 모두 비교해 어느 쪽이 큰지 정해야 하고, 접근하는 인덱스가 i에서 2i+1, 2i+2로 튀어 캐시 라인을 계속 놓친다. 퀵 정렬은 두 포인터가 배열을 순차로 훑어 지역성이 좋고 분기 예측도 잘 맞는다. 대신 힙 정렬은 최악에도 O(n log n)을 보장하고 추가 메모리가 없어 인트로소트의 안전망으로 쓰인다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random, math, sys\nsys.setrecursionlimit(100000)\nrandom.seed(1); n=20000\nbase=[random.random() for _ in range(n)]\nhc=0\ndef sift(a,i,m):\n    global hc\n    while True:\n        l=2*i+1; r=l+1; b=i\n        if l<m:\n            hc+=1\n            if a[l]>a[b]: b=l\n        if r<m:\n            hc+=1\n            if a[r]>a[b]: b=r\n        if b==i: break\n        a[i],a[b]=a[b],a[i]; i=b\na=base[:]\nfor i in range(n//2-1,-1,-1): sift(a,i,n)\nfor m in range(n-1,0,-1):\n    a[0],a[m]=a[m],a[0]; sift(a,0,m)\nqc=0\ndef qs(x,lo,hi):\n    global qc\n    if lo>=hi: return\n    p=x[(lo+hi)//2]; i=lo; j=hi\n    while i<=j:\n        while True:\n            qc+=1\n            if x[i]<p: i+=1\n            else: break\n        while True:\n            qc+=1\n            if x[j]>p: j-=1\n            else: break\n        if i<=j: x[i],x[j]=x[j],x[i]; i+=1; j-=1\n    qs(x,lo,j); qs(x,i,hi)\nb=base[:]; qs(b,0,n-1)\nnl=n*math.log2(n); s=sorted(base)\nprint(a==s and b==s and hc>qc and 1.7<hc/nl<1.9 and 1.4<qc/nl<1.55)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "n=20000 동일 입력에서 두 알고리즘의 비교 횟수를 직접 세어 각각 약 1.79, 1.49 n log2 n임을 확인했다. 캐시 지역성 부분은 코드로 직접 측정하지 않은 통상적 설명이다.",
+    "quiz": {
+      "q": "힙 정렬이 퀵 정렬보다 느린 두 가지 이유를 말해봐.",
+      "accept": [
+        "캐시",
+        "지역성",
+        "상수",
+        "비교 횟수",
+        "locality"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-018",
+    "domain": "algorithm",
+    "topic": "힙",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "배열을 힙으로 만드는 게 왜 O(n log n)이 아니라 O(n)이야?",
+    "answer": "아래에서 위로 sift-down하는 방식에서 한 노드의 비용은 깊이가 아니라 그 노드의 높이에 비례한다. 그런데 높이가 h인 노드는 최대 n/2^(h+1)개뿐이라 대부분의 노드는 높이가 0이나 1로 거의 공짜다. 총비용은 n × Σ(h/2^(h+1))이고 Σ(h/2^h)가 2로 수렴하므로 O(n)이다. 반대로 원소를 하나씩 넣으며 위로 sift-up하면 깊이가 깊은 노드가 절반이라 O(n log n)이 된다. n=200000 난수에서 실측한 sift-down 교환 횟수는 약 0.74n으로 n보다 작았다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random, math\nrandom.seed(0); n=200000\na=[random.random() for _ in range(n)]\nsw=0\ndef sift(i,m):\n    global sw\n    while True:\n        l=2*i+1; r=l+1; mn=i\n        if l<m and a[l]<a[mn]: mn=l\n        if r<m and a[r]<a[mn]: mn=r\n        if mn==i: break\n        a[i],a[mn]=a[mn],a[i]; sw+=1; i=mn\nfor i in range(n//2-1,-1,-1): sift(i,n)   # 아래에서 위로 sift-down\nis_heap=all(a[i]<=a[c] for i in range(n//2) for c in (2*i+1,2*i+2) if c<n)\nprint(is_heap and sw<n and sw<0.1*n*math.log2(n))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "n=200000 난수 배열의 상향식 heapify에서 실제 교환 횟수가 148660(약 0.74n)으로 n 미만임을 세었고, 결과가 힙 성질을 만족하는지도 확인했다.",
+    "quiz": {
+      "q": "상향식 heapify가 O(n)인 핵심 근거는?",
+      "accept": [
+        "높이",
+        "대부분",
+        "리프",
+        "2로 수렴",
+        "급수",
+        "n/2^"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-019",
+    "domain": "algorithm",
+    "topic": "분할상환",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "동적 배열 push_back이 분할상환 O(1)이라는 걸 유도해줘.",
+    "answer": "가득 찼을 때 용량을 2배로 늘리는 전략에서 n번 삽입 동안 발생하는 총 복사 횟수는 1+2+4+...+2^k로 등비급수이고 2n보다 작다. n=1000이면 정확히 1023회다. 삽입 1회당 평균 복사가 2회 미만이므로 분할상환 O(1)이다. 개별 삽입 하나는 O(n)이 될 수 있지만 그런 일이 지수적으로 드물게만 일어난다. 반면 용량을 1씩만 늘리면 매 삽입마다 전체를 복사해 총 n(n-1)/2 = 499500회가 되고 삽입당 O(n)이다. 핵심은 여유 공간을 두는 것이 아니라 용량을 배수로 늘리는 것이다.",
+    "verify": {
+      "lang": "python",
+      "code": "n=1000\ncap=1; size=0; copies=0\nfor _ in range(n):\n    if size==cap: copies+=size; cap*=2       # 2배 증폭\n    size+=1\ncap2=0; size2=0; copies2=0\nfor _ in range(n):\n    if size2==cap2: copies2+=size2; cap2+=1  # 1칸씩 증가\n    size2+=1\nprint(copies==1023 and copies<2*n and copies2==n*(n-1)//2==499500)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "n=1000 삽입 시뮬레이션에서 2배 증폭 총 복사 1023회(<2n), 1씩 증가 총 복사 499500회 = n(n-1)/2를 실측했다.",
+    "quiz": {
+      "q": "동적 배열 용량을 1씩 늘리면 n번 삽입의 총 복사 횟수는?",
+      "accept": [
+        "n(n-1)/2",
+        "499500",
+        "O(n^2)",
+        "n제곱",
+        "제곱"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-020",
+    "domain": "algorithm",
+    "topic": "마스터 정리",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "마스터 정리로 못 푸는 점화식 예를 들어줘.",
+    "answer": "T(n) = 2T(n/2) + n/log n이 대표적이다. a=2, b=2라 n^(log_b a) = n^1인데 f(n) = n/log n은 세 케이스 어디에도 들어가지 않는다. 케이스 1은 f = O(n^(1-e))를 요구하지만 f(n)/n^0.9가 발산하고, 케이스 3은 f = Omega(n^(1+e))를 요구하지만 f(n)/n^1.1이 0으로 수렴한다. 케이스 2의 확장형 Theta(n log^k n)은 k >= 0을 요구하는데 여기는 k = -1이라 그것도 안 된다. f가 n^(log_b a)보다 다항적으로 크지도 작지도 않은 좁은 틈에 끼어 있는 경우다. 재귀 트리를 직접 펼치면 답은 Theta(n log log n)이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\nf=lambda n: n/math.log2(n)               # T(n)=2T(n/2)+n/log n, n^(log_b a)=n\nns=[2**20,2**40,2**80,2**160]\ne=0.1\nr1=[f(n)/n**(1-e) for n in ns]           # case1이면 유계여야 하는데 발산\nr3=[f(n)/n**(1+e) for n in ns]           # case3이면 발산해야 하는데 0으로 감\nr2=[f(n)/n for n in ns]                  # case2(k>=0)이면 유계여야 하는데 0으로 감\nc1=all(r1[i]<r1[i+1] for i in range(3)) and r1[-1]>10*r1[0]\nc3=all(r3[i]>r3[i+1] for i in range(3)) and r3[-1]<r3[0]/10\nc2=all(r2[i]>r2[i+1] for i in range(3)) and r2[-1]<0.02\n# 실제 해: n=2^k 로 두고 S(k)=T(n)/n 이면 S(k)=S(k-1)+1/k -> S(k)=H_k-1 ~ ln k\nS=0.0; ratios=[]\nfor k in range(2,2001):\n    S+=1.0/k\n    if k in (100,500,1000,2000):\n        ratios.append(S/math.log(k))     # T(n)/(n*ln(log2 n)) -> 1\nok=all(0.85<x<1.05 for x in ratios) and ratios==sorted(ratios)\nprint(c1 and c2 and c3 and ok)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "e=0.1로 n=2^20부터 2^160까지 비율을 계산해 케이스 1은 발산, 케이스 3과 2는 0으로 수렴함을 확인했고, 점화식을 직접 전개해 T(n)/(n ln(log2 n))가 0.91~0.94로 유계임을 확인했다.",
+    "quiz": {
+      "q": "T(n)=2T(n/2)+n/log n을 마스터 정리로 못 푸는 이유는?",
+      "accept": [
+        "다항",
+        "polynomially",
+        "케이스",
+        "틈이",
+        "사이"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-021",
+    "domain": "algorithm",
+    "topic": "점근 표기법",
+    "kind": "misconception",
+    "difficulty": "easy",
+    "question": "n^2 = O(n^3) 이거 맞는 말이야?",
+    "answer": "맞는 말이다. O는 상한이지 정확한 증가율이 아니라서 n^2 <= 1 * n^3이 모든 n >= 1에서 성립하므로 참이다. 다만 n^2 = Theta(n^3)은 거짓이다. Theta는 상한과 하한을 동시에 요구하는데 n^3/n^2 = n이 발산하기 때문이다. 또 하나 흔한 오류는 삽입 정렬은 Theta(n^2)라는 말이다. 실측하면 이미 정렬된 n=1000 입력에서 비교가 999회로 선형이고, 역순 입력에서는 499500회다. 최선과 최악이 다른 알고리즘에 입력 조건 없이 Theta를 붙일 수 없다. 최악의 경우라는 한정어가 반드시 필요하다.",
+    "verify": {
+      "lang": "python",
+      "code": "def ins_cmp(a):\n    a=a[:]; c=0\n    for i in range(1,len(a)):\n        key=a[i]; j=i-1\n        while j>=0:\n            c+=1\n            if a[j]>key: a[j+1]=a[j]; j-=1\n            else: break\n        a[j+1]=key\n    return c\nn=1000\nbest=ins_cmp(list(range(n)))             # 이미 정렬된 입력\nworst=ins_cmp(list(range(n,0,-1)))       # 역순 입력\nbig_o   = all(k*k <= 1*k**3 for k in range(1,2001))      # n^2 = O(n^3) 은 참\nnot_th  = (2000**3/2000**2) > 100*(10**3/10**2)          # 그러나 Theta는 아니다\nprint(best==n-1 and worst==n*(n-1)//2 and best!=worst and big_o and not_th)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "n<=2000 전 구간에서 n^2 <= n^3을 확인했고, 삽입 정렬 비교 횟수가 정렬된 입력 999회, 역순 입력 499500회임을 실측했다.",
+    "quiz": {
+      "q": "삽입 정렬을 Theta(n^2)라고 말하면 왜 틀려?",
+      "accept": [
+        "최선",
+        "정렬된",
+        "선형",
+        "최악",
+        "입력에 따라",
+        "n-1"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-022",
+    "domain": "algorithm",
+    "topic": "해시 테이블",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "체이닝 해시에서 로드 팩터가 탐색 비용에 어떻게 영향을 줘?",
+    "answer": "로드 팩터 alpha = n/m은 곧 평균 체인 길이다. 균등 해싱을 가정하면 실패한 탐색은 체인 전체를 훑으므로 평균 비교가 alpha회고, 성공한 탐색은 약 1 + alpha/2회다. 새 원소가 체인 앞쪽에 삽입되므로 이미 들어 있던 원소를 찾을 때는 평균적으로 체인의 절반만 보면 되기 때문이다. m=20000 시뮬레이션에서 alpha가 0.5, 1.0, 2.0일 때 성공 탐색 평균이 각각 1.25, 1.51, 2.00으로 이론값과 일치했다. 체이닝은 alpha가 1을 넘어도 동작하고 비용이 선형으로 완만하게 증가한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random\nrandom.seed(7); m=20000; ok=True\nfor alpha in (0.5,1.0,2.0):\n    n=int(m*alpha)\n    tb=[[] for _ in range(m)]\n    for k in range(n): tb[random.randrange(m)].append(k)\n    unsucc=sum(len(b) for b in tb)/m                       # 이론: alpha\n    succ=sum(i+1 for b in tb for i in range(len(b)))/n     # 이론: 1+alpha/2\n    ok &= abs(unsucc-alpha)<1e-9 and abs(succ-(1+alpha/2))<0.05\nprint(ok)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "m=20000 버킷에 무작위 해싱으로 원소를 넣어 실패 탐색 평균 = alpha, 성공 탐색 평균 = 1+alpha/2를 오차 0.05 이내로 확인했다.",
+    "quiz": {
+      "q": "체이닝에서 성공한 탐색의 평균 비교 횟수는 로드 팩터로 어떻게 표현돼?",
+      "accept": [
+        "1+",
+        "절반",
+        "alpha/2",
+        "α/2",
+        "1 + a/2"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-023",
+    "domain": "algorithm",
+    "topic": "해시 테이블",
+    "kind": "comparison",
+    "difficulty": "hard",
+    "question": "체이닝이랑 선형 탐사 중에 로드 팩터가 높아지면 뭐가 더 위험해?",
+    "answer": "선형 탐사가 훨씬 위험하다. 실패한 탐색의 기대 탐사 횟수가 0.5(1 + 1/(1-alpha)^2)로 alpha가 1에 가까워질수록 발산한다. alpha=0.5에서는 2.5회지만 alpha=0.9에서는 50.5회다. m=20000 시뮬레이션에서 각각 약 2.5회와 45회가 나와 18배 차이가 났다. 원인은 1차 클러스터링이다. 충돌한 키들이 연속된 덩어리를 이루고, 그 덩어리 안 어디로 해싱되든 끝까지 훑어야 하며 그 과정에서 덩어리가 더 커진다. 같은 alpha=0.9에서 체이닝은 평균 0.9회다. 그래서 오픈 어드레싱은 alpha를 0.7 근처에서 리해싱한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random\nrandom.seed(3); M=20000\ndef sim(alpha):\n    t=[None]*M; n=int(M*alpha)\n    for k in range(n):\n        i=random.randrange(M)\n        while t[i] is not None: i=(i+1)%M     # 선형 탐사\n        t[i]=k\n    tot=0; T=20000\n    for _ in range(T):\n        i=random.randrange(M); p=1\n        while t[i] is not None: i=(i+1)%M; p+=1\n        tot+=p\n    return tot/T\na=sim(0.5); b=sim(0.9)\nth=lambda x:0.5*(1+1/(1-x)**2)                # 실패 탐색 기대 탐사 횟수\nprint(abs(a-th(0.5))<0.5 and abs(b-th(0.9))<12 and b/a>10 and b>20)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "m=20000 테이블에 선형 탐사로 채운 뒤 실패 탐색 탐사 횟수를 2만 회 샘플링해 alpha=0.5에서 2.53, alpha=0.9에서 45.3을 얻어 이론값 2.5, 50.5와 비교했다.",
+    "quiz": {
+      "q": "선형 탐사가 로드 팩터가 높을 때 급격히 나빠지는 현상의 이름은?",
+      "accept": [
+        "클러스터",
+        "clustering",
+        "군집",
+        "덩어리",
+        "1차"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-024",
+    "domain": "algorithm",
+    "topic": "이진 탐색 트리",
+    "kind": "counterexample",
+    "difficulty": "easy",
+    "question": "BST 탐색이 O(log n)이라는데 항상 그래?",
+    "answer": "아니다. O(log n)은 트리가 균형 잡혀 있을 때만 성립한다. 정렬된 순서로 삽입하면 새 키가 항상 직전 노드의 오른쪽 자식으로 붙어 높이 n-1인 연결 리스트가 된다. n=1000개를 0부터 999까지 순서대로 넣으면 높이가 정확히 999이고 탐색이 O(n)이다. 같은 1000개 키를 무작위 순서로 넣으면 높이가 20 근처가 되며, 무작위 BST의 기대 높이는 약 4.31 ln n으로 알려져 있다. 문제는 실무에서 삽입 순서를 통제할 수 없다는 점이다. 그래서 AVL이나 레드-블랙 트리가 회전으로 균형을 강제한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random, math\ndef height(keys):\n    L={}; R={}; root=keys[0]; L[root]=R[root]=None\n    for k in keys[1:]:\n        c=root\n        while True:\n            if k<c:\n                if L[c] is None: L[c]=k; L[k]=R[k]=None; break\n                c=L[c]\n            else:\n                if R[c] is None: R[c]=k; L[k]=R[k]=None; break\n                c=R[c]\n    st=[(root,0)]; b=0\n    while st:\n        x,d=st.pop()\n        if x is None: continue\n        b=max(b,d); st.append((L[x],d+1)); st.append((R[x],d+1))\n    return b\nn=1000\nhs=height(list(range(n)))                    # 정렬된 순서로 삽입 -> 연결 리스트\nrandom.seed(42); ks=list(range(n)); random.shuffle(ks)\nhr=height(ks)\nprint(hs==n-1 and hr<4*math.log2(n) and hs>30*hr//10)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "n=1000 키를 정렬 순서로 삽입해 높이 999, 무작위 순서로 삽입해 높이 22를 실측했다(4 log2 n = 39.9 미만).",
+    "quiz": {
+      "q": "정렬된 데이터를 그냥 BST에 넣으면 높이가 어떻게 돼?",
+      "accept": [
+        "n-1",
+        "999",
+        "연결 리스트",
+        "리스트",
+        "선형",
+        "O(n)"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-025",
+    "domain": "algorithm",
+    "topic": "힙",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "힙이랑 BST가 헷갈려. 힙도 정렬된 상태야?",
+    "answer": "아니다. 힙은 부모와 자식 사이의 대소 관계만 보장하고 형제 사이나 좌우 순서는 전혀 보장하지 않는다. 최소 힙 배열을 중위 순회해도 정렬된 순서가 나오지 않고 배열 자체도 정렬 배열이 아니다. BST는 왼쪽 서브트리 < 노드 < 오른쪽 서브트리라 중위 순회가 곧 정렬 순서다. 그래서 최소 힙에서 최솟값은 O(1)이지만 임의의 값 탐색은 O(n)이다. 최소 힙의 최댓값은 반드시 리프에 있으므로 인덱스 n/2부터 n-1까지 절반을 전부 봐야 찾을 수 있다. 정렬이 필요하면 BST를, 최솟값만 반복해서 꺼내려면 힙을 쓴다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random, heapq\nrandom.seed(5); ok=True\nfor _ in range(400):\n    n=random.randint(2,60)\n    a=[random.randrange(10**6) for _ in range(n)]\n    heapq.heapify(a)                                  # 최소 힙\n    ok &= max(a)==max(a[n//2:])                       # 최대값은 반드시 리프에 있다\n    ok &= all(a[i]<=a[c] for i in range(n//2) for c in (2*i+1,2*i+2) if c<n)\nc=[9,8,7,6,5,4,3]; heapq.heapify(c)\nprint(ok and c!=sorted(c))                            # 힙 배열은 정렬 배열이 아니다",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "무작위 크기의 최소 힙 400개에서 최댓값이 항상 리프 구간(인덱스 n//2 이상)에 있음과 힙 성질을 확인했고, heapify된 배열이 정렬 배열과 다름을 확인했다.",
+    "quiz": {
+      "q": "최소 힙에서 최댓값은 어디에 있어?",
+      "accept": [
+        "리프",
+        "leaf",
+        "단말",
+        "뒤쪽 절반",
+        "n/2"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-026",
+    "domain": "algorithm",
+    "topic": "트라이",
+    "kind": "tradeoff",
+    "difficulty": "medium",
+    "question": "트라이의 공간 복잡도는 어떻게 계산해?",
+    "answer": "트라이의 노드 개수는 저장한 문자열들의 서로 다른 접두사 개수와 같다. cat, car, card, care, cart, dog, do, done 여덟 단어의 총 문자 수는 27이지만 접두사가 겹쳐 노드는 13개다. 공유가 많을수록 이득이라 최악은 겹침이 전혀 없을 때의 O(총 문자 수)다. 진짜 함정은 노드마다 자식 배열을 알파벳 크기 26으로 잡는 구현이다. 이 예에서 13 × 26 = 338칸을 잡지만 실제로 쓰이는 간선은 12개뿐이라 96%가 낭비다. 유니코드처럼 알파벳이 커지면 O(노드 수 × 알파벳 크기)가 지배하므로 해시맵이나 자식 리스트로 바꾸어야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "words=[\"cat\",\"car\",\"card\",\"care\",\"cart\",\"dog\",\"do\",\"done\"]\nroot={}\nfor w in words:\n    c=root\n    for ch in w: c=c.setdefault(ch,{})\n    c[\"$\"]=True\ndef count(d): return 1+sum(count(v) for k,v in d.items() if k!=\"$\")\nnodes=count(root)\nprefixes={w[:i] for w in words for i in range(len(w)+1)}   # 빈 문자열 포함\ntotal_chars=sum(len(w) for w in words)\nprint(nodes==len(prefixes)==13 and nodes<total_chars+1 and nodes*26==338)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "여덟 단어로 트라이를 만들어 노드 수 13이 서로 다른 접두사 집합 크기 13과 정확히 일치함을 확인했고, 26칸 배열 방식의 총 칸 수 338을 계산했다.",
+    "quiz": {
+      "q": "트라이의 노드 개수는 무엇과 같아?",
+      "accept": [
+        "접두사",
+        "prefix",
+        "서로 다른",
+        "구분되는"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-027",
+    "domain": "algorithm",
+    "topic": "동적계획법",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "메모이제이션이랑 타뷸레이션은 결국 같은 거 아냐?",
+    "answer": "결과는 같지만 계산하는 상태의 개수가 다르다. 타뷸레이션은 상태 공간 전체를 채우고 메모이제이션은 실제로 도달하는 상태만 계산한다. 무게가 [30, 40, 50, 60, 70]이고 용량이 200인 배낭에서 테이블은 6 × 201 = 1206칸을 전부 채우지만, 재귀와 메모는 도달 가능한 (물건 인덱스, 남은 용량) 조합 49개만 방문한다. 둘 다 답은 20으로 같다. 상태가 희소하면 메모이제이션이 20배 이상 유리하고, 상태를 거의 다 쓰면 타뷸레이션이 함수 호출 오버헤드와 재귀 깊이 제한이 없어 유리하며 슬라이딩 윈도우로 메모리도 줄일 수 있다.",
+    "verify": {
+      "lang": "python",
+      "code": "W=[30,40,50,60,70]; V=[3,4,5,6,7]; C=200\nseen=set(); memo={}\ndef rec(i,c):\n    if (i,c) in memo: return memo[(i,c)]\n    seen.add((i,c))\n    if i==len(W): r=0\n    else:\n        r=rec(i+1,c)\n        if W[i]<=c: r=max(r,V[i]+rec(i+1,c-W[i]))\n    memo[(i,c)]=r; return r\nval=rec(0,C)\ndp=[0]*(C+1)\nfor w,v in zip(W,V):\n    for c in range(C,w-1,-1): dp[c]=max(dp[c],dp[c-w]+v)\ntab=(len(W)+1)*(C+1)\nprint(val==dp[C]==20 and len(seen)==49 and tab==1206 and len(seen)*20<tab)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "같은 배낭 입력에서 메모 방문 상태 49개, 테이블 크기 1206칸, 두 방식의 답 20이 일치함을 실측했다.",
+    "quiz": {
+      "q": "상태 공간이 희소할 때 메모이제이션과 타뷸레이션 중 뭐가 유리해?",
+      "accept": [
+        "메모",
+        "memo",
+        "하향식",
+        "top-down",
+        "재귀"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-028",
+    "domain": "algorithm",
+    "topic": "최적 부분구조",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "최장 경로 문제는 왜 DP로 못 풀어? 최단 경로랑 뭐가 달라?",
+    "answer": "최장 단순경로에는 최적 부분구조가 성립하지 않는다. 정점 q, r, t, s가 q-r, r-t, t-s, s-q로 이어진 4-사이클을 보자. q에서 t까지의 최장 단순경로는 q-r-t로 길이 2다. 그런데 q에서 r까지의 최장은 q-s-t-r로 3이고 r에서 t까지의 최장도 r-q-s-t로 3이다. 둘을 이어 붙이면 6이지만 정점이 겹쳐 단순경로가 아니다. 또 최장 경로 q-r-t 안의 부분경로 q-r은 길이 1로 그 자체로는 최적이 아니다. 최단 경로는 부분경로도 반드시 최단이라 부분 문제가 독립적이지만, 최장 경로는 부분 문제들이 정점 사용을 두고 서로 간섭해 NP-난해다.",
+    "verify": {
+      "lang": "python",
+      "code": "from collections import deque\nadj={\"q\":[\"r\",\"s\"],\"r\":[\"q\",\"t\"],\"t\":[\"r\",\"s\"],\"s\":[\"t\",\"q\"]}   # 4-사이클 q-r-t-s-q\ndef all_paths(u,v):\n    res=[]\n    def go(cur,vis):\n        if cur==v: res.append(list(vis)); return\n        for w in adj[cur]:\n            if w not in vis: vis.append(w); go(w,vis); vis.pop()\n    go(u,[u]); return res\nlp=lambda u,v: max(len(p)-1 for p in all_paths(u,v))\nsp=lambda u,v: min(len(p)-1 for p in all_paths(u,v))\nlqt,lqr,lrt = lp(\"q\",\"t\"), lp(\"q\",\"r\"), lp(\"r\",\"t\")\nopt=max(all_paths(\"q\",\"t\"),key=len)          # 최장 q->t 경로\nsub_qr=1                                     # 그 경로 안의 q->r 부분경로 길이\n# 최장경로: 부분경로가 최적이 아니고, 최적끼리 이으면 단순경로가 아니다\nbad_long = (lqt==2 and lqr==3 and lrt==3 and sub_qr!=lqr and lqr+lrt>lqt)\n# 최단경로: 부분경로도 최단이다\ngood_short = all(sp(\"q\",m)+sp(m,\"t\")>=sp(\"q\",\"t\") for m in [\"r\",\"s\"]) and sp(\"q\",\"t\")==2\nprint(bad_long and good_short and len(opt)-1==2)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "모든 단순경로를 완전 탐색해 최장 q-t=2, q-r=3, r-t=3을 확인했고, 최단 경로에서는 부분경로 최적성이 성립함도 확인했다.",
+    "quiz": {
+      "q": "최장 단순경로에 최적 부분구조가 없는 이유가 뭐야?",
+      "accept": [
+        "겹치",
+        "독립",
+        "간섭",
+        "단순경로가 아니",
+        "정점을 공유",
+        "중복"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-029",
+    "domain": "algorithm",
+    "topic": "동적계획법",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "최장 경로가 NP-난해라며? DAG에서는 왜 DP로 풀려?",
+    "answer": "사이클이 없기 때문이다. 사이클이 없으면 어떤 경로도 같은 정점을 다시 방문할 수 없어 단순경로라는 제약이 저절로 만족되고, 부분 문제들이 정점 사용을 두고 간섭하지 않아 독립이 된다. 그래서 위상 순서대로 훑으며 dist[v] = max(dist[u] + w(u,v))를 갱신하면 O(V+E)에 풀린다. 무작위 DAG 200개에서 이 DP와 완전 탐색의 결과가 전부 일치했다. 반대로 같은 그래프에 사이클을 하나만 추가해도 이 논리가 무너진다. 일반 그래프의 최장 경로는 해밀턴 경로 문제를 포함하므로 NP-난해다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random\nrandom.seed(11); ok=True; n=7\nfor _ in range(200):\n    E=[(i,j) for i in range(n) for j in range(i+1,n) if random.random()<0.4]\n    w={e:random.randint(1,9) for e in E}\n    NEG=float(\"-inf\")\n    dp=[NEG]*n; dp[0]=0\n    for i in range(n):                        # 0..n-1 이 이미 위상 순서\n        if dp[i]==NEG: continue\n        for (a,b) in E:\n            if a==i: dp[b]=max(dp[b],dp[a]+w[(a,b)])\n    best=[NEG]*n; best[0]=0\n    def go(u,c):\n        for (a,b) in E:\n            if a==u:\n                if c+w[(a,b)]>best[b]: best[b]=c+w[(a,b)]\n                go(b,c+w[(a,b)])\n    go(0,0)\n    ok &= dp==best\nprint(ok)",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "정점 7개짜리 무작위 DAG 200개에서 위상순서 DP 결과와 완전 탐색 결과가 모든 정점에 대해 일치함을 확인했다.",
+    "quiz": {
+      "q": "DAG에서 최장 경로 DP가 성립하는 결정적 이유는?",
+      "accept": [
+        "사이클",
+        "재방문",
+        "순환이 없",
+        "독립",
+        "위상"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "algo-030",
+    "domain": "algorithm",
+    "topic": "LIS",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "LIS를 O(n log n)으로 구하면 그 배열이 답 아니야?",
+    "answer": "아니다. 이분 탐색으로 관리하는 tails 배열은 길이만 정답이고 배열 내용은 실제 부분 수열이 아니다. [2, 6, 8, 3, 4, 5, 1]을 처리하면 tails는 [1, 3, 4, 5]가 되는데, 여기서 1은 원래 배열의 맨 마지막 원소라 이 네 값은 순서상 부분 수열조차 될 수 없다. 실제 LIS는 [2, 3, 4, 5]이고 길이만 4로 같다. tails[i]는 길이가 i+1인 증가 부분 수열의 가능한 최소 끝값일 뿐, 네 값이 동시에 하나의 수열을 이룬다는 보장이 없다. 실제 수열을 복원하려면 각 원소가 tails의 몇 번째에 들어갔는지와 부모 인덱스를 따로 기록해야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import bisect, itertools\na=[2,6,8,3,4,5,1]\ntails=[]\nfor x in a:\n    i=bisect.bisect_left(tails,x)\n    if i==len(tails): tails.append(x)\n    else: tails[i]=x\ndef is_subsequence(s,arr):\n    it=iter(arr)\n    return all(any(c==d for d in it) for c in s)\ndef brute(arr):\n    for k in range(len(arr),0,-1):\n        for c in itertools.combinations(arr,k):\n            if all(c[i]<c[i+1] for i in range(k-1)): return k\n    return 0\nprint(tails==[1,3,4,5] and len(tails)==brute(a)==4 and not is_subsequence(tails,a))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "tails가 [1,3,4,5]가 되는 것, 그것이 원 배열의 부분 수열이 아닌 것, 완전 탐색 LIS 길이가 4로 같은 것을 모두 확인했다.",
+    "quiz": {
+      "q": "O(n log n) LIS의 tails 배열이 실제 LIS가 아닌 이유는?",
+      "accept": [
+        "길이만",
+        "최소 끝",
+        "부분 수열이 아",
+        "동시에",
+        "덮어",
+        "교체"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  }
+]

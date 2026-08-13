@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "sim": "esbuild scripts/nod-sim.mjs --bundle --platform=node --format=esm --outfile=node_modules/.sim.mjs --log-level=error && node node_modules/.sim.mjs",
+    "compare": "esbuild scripts/compare-models.mjs --bundle --platform=node --format=esm --outfile=node_modules/.cmp.mjs --log-level=error && node node_modules/.cmp.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,css}\" \"*.{js,json,html}\"",

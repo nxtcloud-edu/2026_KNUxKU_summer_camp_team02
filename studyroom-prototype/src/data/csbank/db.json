@@ -1,0 +1,731 @@
+[
+  {
+    "id": "db-001",
+    "domain": "db",
+    "topic": "정규화/후보키",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "함수종속만 주어졌을 때 후보키를 빠짐없이 찾는 절차가 뭐야?",
+    "answer": "R(A,B,C,D,E)에 F={A→BC, CD→E, B→D, E→A}가 주어졌다고 하자. 후보키는 속성 폐포(attribute closure)로 구한다. 먼저 어느 함수종속의 우변에도 등장하지 않는 속성은 모든 후보키에 반드시 들어가는데, 여기서는 A,B,C,D,E가 모두 어딘가의 우변에 나오므로 필수 속성이 없다. 그래서 크기 1인 부분집합부터 폐포를 계산해 올라간다. A+, E+, BC+, CD+가 각각 전체 집합이 되고, 이들을 진부분집합으로 포함하는 조합은 극소성 때문에 제외된다. 결과는 A, BC, CD, E 네 개다. 학부생이 틀리는 지점은 두 가지다. 하나를 찾고 멈추는 것, 그리고 폐포가 전체가 된다고 바로 후보키라 부르는 것이다. 그건 슈퍼키일 뿐이고 극소성을 따로 확인해야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "from itertools import combinations\nR = set(\"ABCDE\")\nF = [(\"A\",\"BC\"), (\"CD\",\"E\"), (\"B\",\"D\"), (\"E\",\"A\")]\nF = [(frozenset(l), frozenset(r)) for l, r in F]\n\ndef closure(X, F):\n    X = set(X); changed = True\n    while changed:\n        changed = False\n        for l, r in F:\n            if l <= X and not r <= X:\n                X |= r; changed = True\n    return X\n\nkeys = []\nfor n in range(1, len(R) + 1):\n    for c in combinations(sorted(R), n):\n        s = frozenset(c)\n        if closure(s, F) == R and not any(k < s for k in keys):\n            keys.append(s)\ncand = sorted(\"\".join(sorted(k)) for k in keys)\nprint(cand == [\"A\", \"BC\", \"CD\", \"E\"])\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "AB의 폐포가 릴레이션 전체가 나왔어. 그럼 AB가 후보키야?",
+      "accept": [
+        "극소",
+        "최소",
+        "슈퍼키",
+        "부분집합",
+        "아니"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-002",
+    "domain": "db",
+    "topic": "정규화/정규형 판정",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "3정규형인데 BCNF가 아닌 경우가 실제로 어떻게 생겨?",
+    "answer": "R(A,B,C,D)에 F={AB→C, C→D, D→A}인 경우다. 후보키는 AB, BC, BD 세 개이고 네 속성이 전부 주요속성이 된다. 비주요속성이 하나도 없으므로 부분종속도 이행종속도 성립할 수 없어 이 릴레이션은 자동으로 2NF이자 3NF다. 그런데 C+는 {C,D,A}로 전체가 아니고 D+도 {D,A}뿐이라 C도 D도 슈퍼키가 아니다. C→D와 D→A 두 개가 BCNF를 위배한다. 3NF는 결정자가 슈퍼키가 아니어도 우변이 주요속성이면 넘어가 주는 예외 조항을 두는데, BCNF는 그 예외를 없애고 모든 결정자가 슈퍼키일 것을 요구한다. 그 예외 하나가 두 정규형을 가르는 전부다.",
+    "verify": {
+      "lang": "python",
+      "code": "from itertools import combinations\nR = set(\"ABCD\")\nF = [(frozenset(l), frozenset(r)) for l, r in [(\"AB\",\"C\"), (\"C\",\"D\"), (\"D\",\"A\")]]\n\ndef closure(X):\n    X = set(X); ch = True\n    while ch:\n        ch = False\n        for l, r in F:\n            if l <= X and not r <= X:\n                X |= r; ch = True\n    return X\n\nkeys = []\nfor n in range(1, len(R)+1):\n    for c in combinations(sorted(R), n):\n        s = frozenset(c)\n        if closure(s) == R and not any(k < s for k in keys):\n            keys.append(s)\nprime = set().union(*keys)\nsupers = [X for n in range(1, len(R)+1) for X in map(frozenset, combinations(sorted(R), n)) if closure(X) == R]\n\ndef violates_bcnf(l, r):\n    return not (r <= l) and closure(l) != R\n\ndef violates_3nf(l, r):\n    return violates_bcnf(l, r) and not ((r - l) <= prime)\n\ndef violates_2nf(l, r):\n    # 비주요속성이 후보키의 진부분집합에 종속\n    return any(l < k for k in keys) and bool((r - l) - prime)\n\nk = sorted(\"\".join(sorted(x)) for x in keys)\nb = [( \"\".join(sorted(l)), \"\".join(sorted(r))) for l, r in F if violates_bcnf(l, r)]\nt = [x for x in F if violates_3nf(*x)]\ns = [x for x in F if violates_2nf(*x)]\nprint(k == [\"AB\",\"BC\",\"BD\"] and prime == R and s == [] and t == []\n      and b == [(\"C\",\"D\"), (\"D\",\"A\")])\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "모든 속성이 주요속성이면 3NF는 자동으로 만족해. 그럼 BCNF도 만족해?",
+      "accept": [
+        "아니",
+        "슈퍼키",
+        "결정자",
+        "위배",
+        "BCNF"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-003",
+    "domain": "db",
+    "topic": "정규화/BCNF",
+    "kind": "tradeoff",
+    "difficulty": "hard",
+    "question": "BCNF까지 분해하면 뭘 잃어? 3NF를 왜 남겨두는 거야?",
+    "answer": "R(도시, 거리, 우편번호)에 {도시,거리}→우편번호와 우편번호→도시가 있는 경우가 표준 사례다. 후보키는 {도시,거리}와 {거리,우편번호}다. 우편번호→도시에서 우편번호가 슈퍼키가 아니므로 BCNF 위배이고, (우편번호,도시)와 (우편번호,거리)로 분해한다. 공통 속성 우편번호가 (우편번호,도시)를 결정하므로 무손실 조인은 보장된다. 그러나 두 조각에 투영된 함수종속만으로는 {도시,거리}→우편번호를 유도할 수 없다. 같은 도시·거리 쌍에 다른 우편번호를 넣어도 각 조각에서는 아무 제약도 깨지지 않고, 두 조각을 조인해 봐야 위반을 알 수 있다. 3NF는 무손실과 종속성 보존을 항상 함께 달성할 수 있지만 BCNF는 보존을 포기해야 하는 경우가 있어서 3NF에서 멈추는 선택이 존재한다.",
+    "verify": {
+      "lang": "python",
+      "code": "from itertools import combinations\n# R(도시=C, 거리=S, 우편번호=Z)\nR = set(\"CSZ\")\nF = [(frozenset(\"CS\"), frozenset(\"Z\")), (frozenset(\"Z\"), frozenset(\"C\"))]\n\ndef closure(X, G):\n    X = set(X); ch = True\n    while ch:\n        ch = False\n        for l, r in G:\n            if l <= X and not r <= X:\n                X |= r; ch = True\n    return X\n\nkeys = [frozenset(c) for n in (1,2,3) for c in combinations(sorted(R), n)\n        if closure(c, F) == R]\nkeys = [k for k in keys if not any(j < k for j in keys)]\n# BCNF 위배: Z->C, Z는 슈퍼키가 아님\nbad = [(l, r) for l, r in F if not r <= l and closure(l, F) != R]\n# BCNF 분해: R1(Z,C), R2(Z,S)\nR1, R2 = frozenset(\"ZC\"), frozenset(\"ZS\")\n# 무손실: R1∩R2 = {Z}, Z+ ⊇ R1\nlossless = closure(R1 & R2, F) >= R1 or closure(R1 & R2, F) >= R2\n# 각 조각에 투영된 FD들 (F+ 를 조각 속성으로 제한)\nproj = []\nfor Ri in (R1, R2):\n    for n in range(1, len(Ri)):\n        for X in map(frozenset, combinations(sorted(Ri), n)):\n            Y = closure(X, F) & Ri\n            if Y - X:\n                proj.append((X, Y - X))\n# 투영 FD만으로 CS->Z 를 유도할 수 있나?\npreserved = frozenset(\"Z\") <= closure(frozenset(\"CS\"), proj)\nprint(sorted(\"\".join(sorted(k)) for k in keys) == [\"CS\",\"SZ\"]\n      and [(\"\".join(sorted(l)), \"\".join(sorted(r))) for l, r in bad] == [(\"Z\",\"C\")]\n      and lossless and not preserved)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "BCNF 분해는 무손실이면 종속성 보존도 같이 되는 거지?",
+      "accept": [
+        "아니",
+        "보존",
+        "3NF",
+        "포기",
+        "안 된"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-004",
+    "domain": "db",
+    "topic": "정규화/무손실 분해",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "분해가 손실이라는 게 데이터가 사라진다는 뜻이야?",
+    "answer": "반대다. 손실 분해에서 실제로 일어나는 일은 조인했을 때 원래 없던 가짜 튜플이 생기는 것이다. 두 조각으로 나눌 때 무손실 조건은 R1∩R2→R1 또는 R1∩R2→R2 중 적어도 하나가 성립하는 것, 즉 공통 속성이 한쪽 조각 전체를 결정하는 것이다. R(A,B,C)에 A→B가 있을 때 (A,B),(A,C)는 공통 A가 B를 결정하므로 무손실이다. 반면 (A,B),(B,C)는 공통 B가 A도 C도 결정하지 못한다. (1,1,1)과 (2,1,2) 두 튜플을 이렇게 쪼갠 뒤 B로 조인하면 (1,1,2)와 (2,1,1)이 추가로 생겨 네 튜플이 된다. 정보가 없어진 게 아니라 사실이 아닌 정보가 섞여 들어간 것이고, 그래서 원본을 복원할 수 없다는 의미에서 손실이다.",
+    "verify": {
+      "lang": "python",
+      "code": "def join(T1, T2, common, cols1, cols2, out):\n    res = set()\n    for a in T1:\n        for b in T2:\n            if all(a[c] == b[c] for c in common):\n                m = dict(a); m.update(b)\n                res.add(tuple(m[c] for c in out))\n    return res\n\n# R(A,B,C), FD: A->B (C는 자유)\nR = [{\"A\":1,\"B\":1,\"C\":1}, {\"A\":2,\"B\":1,\"C\":2}]\n# 분해1: (A,B),(B,C) -> 공통 B, B->A 도 B->C 도 성립하지 않음 => 손실\np1 = [{k:t[k] for k in (\"A\",\"B\")} for t in R]\np2 = [{k:t[k] for k in (\"B\",\"C\")} for t in R]\nj1 = join(p1, p2, [\"B\"], None, None, [\"A\",\"B\",\"C\"])\n# 분해2: (A,B),(A,C) -> 공통 A, A->B 성립 => 무손실\nq1 = [{k:t[k] for k in (\"A\",\"B\")} for t in R]\nq2 = [{k:t[k] for k in (\"A\",\"C\")} for t in R]\nj2 = join(q1, q2, [\"A\"], None, None, [\"A\",\"B\",\"C\"])\norig = {(t[\"A\"], t[\"B\"], t[\"C\"]) for t in R}\nprint(j1 != orig and len(j1) == 4 and j2 == orig)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "손실 분해를 조인하면 튜플이 줄어들어, 늘어나?",
+      "accept": [
+        "늘어",
+        "증가",
+        "가짜",
+        "spurious",
+        "많아"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-005",
+    "domain": "db",
+    "topic": "정규화/부분종속",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "2NF 위반이랑 3NF 위반을 실전에서 어떻게 구분해?",
+    "answer": "R(학번, 과목코드, 성적, 이름, 학과, 학과사무실)에 {학번,과목코드}→성적, 학번→이름, 학번→학과, 학과→학과사무실이 있다고 하자. 후보키는 {학번,과목코드}이고 비주요속성은 성적, 이름, 학과, 학과사무실이다. 학번→이름과 학번→학과는 결정자가 후보키의 진부분집합이므로 부분종속이고 2NF 위반이다. 학과→학과사무실은 결정자 학과가 후보키의 부분집합이 아니라 그 자체가 비주요속성이므로 부분종속이 아니라 이행종속이고 3NF 위반이다. 판정 기준은 결정자의 정체다. 후보키의 진부분집합이면 2NF, 키와 무관한 비주요속성이면 3NF 문제다. 따라서 후보키가 단일 속성인 릴레이션은 진부분집합이 공집합뿐이라 부분종속이 원천적으로 불가능하고 자동으로 2NF다.",
+    "verify": {
+      "lang": "python",
+      "code": "from itertools import combinations\n# 학번S, 과목코드K, 성적G, 이름N, 학과D, 학과사무실O\nR = set(\"SKGNDO\")\nF = [(frozenset(\"SK\"), frozenset(\"G\")), (frozenset(\"S\"), frozenset(\"N\")),\n     (frozenset(\"S\"), frozenset(\"D\")), (frozenset(\"D\"), frozenset(\"O\"))]\n\ndef closure(X):\n    X = set(X); ch = True\n    while ch:\n        ch = False\n        for l, r in F:\n            if l <= X and not r <= X:\n                X |= r; ch = True\n    return X\n\nkeys = [frozenset(c) for n in range(1, len(R)+1)\n        for c in combinations(sorted(R), n) if closure(c) == R]\nkeys = [k for k in keys if not any(j < k for j in keys)]\nprime = set().union(*keys)\nnonprime = R - prime\npartial, transitive = [], []\nfor l, r in F:\n    rr = \"\".join(sorted(r - l))\n    if not (r - l) <= nonprime:\n        continue\n    if any(l < k for k in keys):          # 후보키의 진부분집합이 결정\n        partial.append((\"\".join(sorted(l)), rr))\n    elif closure(l) != R:                  # 키도 아니고 키의 부분집합도 아님\n        transitive.append((\"\".join(sorted(l)), rr))\nprint(sorted(\"\".join(sorted(k)) for k in keys) == [\"KS\"]\n      and nonprime == set(\"GNDO\")\n      and sorted(partial) == [(\"S\",\"D\"), (\"S\",\"N\")]\n      and transitive == [(\"D\",\"O\")])\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "기본키가 단일 컬럼인 테이블에서 2NF 위반이 나올 수 있어?",
+      "accept": [
+        "수 없",
+        "없다",
+        "불가",
+        "자동",
+        "부분종속",
+        "단일"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-006",
+    "domain": "db",
+    "topic": "정규화/4NF",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "BCNF를 만족하는데도 중복이 남는 경우가 있어?",
+    "answer": "있다. R(강좌, 교재, 강사)에서 교재 목록과 강사 목록이 서로 독립이면 함수종속이 하나도 존재하지 않는다. 결정자가 없으니 전체 속성 집합이 유일한 후보키이고 BCNF는 문제없이 만족한다. 그런데 교재 2종과 강사 2명이면 조합을 다 채운 4개 튜플을 저장해야 하고 강사를 한 명 추가할 때마다 교재 수만큼 행이 늘어난다. 이 관계가 다치종속(multivalued dependency) 강좌↠교재이고, 4NF가 잡는 대상이다. (강좌,교재)와 (강좌,강사)로 분해하면 2+2개 값만 저장하고 조인하면 4개 튜플이 정확히 복원된다. 반대로 다치종속이 성립하지 않는 인스턴스에 같은 분해를 적용하면 조인 결과가 원본보다 커져 가짜 튜플이 나온다. 즉 이 분해가 안전한 근거는 다치종속의 성립 자체다.",
+    "verify": {
+      "lang": "python",
+      "code": "def rejoin(R):\n    a = {(c, t) for c, t, p in R}\n    b = {(c, p) for c, t, p in R}\n    return {(c1, t, p) for c1, t in a for c2, p in b if c1 == c2}\n\n# 강좌↠교재, 강좌↠강사 (서로 독립) -> MVD 성립\nfull = {(\"DB\", t, p) for t in (\"교재1\", \"교재2\") for p in (\"김\", \"이\")}\n# MVD가 깨진 인스턴스: 한 조합을 빼면\nbroken = full - {(\"DB\", \"교재2\", \"이\")}\nprint(rejoin(full) == full and len(full) == 4\n      and rejoin(broken) != broken and len(rejoin(broken)) == 4)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "함수종속이 하나도 없는 3속성 릴레이션은 BCNF야?",
+      "accept": [
+        "BCNF",
+        "만족",
+        "맞다",
+        "맞아",
+        "4NF",
+        "다치"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-007",
+    "domain": "db",
+    "topic": "정규화/반정규화",
+    "kind": "tradeoff",
+    "difficulty": "medium",
+    "question": "정규화는 단계가 높을수록 무조건 좋은 거 아냐?",
+    "answer": "아니다. 정규화가 없애는 것은 갱신 이상이고, 대신 지불하는 것은 조인이다. 3NF까지는 대체로 이득이 비용보다 크지만 BCNF나 4NF로 갈수록 릴레이션 조각이 늘어 조회마다 조인이 붙고, 종속성 보존을 잃으면 DBMS가 강제하던 제약을 애플리케이션이 떠안는다. 읽기가 압도적으로 많고 갱신이 드문 집계 테이블이나 이력 테이블은 의도적으로 중복을 남기는 편이 낫다. 판단 기준은 정규형 번호가 아니라 갱신 빈도 대 조회 빈도, 중복을 동기화할 수단이 있는지, 잘못 동기화됐을 때 감당 가능한지다. 반정규화는 정규화를 건너뛰는 것이 아니라 정규화된 설계를 기준선으로 두고 근거를 갖고 되돌리는 작업이다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "설계 판단 기준이라 워크로드에 따라 답이 달라진다. 참·거짓을 가릴 수 있는 명제가 아니어서 코드 검산이 불가능하다.",
+    "quiz": {
+      "q": "반정규화는 정규화를 안 한 상태랑 같은 거야?",
+      "accept": [
+        "아니",
+        "다르",
+        "되돌",
+        "근거",
+        "기준"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-008",
+    "domain": "db",
+    "topic": "트랜잭션/충돌 직렬성",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "연산이 뒤섞인 스케줄이 직렬 가능한지 어떻게 판정해?",
+    "answer": "뒤섞였는지가 아니라 충돌 쌍의 방향만 본다. 서로 다른 트랜잭션이 같은 데이터 항목에 접근하고 그중 최소 하나가 쓰기면 충돌이며, 스케줄에서 먼저 나온 트랜잭션에서 나중 트랜잭션으로 간선을 긋는다. 이 우선순위 그래프(precedence graph)에 사이클이 없으면 충돌 직렬 가능이고, 위상정렬 순서가 동치인 직렬 순서다. r1(A) r2(A) w1(A) w2(A)는 r1과 w2에서 T1→T2, r2와 w1에서 T2→T1이 동시에 생겨 사이클이므로 직렬 가능하지 않다. 반면 r1(A) w1(A) r2(A) w2(A) r3(B) w3(B) r1(B)는 더 복잡하게 섞였지만 간선이 T1→T2와 T3→T1뿐이라 사이클이 없고 T3, T1, T2 순서와 결과가 같다.",
+    "verify": {
+      "lang": "python",
+      "code": "def parse(s):\n    ops = []\n    for tok in s.split():\n        ops.append((tok[0], int(tok[1]), tok[3]))   # (r/w, txn, item)\n    return ops\n\ndef precedence(ops):\n    edges = set()\n    for i, (a, ta, xa) in enumerate(ops):\n        for (b, tb, xb) in ops[i+1:]:\n            if ta != tb and xa == xb and not (a == \"r\" and b == \"r\"):\n                edges.add((ta, tb))\n    return edges\n\ndef acyclic(edges):\n    nodes = {n for e in edges for n in e}\n    color = {}\n    def dfs(u):\n        color[u] = 1\n        for (a, b) in edges:\n            if a == u:\n                if color.get(b) == 1: return False\n                if color.get(b) is None and not dfs(b): return False\n        color[u] = 2\n        return True\n    return all(color.get(n) is not None or dfs(n) for n in nodes)\n\ndef topo(edges, nodes):\n    order, seen = [], set()\n    while len(order) < len(nodes):\n        for n in sorted(nodes):\n            if n not in seen and all(a in seen or a == n for (a, b) in edges if b == n):\n                order.append(n); seen.add(n); break\n        else:\n            return None\n    return order\n\nS1 = parse(\"r1(A) r2(A) w1(A) w2(A)\")\nS2 = parse(\"r1(A) w1(A) r2(A) w2(A) r3(B) w3(B) r1(B)\")\ne1, e2 = precedence(S1), precedence(S2)\nprint(not acyclic(e1) and e1 == {(1,2), (2,1)}\n      and acyclic(e2) and topo(e2, {1,2,3}) == [3,1,2])\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "읽기끼리는 같은 데이터를 봐도 우선순위 간선이 생겨?",
+      "accept": [
+        "안 생",
+        "수 없",
+        "생기지 않",
+        "아니",
+        "읽기",
+        "충돌 아"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-009",
+    "domain": "db",
+    "topic": "트랜잭션/뷰 직렬성",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "우선순위 그래프에 사이클이 있으면 무조건 잘못된 스케줄이야?",
+    "answer": "아니다. 충돌 직렬성은 직렬 가능성의 충분조건이지 필요조건이 아니다. r1(A) w2(A) w1(A) w3(A)를 보자. r1과 w2에서 T1→T2, w2와 w1에서 T2→T1이 생겨 사이클이므로 충돌 직렬 가능하지 않다. 그런데 이 스케줄에서 유일한 읽기인 r1(A)는 초기값을 읽고 최종 기록자는 T3다. T1, T2, T3 순서의 직렬 스케줄에서도 r1(A)는 초기값을 읽고 최종 기록자는 T3다. 읽는 값도 최종 상태도 같으니 뷰 직렬 가능(view serializable)이다. 이런 틈은 w2(A)가 읽지 않고 덮어쓰는 맹목적 쓰기(blind write)라 그 결과를 아무도 관측하지 않아서 생긴다. 그래도 실제 DBMS가 충돌 직렬성만 보는 이유는 뷰 직렬성 판정이 NP-완전이기 때문이다.",
+    "verify": {
+      "lang": "python",
+      "code": "from itertools import permutations\nS = [(\"r\",1,\"A\"), (\"w\",2,\"A\"), (\"w\",1,\"A\"), (\"w\",3,\"A\")]\n\ndef precedence(ops):\n    return {(ta, tb) for i, (a, ta, xa) in enumerate(ops)\n            for (b, tb, xb) in ops[i+1:]\n            if ta != tb and xa == xb and not (a == \"r\" and b == \"r\")}\n\ndef cyclic(edges):\n    nodes = {n for e in edges for n in e}\n    reach = {n: {b for a, b in edges if a == n} for n in nodes}\n    for _ in range(len(nodes)):\n        for n in nodes:\n            reach[n] |= {y for m in list(reach[n]) for y in reach.get(m, set())}\n    return any(n in reach[n] for n in nodes)\n\ndef view_sig(ops):\n    last, reads, final = {}, set(), {}\n    for k, t, x in ops:\n        if k == \"r\":\n            reads.add((t, x, last.get(x, 0)))   # 0 = 초기값\n        else:\n            last[x] = t; final[x] = t\n    return reads, final\n\ndef serial(order):\n    return [(k, t, x) for t in order for (k, tt, x) in S if tt == t]\n\neq = [p for p in permutations((1,2,3)) if view_sig(S) == view_sig(serial(p))]\nprint(cyclic(precedence(S)) and eq == [(1,2,3)])\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "뷰 직렬 가능한데 충돌 직렬 가능하지 않은 스케줄이 존재해?",
+      "accept": [
+        "존재",
+        "있다",
+        "맹목",
+        "blind",
+        "가능"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-010",
+    "domain": "db",
+    "topic": "트랜잭션/2PL",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "2PL을 쓰면 직렬 가능한 스케줄은 전부 만들 수 있어?",
+    "answer": "아니다. 2PL은 충돌 직렬성을 보장하는 충분조건일 뿐이고, 직렬 가능한 스케줄 중에 2PL로는 만들 수 없는 것이 있다. r1(A) w1(A) r2(A) w2(A) r3(B) w3(B) r1(B) w1(B)는 간선이 T1→T2와 T3→T1뿐이라 사이클이 없고 T3, T1, T2 순서와 동치인 정상적인 스케줄이다. 그런데 3번째 연산에서 T2가 A를 읽으려면 T1이 A 잠금을 이미 반납했어야 하고, 7번째에서 T1은 B 잠금을 새로 획득해야 한다. 반납 뒤 획득이라 두 단계 규칙이 깨진다. 즉 이 스케줄은 직렬 가능하지만 2PL 스케줄러는 절대 생성하지 못한다. 2PL이 포기하는 동시성이 정확히 이만큼이고, 그 대가로 전역 그래프에 사이클이 있는지 검사하지 않고도 실행 중에 직렬성을 보장한다.",
+    "verify": {
+      "lang": "python",
+      "code": "def parse(s):\n    return [(t[0], int(t[1]), t[3]) for t in s.split()]\n\ndef precedence(ops):\n    return {(ta, tb) for i, (a, ta, xa) in enumerate(ops)\n            for (b, tb, xb) in ops[i+1:]\n            if ta != tb and xa == xb and not (a == \"r\" and b == \"r\")}\n\ndef cyclic(edges):\n    nodes = {n for e in edges for n in e}\n    reach = {n: {b for a, b in edges if a == n} for n in nodes}\n    for _ in range(len(nodes)):\n        for n in nodes:\n            reach[n] |= {y for m in list(reach[n]) for y in reach.get(m, set())}\n    return any(n in reach[n] for n in nodes)\n\ndef two_phase_ok(ops):\n    \"\"\"각 트랜잭션이 잠금을 모두 얻은 뒤에야 풀 수 있는지.\"\"\"\n    txns = {t for _, t, _ in ops}\n    for T in txns:\n        acq, rel = [], []\n        items = {x for _, t, x in ops if t == T}\n        for x in items:\n            idx = [i for i, (k, t, y) in enumerate(ops) if t == T and y == x]\n            acq.append(idx[0])\n            # 마지막 접근 이후 다른 트랜잭션의 충돌 연산 = 반납 마감시한\n            mine = {ops[i][0] for i in idx}\n            dl = [j for j, (k, t, y) in enumerate(ops)\n                  if j > idx[-1] and t != T and y == x and not (k == \"r\" and mine == {\"r\"})]\n            rel.append(dl[0] if dl else len(ops))\n        if max(acq) > min(rel):\n            return False\n    return True\n\nA = parse(\"r1(A) w1(A) r2(A) w2(A) r3(B) w3(B) r1(B) w1(B)\")\nB = parse(\"r1(A) w1(A) r1(B) w1(B) r2(A) w2(A)\")\nprint(not cyclic(precedence(A)) and not two_phase_ok(A)\n      and not cyclic(precedence(B)) and two_phase_ok(B))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "2PL이 만들 수 있는 스케줄 집합이랑 충돌 직렬 가능한 스케줄 집합은 같아?",
+      "accept": [
+        "아니",
+        "진부분",
+        "더 좁",
+        "부분집합",
+        "다르"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-011",
+    "domain": "db",
+    "topic": "트랜잭션/더티 리드",
+    "kind": "derivation",
+    "difficulty": "easy",
+    "question": "더티 리드가 정확히 어떤 순서에서 발생해?",
+    "answer": "T1이 잔액을 100에서 150으로 UPDATE하고 아직 커밋하지 않은 상태에서 T2가 그 행을 읽고, 그 뒤 T1이 롤백하는 순서다. 핵심은 T2가 읽은 150이 커밋 이력에 한 번도 존재한 적 없는 값이라는 점이다. 읽기 전 커밋 상태도 100이고 읽은 뒤 최종 커밋 상태도 100이라, T2는 데이터베이스가 한 번도 가진 적 없는 상태를 근거로 계산한 셈이 된다. 이 현상은 READ UNCOMMITTED에서만 허용되고 READ COMMITTED 이상은 마지막 커밋 값을 돌려주므로 100을 읽는다. T1이 결국 커밋해서 결과적으로 맞는 값이 되더라도, 읽는 시점에는 그것을 알 수 없으므로 여전히 더티 리드이며 그 위험은 T1의 롤백 가능성 자체에 있다.",
+    "verify": {
+      "lang": "python",
+      "code": "class DB:\n    def __init__(self, v): self.committed = v; self.history = [v]; self.buf = {}\n    def write(self, t, v): self.buf[t] = v\n    def commit(self, t):\n        if t in self.buf:\n            self.committed = self.buf.pop(t); self.history.append(self.committed)\n    def abort(self, t): self.buf.pop(t, None)\n    def read(self, t, level):\n        if level == \"READ UNCOMMITTED\":\n            other = [v for k, v in self.buf.items() if k != t]\n            return other[-1] if other else self.committed\n        return self.committed          # READ COMMITTED 이상\n\ndef run(level):\n    db = DB(100)\n    db.write(\"T1\", 150)      # T1: UPDATE balance = 150 (미커밋)\n    seen = db.read(\"T2\", level)\n    db.abort(\"T1\")           # T1 롤백\n    return seen, db.history\n\nru, h = run(\"READ UNCOMMITTED\")\nrc, _ = run(\"READ COMMITTED\")\n# 더티 리드의 정의: 읽은 값이 어떤 커밋 상태와도 일치하지 않는다\nprint(ru == 150 and ru not in h and h == [100] and rc == 100 and rc in h)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "더티 리드에서 문제는 값이 바뀐 거야, 롤백될 수 있는 값을 읽은 거야?",
+      "accept": [
+        "롤백",
+        "미커밋",
+        "커밋 안",
+        "abort",
+        "철회"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-012",
+    "domain": "db",
+    "topic": "트랜잭션/이상현상",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "반복 불가능 읽기랑 팬텀 리드는 뭐가 달라?",
+    "answer": "대상이 특정 행이냐 조건에 맞는 행 집합이냐가 다르다. 한 트랜잭션이 같은 행을 두 번 읽었는데 값이 달라지면 반복 불가능 읽기(non-repeatable read)이고, 같은 조건의 범위 질의를 두 번 했는데 없던 행이 끼어들면 팬텀(phantom)이다. 앞의 것은 다른 트랜잭션의 UPDATE나 DELETE로 생기고, 뒤의 것은 INSERT로 생긴다. 이 차이가 중요한 이유는 방어 수단이 다르기 때문이다. 이미 읽은 행에 잠금을 걸어두면 반복 불가능 읽기는 막지만, 아직 존재하지 않는 행에는 잠금을 걸 수 없어 팬텀은 못 막는다. 그래서 범위 자체를 잠그는 갭 잠금이나 트랜잭션 시작 시점의 스냅샷이 필요하다. 문장 단위가 아니라 트랜잭션 단위 스냅샷으로 읽으면 두 이상현상이 한꺼번에 사라진다.",
+    "verify": {
+      "lang": "python",
+      "code": "class Store:\n    def __init__(self):\n        self.rows = {1: [(0, 10)]}   # id -> [(commit_ts, value)]\n        self.ts = 0\n    def commit_update(self, rid, v):\n        self.ts += 1; self.rows.setdefault(rid, []).append((self.ts, v))\n    def commit_insert(self, rid, v):\n        self.ts += 1; self.rows[rid] = [(self.ts, v)]\n    def read(self, rid, snap):\n        vs = [v for t, v in self.rows.get(rid, []) if t <= snap]\n        return vs[-1] if vs else None\n    def scan(self, snap):\n        return [r for r in self.rows if self.read(r, snap) is not None]\n\ndef run(level):\n    s = Store(); start = s.ts\n    snap = lambda: s.ts if level == \"RC\" else start   # RC=문장 스냅샷, RR=트랜잭션 스냅샷\n    v1, c1 = s.read(1, snap()), len(s.scan(snap()))\n    s.commit_update(1, 20)      # 다른 트랜잭션이 UPDATE 후 커밋\n    s.commit_insert(2, 99)      # 다른 트랜잭션이 INSERT 후 커밋\n    v2, c2 = s.read(1, snap()), len(s.scan(snap()))\n    return (v1, v2), (c1, c2)\n\n(rc_v, rc_c) = run(\"RC\")\n(rr_v, rr_c) = run(\"RR\")\nprint(rc_v == (10, 20) and rc_c == (1, 2)      # 반복불가능 읽기 + 팬텀\n      and rr_v == (10, 10) and rr_c == (1, 1))  # 스냅샷이면 둘 다 없음\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "행 단위 잠금만으로 팬텀을 막을 수 있어?",
+      "accept": [
+        "수 없",
+        "막지 못",
+        "못 막",
+        "INSERT",
+        "갭 락",
+        "범위"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-013",
+    "domain": "db",
+    "topic": "트랜잭션/격리수준",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "격리수준 표에 REPEATABLE READ는 팬텀이 난다고 돼 있던데 맞아?",
+    "answer": "그 표는 SQL 표준이 각 수준에서 허용하는 최대치를 적은 것이지 구현이 실제로 그렇게 동작한다는 뜻이 아니다. 표준은 REPEATABLE READ에서 팬텀을 허용하지만, MySQL InnoDB의 일반 SELECT는 트랜잭션 스냅샷을 읽으므로 팬텀이 보이지 않고 SELECT ... FOR UPDATE 같은 잠금 읽기는 갭 잠금으로 막는다. PostgreSQL의 REPEATABLE READ는 사실상 스냅샷 격리라 팬텀은 없지만 쓰기 스큐가 남는다. 즉 이름이 같아도 보장 범위는 엔진마다 다르다. 시험에서 요구하는 표준 표와 실제 서비스에서 감수하게 되는 이상현상은 분리해서 알아야 하고, 후자는 엔진 문서를 봐야 한다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "엔진과 버전별 구현 차이에 관한 서술이라 로컬 파이썬만으로는 재현할 수 없다. MySQL·PostgreSQL 공식 문서로 확인해야 한다.",
+    "quiz": {
+      "q": "MySQL InnoDB의 REPEATABLE READ에서 일반 SELECT는 팬텀을 보나?",
+      "accept": [
+        "안 보",
+        "보이지 않",
+        "스냅샷",
+        "막는다",
+        "막아",
+        "아니"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-014",
+    "domain": "db",
+    "topic": "트랜잭션/교착",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "2PL을 쓰면 교착 상태도 같이 해결되는 거 아냐?",
+    "answer": "아니다. 2PL이 보장하는 것은 직렬성뿐이고 교착은 전혀 막지 못한다. 오히려 확장 단계 동안 잠금을 계속 쥐고 있어야 하므로 교착이 더 잘 생긴다. T1이 A를 잠그고 T2가 B를 잠근 다음 T1이 B를, T2가 A를 요청하면 대기 그래프가 T1→T2→T1 사이클이 되어 둘 다 영원히 대기한다. 두 트랜잭션 모두 아직 잠금을 하나도 반납하지 않았으므로 2PL 규칙은 완벽히 지켜진 상태다. 대응은 세 갈래다. 모든 트랜잭션이 자원을 같은 순서로 잠그도록 강제해 사이클 자체를 없애는 예방, 대기 그래프의 사이클을 주기적으로 찾아 희생자를 롤백하는 탐지, 그리고 일정 시간 대기하면 포기하는 타임아웃이다. 실무 엔진은 보통 탐지와 타임아웃을 함께 쓴다.",
+    "verify": {
+      "lang": "python",
+      "code": "class LockMgr:\n    def __init__(self): self.owner = {}; self.wait = {}\n    def acquire(self, t, x):\n        o = self.owner.get(x)\n        if o is None or o == t:\n            self.owner[x] = t; self.wait.pop(t, None); return \"ok\"\n        self.wait[t] = o\n        return \"cycle\" if self.detect() else \"wait\"\n    def detect(self):\n        for s in list(self.wait):\n            seen, cur = set(), s\n            while cur in self.wait:\n                cur = self.wait[cur]\n                if cur in seen or cur == s: return True\n                seen.add(cur)\n        return False\n\n# 2PL 준수: 두 트랜잭션 모두 잠금을 하나도 풀지 않은 채 다음 잠금을 요청\nm = LockMgr()\nr = [m.acquire(\"T1\",\"A\"), m.acquire(\"T2\",\"B\"), m.acquire(\"T1\",\"B\"), m.acquire(\"T2\",\"A\")]\n# 순서를 통일하면(둘 다 A->B) 교착 없음\nm2 = LockMgr()\nr2 = [m2.acquire(\"T1\",\"A\"), m2.acquire(\"T1\",\"B\"), m2.acquire(\"T2\",\"A\")]\nprint(r == [\"ok\",\"ok\",\"wait\",\"cycle\"] and \"cycle\" not in r2)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "2PL을 지켰는데도 교착이 생길 수 있어?",
+      "accept": [
+        "있다",
+        "생긴",
+        "발생",
+        "교착",
+        "deadlock",
+        "대기"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-015",
+    "domain": "db",
+    "topic": "트랜잭션/엄격 2PL",
+    "kind": "tradeoff",
+    "difficulty": "medium",
+    "question": "잠금을 다 얻고 나면 바로 풀어도 되는데 왜 커밋까지 들고 있어?",
+    "answer": "기본 2PL은 축소 단계에 들어가면 커밋 전에도 잠금을 반납할 수 있다. T1이 A를 쓴 뒤 잠금을 풀면 T2가 그 미커밋 값을 읽을 수 있고, 이후 T1이 철회되면 T2가 읽은 값이 무효가 되어 T2도 함께 철회해야 한다. 이것이 연쇄 철회(cascading abort)다. 더 나쁜 경우는 T2가 이미 커밋해 버린 상황이다. 커밋된 트랜잭션은 되돌릴 수 없으므로 복구 불가능한 스케줄이 된다. 엄격 2PL은 배타 잠금을 커밋 또는 철회 시점까지 유지해 다른 트랜잭션이 미커밋 값을 아예 볼 수 없게 만든다. 대기 시간이 늘어 동시성을 조금 잃지만 연쇄 철회가 원천적으로 사라지고 복구 로직이 단순해지므로 상용 엔진은 거의 예외 없이 엄격 2PL 계열을 쓴다.",
+    "verify": {
+      "lang": "python",
+      "code": "def run(strict):\n    lock = {}; read_from = {}; aborted = []\n    def w(t, x):\n        if lock.get(x) not in (None, t): return \"blocked\"\n        lock[x] = t; return \"ok\"\n    def r(t, x):\n        if lock.get(x) not in (None, t): return \"blocked\"\n        read_from[t] = lock.get(x, None); return \"ok\"\n    w(\"T1\", \"A\")\n    if not strict:\n        del lock[\"A\"]            # 기본 2PL: 커밋 전에 반납 가능\n        del_ok = True\n    r2 = r(\"T2\", \"A\")            # T2가 T1의 미커밋 값을 읽음(기본 2PL에서만 가능)\n    if r2 == \"ok\" and not strict:\n        read_from[\"T2\"] = \"T1\"\n    # T1 철회\n    if read_from.get(\"T2\") == \"T1\":\n        aborted.append(\"T2\")     # 연쇄 철회\n    return r2, aborted\n\nbasic = run(False)\nstrict = run(True)\nprint(basic == (\"ok\", [\"T2\"]) and strict == (\"blocked\", []))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "엄격 2PL이 기본 2PL보다 얻는 게 뭐야?",
+      "accept": [
+        "연쇄",
+        "cascading",
+        "복구",
+        "철회",
+        "미커밋"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-016",
+    "domain": "db",
+    "topic": "MVCC",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "MVCC는 읽기 잠금을 어떻게 없애는 거야?",
+    "answer": "갱신할 때 제자리에서 덮어쓰지 않고 새 버전을 만들면서 옛 버전을 남기기 때문이다. 읽는 쪽은 자기 스냅샷 시점 이하의 마지막 버전을 찾아 읽으면 되므로 쓰는 쪽이 만드는 새 버전과 아예 겹치지 않는다. 그래서 읽기가 쓰기를 막지 않고 쓰기도 읽기를 막지 않는다. SQLite를 WAL 모드로 놓고 확인할 수 있다. 독자가 트랜잭션을 열고 잔액 100을 읽은 뒤, 다른 연결이 같은 행을 999로 바꾸고 커밋해도 독자는 트랜잭션이 끝날 때까지 계속 100을 읽고 커밋 후에야 999를 본다. 기록자는 독자를 기다리지 않고 바로 커밋한다. 대가는 옛 버전의 보관과 정리 비용이다. 오래 열린 트랜잭션이 있으면 그 스냅샷 때문에 옛 버전을 회수하지 못해 테이블과 인덱스가 부푼다.",
+    "verify": {
+      "lang": "python",
+      "code": "import sqlite3, tempfile, os\np = os.path.join(tempfile.mkdtemp(), \"t.db\")\na = sqlite3.connect(p, isolation_level=None)\na.execute(\"PRAGMA journal_mode=WAL\")\na.execute(\"CREATE TABLE acct(id INT PRIMARY KEY, bal INT)\")\na.execute(\"INSERT INTO acct VALUES (1, 100)\")\nb = sqlite3.connect(p, isolation_level=None)\nb.execute(\"PRAGMA journal_mode=WAL\")\n\na.execute(\"BEGIN\")                       # 독자: 스냅샷 확보\nfirst = a.execute(\"SELECT bal FROM acct WHERE id=1\").fetchone()[0]\nb.execute(\"BEGIN IMMEDIATE\")             # 기록자: 같은 행을 쓰기 잠금\nb.execute(\"UPDATE acct SET bal=999 WHERE id=1\")\nb.execute(\"COMMIT\")                      # 기록자 커밋 — 독자를 기다리지 않음\nsecond = a.execute(\"SELECT bal FROM acct WHERE id=1\").fetchone()[0]\na.execute(\"COMMIT\")\nthird = a.execute(\"SELECT bal FROM acct WHERE id=1\").fetchone()[0]\nprint(first == 100 and second == 100 and third == 999)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "MVCC에서 읽는 트랜잭션이 쓰는 트랜잭션을 기다려?",
+      "accept": [
+        "안 기다",
+        "기다리지 않",
+        "막지",
+        "버전",
+        "스냅샷"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-017",
+    "domain": "db",
+    "topic": "스냅샷 격리/쓰기 스큐",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "스냅샷 격리면 직렬화 가능이랑 사실상 같은 거 아냐?",
+    "answer": "아니다. 스냅샷 격리는 같은 행에 대한 쓰기 충돌만 검사하므로 서로 다른 행을 쓰는 두 트랜잭션은 둘 다 통과한다. 당직자가 두 명이고 최소 한 명은 남아야 한다는 제약을 보자. 두 사람이 같은 스냅샷에서 동시에 시작해 각자 '나 말고 한 명 더 있다'를 확인하고 각자 자기 행만 0으로 바꾼다. 쓰기 집합이 겹치지 않으니 충돌 검사에 걸리지 않고 둘 다 커밋되어 당직자가 0이 된다. 직렬 실행이었다면 두 번째 트랜잭션은 갱신된 최신 상태를 보고 물러났을 것이다. 이것이 쓰기 스큐(write skew)다. 원인은 읽은 것을 근거로 다른 것을 쓰는데 그 읽기가 보호되지 않는다는 데 있다. 방어는 SELECT ... FOR UPDATE나 직렬화 가능 스냅샷 격리다.",
+    "verify": {
+      "lang": "python",
+      "code": "class SI:\n    def __init__(self, rows): self.ts = 0; self.rows = {k: [(0, v)] for k, v in rows.items()}\n    def read(self, k, snap):\n        return [v for t, v in self.rows[k] if t <= snap][-1]\n    def commit(self, snap, writes):\n        for k in writes:                       # 첫 커밋자 승리: 같은 행 충돌만 검사\n            if any(t > snap for t, _ in self.rows[k]): return \"abort\"\n        self.ts += 1\n        for k, v in writes.items(): self.rows[k].append((self.ts, v))\n        return \"commit\"\n\ndef total(db): return sum(db.read(k, db.ts) for k in db.rows)\n\n# 불변식: 당직 인원 합계 >= 1\ndb = SI({\"alice\": 1, \"bob\": 1})\ns1 = s2 = db.ts                              # 두 트랜잭션이 같은 스냅샷에서 시작\nok1 = total(db) >= 2                          # T1: 나 말고 한 명 더 있네 -> 빠져도 됨\nr1 = db.commit(s1, {\"alice\": 0})\nok2 = sum(db.read(k, s2) for k in db.rows) >= 2   # T2도 옛 스냅샷으로 판단\nr2 = db.commit(s2, {\"bob\": 0})               # 쓰는 행이 달라 충돌 감지 안 됨\nskew = (r1 == \"commit\" and r2 == \"commit\" and total(db) == 0)\n\n# 직렬 실행이었다면 T2는 최신 상태를 보고 물러난다\ndb2 = SI({\"alice\": 1, \"bob\": 1})\ndb2.commit(db2.ts, {\"alice\": 0})\nserial_ok = sum(db2.read(k, db2.ts) for k in db2.rows) >= 2\nprint(skew and not serial_ok)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "쓰기 스큐가 스냅샷 격리의 충돌 검사에 안 걸리는 이유가 뭐야?",
+      "accept": [
+        "다른 행",
+        "겹치",
+        "쓰기 집합",
+        "읽기",
+        "같은 행 아"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-018",
+    "domain": "db",
+    "topic": "트랜잭션/갱신 손실",
+    "kind": "derivation",
+    "difficulty": "easy",
+    "question": "갱신 손실은 왜 생기고 스냅샷 격리는 그걸 막아?",
+    "answer": "두 트랜잭션이 같은 행을 읽고 각자 계산한 값을 쓰면 나중 쓰기가 앞 쓰기를 덮어써서 증가분 하나가 통째로 사라진다. 둘 다 100을 읽고 각자 101을 쓰면 결과는 102가 아니라 101이다. 스냅샷 격리는 같은 행에 대해 첫 커밋자 승리 규칙을 적용한다. 자기 스냅샷 이후에 만들어진 버전이 있으면 커밋을 거부하므로 두 번째 트랜잭션이 철회되고, 재시도하면 101을 읽어 102를 쓰게 되어 갱신 손실이 사라진다. 다만 이 보호는 같은 행일 때만 작동하고 행이 다르면 쓰기 스큐로 빠져나간다. 가장 확실한 해법은 애플리케이션이 읽은 값을 들고 계산하지 않는 것이다. UPDATE t SET n = n + 1처럼 DB 안에서 계산하면 한 문장이 배타 잠금 아래 실행되어 문제가 성립하지 않는다.",
+    "verify": {
+      "lang": "python",
+      "code": "class Row:\n    def __init__(self, v): self.versions = [(0, v)]; self.ts = 0\n    def read(self, snap): return [v for t, v in self.versions if t <= snap][-1]\n    def commit(self, snap, v, check):\n        if check and any(t > snap for t, _ in self.versions): return \"abort\"\n        self.ts = max(self.ts, snap) + 1\n        self.versions.append((self.ts, v)); return \"commit\"\n\ndef run(check):\n    r = Row(100); s1 = s2 = 0\n    v1 = r.read(s1); v2 = r.read(s2)          # 둘 다 100을 읽고\n    a = r.commit(s1, v1 + 1, check)           # 각자 +1 해서 쓴다\n    b = r.commit(s2, v2 + 1, check)\n    return a, b, r.read(r.ts)\n\nlost = run(False)      # 검사 없음 = 갱신 손실\nsi = run(True)         # 첫 커밋자 승리 = 두 번째는 철회\nprint(lost == (\"commit\", \"commit\", 101) and si[1] == \"abort\" and si[2] == 101)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "갱신 손실을 코드에서 가장 확실하게 없애는 방법은?",
+      "accept": [
+        "n + 1",
+        "SET n",
+        "DB 안",
+        "원자",
+        "FOR UPDATE",
+        "한 문장"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-019",
+    "domain": "db",
+    "topic": "인덱스/B+트리",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "인덱스를 한 번 타면 디스크를 몇 번 읽는 거야?",
+    "answer": "생각보다 훨씬 적다. 16KB 페이지, BIGINT 키 8바이트에 포인터 6바이트, 채움률 70%로 잡으면 노드 하나에 819개 엔트리가 들어간다. 1억 행이면 리프가 약 12만 2천 페이지, 그 위 레벨이 150페이지, 그 위가 루트 1페이지로 총 3레벨이다. 100만 행도 3레벨이고 100억 행이 되어야 4레벨이 된다. 높이가 fanout을 밑으로 하는 로그이기 때문에 데이터가 100배로 늘어도 레벨은 1 늘까 말까 한다. 게다가 루트와 상위 내부 노드는 버퍼 풀에 상주하므로 실제 디스크 접근은 리프 한 번 수준이다. 따라서 인덱스를 탔는데 느리다면 원인은 트리 높이가 아니라 리프에서 얻은 위치로 테이블을 랜덤 접근하는 횟수이거나, 애초에 인덱스를 못 타고 있는 것이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\nPAGE, KEY, PTR, FILL = 16384, 8, 6, 0.7    # 16KB 페이지, BIGINT 키, 6바이트 포인터\n\ndef height(n, entry, fill=FILL):\n    fanout = int(PAGE * fill // entry)\n    nodes, h = math.ceil(n / fanout), 1     # 리프 레벨\n    while nodes > 1:\n        nodes = math.ceil(nodes / fanout); h += 1\n    return fanout, h\n\nf, h1 = height(10**8, KEY + PTR)            # 1억 행\n_, h0 = height(10**4, KEY + PTR)            # 1만 행\n_, h2 = height(10**6, KEY + PTR)            # 100만 행\n_, h3 = height(10**10, KEY + PTR)           # 100억 행\n# 행이 100배 늘어도 높이는 1 늘까 말까 -> log_fanout\nprint(f == 819 and h0 == 2 and h2 == 3 and h1 == 3 and h3 == 4\n      and math.ceil(math.log(10**8, f)) == 3)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "행 수가 100배 늘면 B+트리 높이는 어떻게 돼?",
+      "accept": [
+        "로그",
+        "log",
+        "거의",
+        "조금",
+        "한 레벨"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-020",
+    "domain": "db",
+    "topic": "인덱스/B트리 비교",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "B트리랑 B+트리 차이가 왜 그렇게 중요해?",
+    "answer": "두 가지가 갈린다. 첫째는 fanout이다. B트리는 내부 노드에도 레코드를 함께 담으므로 레코드가 120바이트면 엔트리가 134바이트가 되어 16KB 노드에 122개밖에 못 넣고 1억 행에서 4레벨이 된다. B+트리는 내부 노드에 키와 포인터만 두어 1170개가 들어가 3레벨로 끝난다. fanout이 9배 넘게 차이 난다. 둘째는 범위 스캔이고 이쪽이 실무에서 더 크다. B+트리는 데이터가 전부 리프에 있고 리프끼리 연결 리스트로 이어져, 1000건을 읽어도 하강 3회 뒤 리프를 순차로 훑으면 끝난다. B트리는 값이 내부 노드에도 흩어져 있어 중위 순회로 트리를 오르내려야 하므로 건수에 비례해 임의 접근이 늘어난다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\nPAGE, KEY, PTR, ROW = 16384, 8, 6, 120      # 레코드 120바이트\n\ndef levels(n, entry):\n    fan = PAGE // entry\n    nodes, h = math.ceil(n / fan), 1\n    while nodes > 1:\n        nodes = math.ceil(nodes / fan); h += 1\n    return fan, h\n\nbplus, hp = levels(10**8, KEY + PTR)        # B+트리: 내부 노드에 키+포인터만\nbtree, hb = levels(10**8, KEY + PTR + ROW)  # B트리: 노드마다 레코드도 함께\n\n# 범위 스캔 1000건: B+트리는 리프 연결 리스트를 따라간다\nleaf_cap = int(PAGE * 0.7 // (KEY + PTR))\nbplus_range = hp + math.ceil(1000 / leaf_cap) - 1\nbtree_range = hb + 1000                     # 최악: 건마다 트리를 오르내린다\nprint(bplus == 1170 and btree == 122 and hp == 3 and hb == 4\n      and bplus / btree > 9 and bplus_range == 4 and btree_range > 1000)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "B+트리가 범위 스캔에 유리한 구조적 이유가 뭐야?",
+      "accept": [
+        "리프",
+        "연결",
+        "링크",
+        "순차",
+        "포인터"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-021",
+    "domain": "db",
+    "topic": "인덱스/복합 인덱스",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "복합 인덱스 (a, b)를 만들었는데 b 조건만 있는 쿼리는 왜 인덱스를 못 써?",
+    "answer": "복합 인덱스는 컬럼별로 따로 정렬된 두 개가 아니라 (a, b) 사전순으로 정렬된 하나의 목록이기 때문이다. a=3인 항목들은 목록에서 연속된 구간이라 시작 위치를 찾아 쭉 읽으면 되지만, b=3인 항목들은 a 값마다 흩어져 있어 연속 구간이 아니고 결국 전체를 훑어야 한다. 그래서 선두 컬럼 조건이 없으면 탐색에 쓸 수 없다. 같은 원리로 a=3 AND b>=3은 연속 구간이지만 a>=3 AND b=3은 아니다. 여기서 등치 조건 컬럼을 앞에, 범위 조건 컬럼을 뒤에 두라는 규칙이 나온다. 범위 조건이 걸린 컬럼 뒤에 오는 컬럼들은 탐색 범위를 좁히는 데 기여하지 못하고 읽어 온 항목을 걸러내는 데만 쓰인다.",
+    "verify": {
+      "lang": "python",
+      "code": "idx = sorted((a, b) for a in range(1, 6) for b in range(1, 6))   # 인덱스 (a, b)\n\ndef contiguous(pred):\n    hit = [i for i, e in enumerate(idx) if pred(e)]\n    return bool(hit) and hit == list(range(hit[0], hit[-1] + 1)), len(hit)\n\neq_a = contiguous(lambda e: e[0] == 3)                 # a=3\neq_b = contiguous(lambda e: e[1] == 3)                 # b=3 (선두 컬럼 없음)\neq_both = contiguous(lambda e: e == (3, 3))            # a=3 AND b=3\na_eq_b_rng = contiguous(lambda e: e[0] == 3 and e[1] >= 3)   # a=3 AND b>=3\na_rng_b_eq = contiguous(lambda e: e[0] >= 3 and e[1] == 3)   # a>=3 AND b=3\nprint(eq_a == (True, 5) and eq_b == (False, 5) and eq_both == (True, 1)\n      and a_eq_b_rng == (True, 3) and a_rng_b_eq == (False, 3))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "인덱스 (a, b)에서 a>=3 AND b=3 조건은 연속 구간이야?",
+      "accept": [
+        "아니",
+        "연속 아",
+        "흩어",
+        "안 된다",
+        "못한다"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-022",
+    "domain": "db",
+    "topic": "인덱스/커버링",
+    "kind": "tradeoff",
+    "difficulty": "medium",
+    "question": "인덱스를 탔는데도 왜 느려? 커버링 인덱스는 뭐가 다른데?",
+    "answer": "보조 인덱스에는 인덱스 키와 행의 위치만 들어 있다. SELECT가 그 외의 컬럼을 요구하면 걸린 행마다 테이블을 랜덤 접근해야 하고, 이 비용이 인덱스 탐색 비용을 압도한다. 조건에 1만 건이 걸리는 경우를 계산해 보면 인덱스 리프 순차 스캔은 9페이지에 불과하지만 테이블 랜덤 접근이 1만 회 붙는다. 랜덤 IO를 순차의 4배로 잡으면 약 4만이고, 100만 행 풀스캔 비용 1만보다 오히려 네 배 비싸다. 옵티마이저가 인덱스를 버리고 풀스캔을 고르는 지점이 정확히 여기다. 쿼리가 요구하는 컬럼을 전부 인덱스에 포함시키면 테이블을 아예 읽지 않아 비용이 9로 떨어진다. 대신 인덱스가 커져 캐시를 더 먹고 INSERT·UPDATE마다 갱신 비용이 늘어난다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\nPAGE, ENTRY, ROWS_PER_PAGE = 16384, 14, 100\nMATCH, RANDOM_IO, SEQ_IO = 10000, 4, 1      # 랜덤 IO 가중치 4\n\nleaf_pages = math.ceil(MATCH * ENTRY / PAGE)          # 리프 순차 스캔\ncovering = leaf_pages * SEQ_IO                        # 인덱스만 읽고 끝\nlookup = leaf_pages * SEQ_IO + MATCH * RANDOM_IO      # 테이블 랜덤 접근 추가\nfullscan = math.ceil(1_000_000 / ROWS_PER_PAGE) * SEQ_IO\nprint(leaf_pages == 9 and covering == 9 and lookup == 40009\n      and fullscan == 10000 and lookup > fullscan and covering < fullscan)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "커버링 인덱스가 절약하는 비용의 정체가 뭐야?",
+      "accept": [
+        "랜덤",
+        "테이블 접근",
+        "조회",
+        "lookup",
+        "테이블을 안"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-023",
+    "domain": "db",
+    "topic": "인덱스/선택도",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "인덱스를 걸었는데 옵티마이저가 왜 안 써?",
+    "answer": "인덱스가 이득인 조건은 걸러지는 행이 충분히 적을 때뿐이기 때문이다. 100만 행에 페이지당 100행이면 풀스캔은 순차 IO 1만이고 이 값은 조건과 무관하게 고정이다. 반면 인덱스 경로 비용은 매칭 행마다 랜덤 접근이 붙어 선택도에 비례해 커진다. 랜덤 IO를 순차의 4배로 잡으면 선택도 0.25%인 2500행에서 이미 풀스캔과 같아지고, 5%면 20만으로 20배 비싸진다. 성별이나 상태 플래그처럼 값 종류가 적은 컬럼에 단독 인덱스가 무용한 이유가 이것이다. 반대로 옵티마이저가 이상한 선택을 한다면 대개 통계가 낡아 선택도 추정이 틀렸기 때문이므로 힌트를 박기 전에 통계부터 갱신해야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "N, ROWS_PER_PAGE, RANDOM_IO, HEIGHT = 1_000_000, 100, 4, 3\nfull = N / ROWS_PER_PAGE                        # 순차 스캔 10,000 페이지\ndef index_cost(sel):\n    m = N * sel\n    return HEIGHT + m * RANDOM_IO               # 매칭 행마다 랜덤 접근\n\ncross = [s / 10000 for s in range(1, 10000) if index_cost(s / 10000) > full]\nthreshold = min(cross)                          # 이 선택도부터 풀스캔이 유리\nprint(abs(threshold - 0.0025) < 1e-9\n      and index_cost(0.001) < full and index_cost(0.05) > full * 4\n      and index_cost(1.0) == 4000003)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "인덱스가 풀스캔보다 불리해지는 기준이 뭐야?",
+      "accept": [
+        "선택도",
+        "비율",
+        "많으면",
+        "많아",
+        "랜덤",
+        "selectivity"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-024",
+    "domain": "db",
+    "topic": "조인/알고리즘",
+    "kind": "comparison",
+    "difficulty": "hard",
+    "question": "조인 방식은 옵티마이저가 뭘 보고 고르는 거야?",
+    "answer": "R 1000페이지, S 500페이지, 버퍼 102페이지를 기준으로 계산하면 갈리는 이유가 보인다. 블록 중첩 루프는 1000 + 10×500 = 6000, 해시 조인은 분할과 탐색으로 3×1500 = 4500, 정렬 병합은 양쪽 외부 정렬 6000에 병합 1500을 더해 7500이다. 등치 조인이고 정렬 결과가 필요 없으면 해시가 유리하다. 그러나 입력이 이미 인덱스 순서로 정렬돼 있으면 병합은 1500으로 가장 싸고, 부등호 조인에는 해시를 아예 쓸 수 없다. 외부가 20행까지 좁혀졌고 내부에 인덱스가 있으면 인덱스 중첩 루프가 61로 압도적이지만, 같은 방식을 외부 1만 행에 적용하면 31000으로 최악이 된다. 결정 요인은 조인 조건의 종류, 외부 입력 크기, 정렬 여부다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\nM, N, B = 1000, 500, 102        # R 1000페이지, S 500페이지, 버퍼 102페이지\n\nbnl = M + math.ceil(M / (B - 2)) * N                    # 블록 중첩 루프\nhashj = 3 * (M + N)                                     # 분할+탐색 (파티션이 메모리에 들어갈 때)\ndef sort_cost(P):\n    passes = 1 + math.ceil(math.log(math.ceil(P / B), B - 1))\n    return 2 * P * passes\nmerge = sort_cost(M) + sort_cost(N) + M + N             # 정렬 병합\nmerge_sorted = M + N                                    # 이미 정렬(클러스터 인덱스)돼 있으면\n\nR_ROWS, IDX = 10000, 3\ninl_all = M + R_ROWS * IDX                              # 인덱스 중첩 루프, 외부 전체\ninl_small = 1 + 20 * IDX                                # 외부가 20행으로 좁혀졌을 때\nprint(bnl == 6000 and hashj == 4500 and merge == 7500 and merge_sorted == 1500\n      and min(bnl, hashj, merge) == hashj\n      and inl_all == 31000 and inl_small == 61\n      and inl_small < hashj < inl_all)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "외부 테이블이 20행으로 좁혀지고 내부에 인덱스가 있으면 어떤 조인이 유리해?",
+      "accept": [
+        "중첩",
+        "네스티드",
+        "nested",
+        "NL",
+        "인덱스"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-025",
+    "domain": "db",
+    "topic": "SQL/NULL",
+    "kind": "counterexample",
+    "difficulty": "medium",
+    "question": "NOT IN 서브쿼리가 결과를 한 건도 안 주는데 왜 그래?",
+    "answer": "서브쿼리 결과에 NULL이 섞였기 때문이다. SQL은 3치 논리라 NULL과의 비교는 참도 거짓도 아닌 UNKNOWN이다. id NOT IN (1, NULL)은 id<>1 AND id<>NULL로 전개되는데 뒤쪽이 언제나 UNKNOWN이므로 AND 전체가 참이 될 수 없고, WHERE는 참인 행만 통과시키므로 결과가 0건이 된다. 값 3개짜리 테이블에서도 서브쿼리에 NULL이 단 하나 섞이면 전 행이 사라진다. IN은 하나만 참이면 되므로 같은 함정이 없어서 더 헷갈린다. 해결은 서브쿼리에 IS NOT NULL을 붙이거나 NOT EXISTS로 바꾸는 것이다. NOT EXISTS는 값 비교가 아니라 행의 존재 여부를 보므로 NULL과 무관하게 정상적으로 2건을 돌려준다.",
+    "verify": {
+      "lang": "python",
+      "code": "import sqlite3\nc = sqlite3.connect(\":memory:\")\nc.executescript(\"\"\"\nCREATE TABLE emp(id INT);\nINSERT INTO emp VALUES (1),(2),(3);\nCREATE TABLE mgr(eid INT);\nINSERT INTO mgr VALUES (1), (NULL);\n\"\"\")\nq = lambda s: c.execute(s).fetchall()\nnot_in = q(\"SELECT id FROM emp WHERE id NOT IN (SELECT eid FROM mgr)\")\nnot_in_safe = q(\"SELECT id FROM emp WHERE id NOT IN (SELECT eid FROM mgr WHERE eid IS NOT NULL)\")\nnot_exists = q(\"SELECT id FROM emp WHERE NOT EXISTS (SELECT 1 FROM mgr WHERE mgr.eid = emp.id)\")\nin_ok = q(\"SELECT id FROM emp WHERE id IN (SELECT eid FROM mgr)\")\ntri = q(\"SELECT (2 <> NULL) IS NULL, (NULL = NULL) IS NULL, count(*) FROM emp WHERE id <> NULL\")\nprint(not_in == [] and not_in_safe == [(2,), (3,)] and not_exists == [(2,), (3,)]\n      and in_ok == [(1,)] and tri == [(1, 1, 0)])\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "NOT IN 서브쿼리에 NULL이 하나 섞이면 결과가 어떻게 돼?",
+      "accept": [
+        "0건",
+        "수 없",
+        "없다",
+        "전부",
+        "한 건도",
+        "빈 결과"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "db-026",
+    "domain": "db",
+    "topic": "SQL/집계",
+    "kind": "misconception",
+    "difficulty": "easy",
+    "question": "COUNT(*)보다 COUNT(1)이 빠르다던데 진짜야?",
+    "answer": "아니다. COUNT(*)와 COUNT(1)은 표준상 같은 의미이고 주요 엔진에서 동일한 실행 계획으로 처리되어 성능 차이가 없다. 이 속설은 오래된 특정 버전 이야기가 관성으로 남은 것이다. 정작 의미가 다른 것은 COUNT(컬럼)이다. 이쪽은 해당 컬럼이 NULL이 아닌 행만 센다. 4행짜리 테이블에서 COUNT(*)와 COUNT(1)은 둘 다 4지만, a에 NULL이 하나 있으면 COUNT(a)는 3, b에 NULL이 둘이면 COUNT(b)는 2다. COUNT(DISTINCT b)는 NULL을 제외하고 서로 다른 값만 세서 2가 된다. GROUP BY 안에서도 같은 차이가 그룹마다 나타나 버그가 조용히 숨는다. 행 수는 COUNT(*), 값이 있는 행은 COUNT(컬럼)으로 구분해 써야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import sqlite3\nc = sqlite3.connect(\":memory:\")\nc.executescript(\"\"\"\nCREATE TABLE t(a INT, b INT);\nINSERT INTO t VALUES (1,10),(2,NULL),(NULL,NULL),(3,30);\n\"\"\")\none = lambda s: c.execute(s).fetchone()[0]\nstar, lit, col_a, col_b = (one(\"SELECT count(*) FROM t\"), one(\"SELECT count(1) FROM t\"),\n                           one(\"SELECT count(a) FROM t\"), one(\"SELECT count(b) FROM t\"))\ndis = one(\"SELECT count(DISTINCT b) FROM t\")\n# 그룹당 개수에서도 같은 차이가 난다\ng = c.execute(\"SELECT count(*), count(b) FROM t GROUP BY a IS NULL ORDER BY 1\").fetchall()\nprint(star == 4 and lit == 4 and star == lit and col_a == 3 and col_b == 2\n      and dis == 2 and g == [(1, 0), (3, 2)])\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3로 직접 실행해 True 출력을 확인했다.",
+    "quiz": {
+      "q": "COUNT(*)랑 COUNT(컬럼)의 결과가 달라지는 조건이 뭐야?",
+      "accept": [
+        "NULL",
+        "널 값",
+        "널이",
+        "빈 값",
+        "제외"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  }
+]

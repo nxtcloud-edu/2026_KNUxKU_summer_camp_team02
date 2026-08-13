@@ -1,0 +1,775 @@
+[
+  {
+    "id": "os-001",
+    "domain": "os",
+    "topic": "페이지 교체",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "FIFO 페이지 교체에서 프레임을 늘렸는데 페이지 폴트가 늘어나는 참조열을 만들어줘.",
+    "answer": "참조열 1,2,3,4,1,2,5,1,2,3,4,5에서 FIFO는 프레임 3개일 때 폴트가 9번, 4개일 때 10번 난다. 프레임을 늘렸는데 폴트가 늘어나는 이 현상이 벨레이디 이상 현상(Belady's anomaly)이다. 원인은 FIFO가 스택 속성(stack property)을 만족하지 않는 데 있다. 스택 속성은 프레임 n개일 때 메모리에 상주하는 페이지 집합이 프레임 n+1개일 때의 집합에 항상 포함된다는 성질인데, FIFO는 적재 순서만 보고 쫓아내므로 프레임 수가 달라지면 상주 집합 자체가 달라진다. 프레임 4개에서는 1과 2가 5 때문에 밀려나 뒤에서 다시 폴트를 낸다. 아무 참조열에서나 생기지는 않고 이런 특정 참조열에서만 나타난다.",
+    "verify": {
+      "lang": "python",
+      "code": "def fifo(ref, frames):\n    mem = []; faults = 0\n    for p in ref:\n        if p in mem: continue\n        faults += 1\n        if len(mem) == frames: mem.pop(0)\n        mem.append(p)\n    return faults\n\nref = [1,2,3,4,1,2,5,1,2,3,4,5]\nf3, f4 = fifo(ref,3), fifo(ref,4)\n# 프레임을 늘렸는데 폴트가 늘어난다 = Belady 이상 현상\nprint(f3 == 9 and f4 == 10 and f4 > f3)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "FIFO에서 프레임을 늘렸는데 페이지 폴트가 더 늘어나는 현상 이름은?",
+      "accept": [
+        "벨레이디",
+        "벨레디",
+        "Belady",
+        "belady",
+        "이상 현상",
+        "anomaly"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-002",
+    "domain": "os",
+    "topic": "페이지 교체",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "LRU에서도 벨레이디 이상 현상이 생겨?",
+    "answer": "생기지 않는다. LRU는 스택 알고리즘(stack algorithm)이라서 프레임 n개일 때의 상주 페이지 집합이 항상 프레임 n+1개일 때의 부분집합이다. 따라서 프레임을 늘리면 폴트가 줄거나 같을 뿐 늘어날 수 없다. 최적 교체(OPT)도 같은 이유로 이상 현상이 없다. 무작위 참조열 3000개를 프레임 1~7로 돌려보면 LRU는 한 번도 역전이 없고 FIFO는 역전 사례가 나온다. 정리하면 이상 현상의 유무는 교체 정책이 스택 속성을 만족하는가의 문제이지, LRU가 FIFO보다 폴트가 적다는 사실과는 별개의 이야기다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random\ndef sim(ref, frames, policy):\n    mem = []; f = 0\n    for p in ref:\n        if p in mem:\n            if policy == 'lru':\n                mem.remove(p); mem.append(p)\n            continue\n        f += 1\n        if len(mem) == frames: mem.pop(0)\n        mem.append(p)\n    return f\n\nrandom.seed(0)\nlru_monotone = True; fifo_violates = False\nfor _ in range(3000):\n    ref = [random.randint(1,6) for _ in range(30)]\n    L = [sim(ref,n,'lru')  for n in range(1,8)]\n    F = [sim(ref,n,'fifo') for n in range(1,8)]\n    if any(L[i+1] > L[i] for i in range(6)): lru_monotone = False\n    if any(F[i+1] > F[i] for i in range(6)): fifo_violates = True\n# LRU는 한 번도 역전되지 않고, FIFO는 역전되는 사례가 존재한다\nprint(lru_monotone and fifo_violates)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "LRU에 벨레이디 이상 현상이 없는 이유는?",
+      "accept": [
+        "스택",
+        "stack",
+        "부분집합",
+        "포함"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-003",
+    "domain": "os",
+    "topic": "페이지 교체",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "LRU가 OPT보다 폴트가 적을 수도 있어?",
+    "answer": "없다. OPT는 앞으로 가장 오래 참조되지 않을 페이지를 쫓아내므로 어떤 참조열에서도 폴트 수의 하한이다. 참조열 7,0,1,2,0,3,0,4,2,3,0,3,2,1,2,0,1,7,0,1을 프레임 3개로 돌리면 FIFO 15, LRU 12, OPT 9가 나온다. LRU는 OPT를 시간축으로 뒤집은 근사이고 참조 지역성이 있을 때만 OPT에 가까워진다. 다만 OPT는 미래 참조열을 알아야 하므로 실제 구현이 불가능하며 성능 비교의 기준선으로만 쓴다. 무작위 참조열 실험에서도 OPT가 LRU보다 폴트가 많은 경우는 나오지 않는다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random\ndef lru(ref, n):\n    mem = []; f = 0\n    for p in ref:\n        if p in mem:\n            mem.remove(p); mem.append(p); continue\n        f += 1\n        if len(mem) == n: mem.pop(0)\n        mem.append(p)\n    return f\n\ndef opt(ref, n):\n    mem = []; f = 0\n    for i, p in enumerate(ref):\n        if p in mem: continue\n        f += 1\n        if len(mem) == n:\n            far = -1; vic = None\n            for m in mem:\n                try: nxt = ref.index(m, i+1)\n                except ValueError: nxt = float('inf')\n                if nxt > far: far = nxt; vic = m\n            mem.remove(vic)\n        mem.append(p)\n    return f\n\nref = [7,0,1,2,0,3,0,4,2,3,0,3,2,1,2,0,1,7,0,1]\na, b = lru(ref,3), opt(ref,3)\nrandom.seed(7)\nnever_worse = True\nfor _ in range(3000):\n    r = [random.randint(1,8) for _ in range(40)]\n    for n in range(1,6):\n        if opt(r,n) > lru(r,n): never_worse = False\nprint(a == 12 and b == 9 and never_worse)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "OPT 페이지 교체를 실제 OS에 구현할 수 없는 이유는?",
+      "accept": [
+        "미래",
+        "앞으로",
+        "알 수 없",
+        "예측",
+        "future"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-004",
+    "domain": "os",
+    "topic": "스케줄링",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "FCFS의 콘보이 효과가 평균 대기시간을 실제로 얼마나 망쳐?",
+    "answer": "버스트가 24, 3, 3인 세 작업을 본다. 도착 순서가 24, 3, 3이면 각 대기시간은 0, 24, 27이라 평균이 17이다. 순서만 3, 3, 24로 바꾸면 0, 3, 6이라 평균이 3이다. 작업 집합은 같은데 평균 대기시간이 5.7배 차이 난다. 긴 CPU 집약 작업 하나가 앞에 서면 뒤의 짧은 작업들이 전부 그 뒤에 줄서게 되는데 이것이 콘보이 효과(convoy effect)다. 실제 시스템에서는 I/O 집약 프로세스들이 CPU 집약 프로세스 하나를 기다리는 동안 장치가 놀게 되므로 CPU 이용률과 I/O 이용률이 동시에 떨어진다.",
+    "verify": {
+      "lang": "python",
+      "code": "def fcfs(order):\n    t = 0; waits = []\n    for b in order:\n        waits.append(t); t += b\n    return sum(waits)/len(waits)\n\n# 같은 작업 집합, 도착 순서만 다르다\nlong_first  = fcfs([24,3,3])   # CPU 집약 작업이 앞\nshort_first = fcfs([3,3,24])\nprint(long_first == 17.0 and short_first == 3.0 and long_first / short_first > 5)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "FCFS에서 긴 작업이 앞에 서서 짧은 작업들이 줄줄이 밀리는 현상 이름은?",
+      "accept": [
+        "콘보이",
+        "convoy",
+        "호위"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-005",
+    "domain": "os",
+    "topic": "스케줄링",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "SJF가 평균 대기시간 최적이라는 걸 어떻게 확신해?",
+    "answer": "교환 논법으로 증명한다. 어떤 실행 순서에서 인접한 두 작업 A, B가 A의 버스트가 더 큰데 A가 앞에 있다면 둘을 맞바꿔 본다. 나머지 작업의 대기시간은 전혀 변하지 않고 두 작업의 대기시간 합만 (A버스트 − B버스트)만큼 줄어든다. 따라서 역전이 남아 있는 순서는 최적일 수 없고 오름차순 정렬 순서가 최적이다. 실제로 버스트 6개짜리 집합 300개에 대해 720가지 순열을 전수 계산해도 최소 평균 대기시간은 항상 정렬 순서와 일치한다. 다만 이 최적성은 모든 작업이 동시에 도착하는 비선점 상황에 대한 것이다.",
+    "verify": {
+      "lang": "python",
+      "code": "from itertools import permutations\nimport random\ndef avg_wait(order):\n    t = 0; w = []\n    for b in order:\n        w.append(t); t += b\n    return sum(w)/len(w)\n\nrandom.seed(1)\nok = True\nfor _ in range(300):\n    bursts = [random.randint(1,20) for _ in range(6)]\n    best = min(avg_wait(p) for p in permutations(bursts))\n    if abs(best - avg_wait(sorted(bursts))) > 1e-9:\n        ok = False\n# 짧은 것부터 실행하는 순서가 항상 평균 대기시간 최소\nprint(ok)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "SJF가 평균 대기시간 최적임을 보이는 증명 논법은?",
+      "accept": [
+        "교환",
+        "exchange",
+        "인접",
+        "바꾸",
+        "swap"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-006",
+    "domain": "os",
+    "topic": "스케줄링",
+    "kind": "counterexample",
+    "difficulty": "medium",
+    "question": "SJF의 기아가 실제로 얼마나 심각해질 수 있어?",
+    "answer": "버스트 100인 긴 작업이 시각 0에 도착하고 버스트 1인 짧은 작업이 시각 1부터 150까지 매 시각 하나씩 도착하는 상황을 SRTF(선점형 SJF)로 돌린다. 긴 작업은 시각 0에 1틱만 실행한 뒤 계속 선점당하다가 짧은 작업 흐름이 끊긴 뒤에야 재개되어 시각 250에 끝난다. 대기시간이 150으로 자기 버스트 100보다 길다. FCFS였다면 시각 100에 끝났을 작업이다. 짧은 작업이 계속 들어오는 한 긴 작업은 무한히 밀릴 수 있으므로 실제 시스템은 대기 시간에 비례해 우선순위를 올려주는 에이징(aging)을 함께 쓴다.",
+    "verify": {
+      "lang": "python",
+      "code": "# SRTF(선점형 SJF) 1틱 단위 시뮬레이션\nrem = {'LONG': 100}; arr = {'LONG': 0}\nfor k in range(1, 151):\n    rem['S%d' % k] = 1; arr['S%d' % k] = k\n\ndone = {}; t = 0\nwhile len(done) < 151 and t < 100000:\n    live = [k for k in rem if rem[k] > 0 and arr[k] <= t]\n    if not live:\n        t += 1; continue\n    cur = min(live, key=lambda k: (rem[k], arr[k]))\n    rem[cur] -= 1; t += 1\n    if rem[cur] == 0: done[cur] = t\n\n# FCFS였다면 LONG은 100에 끝난다. SRTF에서는 250.\nprint(done['LONG'] == 250 and done['LONG'] - 100 == 150 and done['S1'] == 2)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "SJF나 우선순위 스케줄링의 기아를 완화하는 기법은?",
+      "accept": [
+        "에이징",
+        "aging",
+        "노화",
+        "우선순위를 올"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-007",
+    "domain": "os",
+    "topic": "스케줄링",
+    "kind": "tradeoff",
+    "difficulty": "medium",
+    "question": "라운드로빈 타임 퀀텀을 작게 잡으면 왜 무조건 좋은 게 아니야?",
+    "answer": "버스트 20, 12, 8, 4인 네 작업에 컨텍스트 스위치 비용 1을 넣고 돌려본다. 퀀텀 1이면 평균 응답시간이 3.0으로 아주 좋지만 총 소요시간 87 중 43이 스위치 오버헤드라 CPU 이용률이 50.6%까지 떨어진다. 퀀텀 20이면 응답시간이 24.5로 나빠지는 대신 이용률은 93.6%다. 즉 퀀텀은 응답성과 처리량 사이의 트레이드오프를 정하는 손잡이다. 실무 기준은 CPU 버스트의 약 80%가 퀀텀 안에 끝나도록 잡는 것이고, 퀀텀이 무한대면 FCFS가 되고 0에 가까우면 오버헤드만 남는다.",
+    "verify": {
+      "lang": "python",
+      "code": "from collections import deque\ndef rr(bursts, q, cs):\n    n = len(bursts); rem = list(bursts)\n    t = 0; fin = [0]*n; first = [None]*n; ov = 0\n    dq = deque(range(n))\n    while dq:\n        i = dq.popleft()\n        if first[i] is None: first[i] = t\n        run = min(q, rem[i]); t += run; rem[i] -= run\n        if rem[i] == 0: fin[i] = t\n        else: dq.append(i)\n        if dq: t += cs; ov += cs\n    return sum(fin)/n, sum(first)/n, round(sum(bursts)/t, 3)\n\nB = [20,12,8,4]; CS = 1\ntat1, resp1, util1 = rr(B, 1, CS)     # 아주 작은 퀀텀\ntat20, resp20, util20 = rr(B, 20, CS) # 사실상 FCFS\nprint(resp1 == 3.0 and resp20 == 24.5 and util1 == 0.506 and util20 == 0.936\n      and resp1 < resp20 and util1 < util20)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "라운드로빈에서 타임 퀀텀을 아주 작게 잡으면 뭐가 나빠져?",
+      "accept": [
+        "오버헤드",
+        "컨텍스트 스위치",
+        "문맥 교환",
+        "처리량",
+        "이용률",
+        "throughput"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-008",
+    "domain": "os",
+    "topic": "스케줄링",
+    "kind": "counterexample",
+    "difficulty": "medium",
+    "question": "라운드로빈이 FCFS보다 평균 반환시간이 나쁠 수도 있어?",
+    "answer": "있다. 버스트가 모두 10으로 같은 세 작업이 동시에 도착한 경우 FCFS는 10, 20, 30에 끝나 평균 반환시간이 20이다. 퀀텀 1인 RR은 컨텍스트 스위치 비용을 0으로 둬도 28, 29, 30에 끝나 평균이 29다. 세 작업이 나란히 진행하다 거의 동시에 끝나기 때문이다. RR은 아무도 오래 기다리지 않게 하는 대신 아무도 일찍 끝나지 못하게 만든다. 그래서 RR의 강점은 평균 반환시간이 아니라 평균 응답시간이며, 같은 예에서 응답시간은 FCFS가 10, RR이 1이다.",
+    "verify": {
+      "lang": "python",
+      "code": "from collections import deque\ndef rr_finish(bursts, q):\n    n = len(bursts); rem = list(bursts); t = 0; fin = [0]*n\n    dq = deque(range(n))\n    while dq:\n        i = dq.popleft()\n        run = min(q, rem[i]); t += run; rem[i] -= run\n        if rem[i] == 0: fin[i] = t\n        else: dq.append(i)\n    return fin\n\nf = rr_finish([10,10,10], 1)          # 컨텍스트 스위치 비용 0으로 둬도\nrr_tat = sum(f)/3                      # RR 평균 반환시간\nfcfs_tat = (10+20+30)/3                # FCFS 평균 반환시간\nprint(f == [28,29,30] and rr_tat == 29.0 and fcfs_tat == 20.0 and rr_tat > fcfs_tat)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "라운드로빈이 FCFS보다 확실히 우수한 성능 지표는?",
+      "accept": [
+        "응답",
+        "response",
+        "첫 실행",
+        "반응"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-009",
+    "domain": "os",
+    "topic": "우선순위 역전",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "우선순위 역전이 실제로 얼마나 오래 지속될 수 있어?",
+    "answer": "우선순위가 L<M<H인 세 태스크를 둔다. L이 락을 잡고 임계구역 10틱을 실행하는 중 시각 1에 H가 같은 락을 요청해 블록되고, 시각 2에 락과 무관한 M이 도착해 100틱 동안 L을 선점한다. 상속이 없으면 H는 M이 다 끝나고 L이 임계구역을 마쳐야 락을 얻어 시각 115에 완료된다. 우선순위 상속을 켜면 L이 H의 우선순위를 물려받아 M에게 선점당하지 않고 H는 시각 15에 완료된다. 역전 구간은 임계구역 길이가 아니라 중간 우선순위 태스크의 실행 시간이 정하므로 상한이 없다. 1997년 화성 탐사선 패스파인더의 반복 재부팅이 이 문제였다.",
+    "verify": {
+      "lang": "python",
+      "code": "def sim(inherit):\n    prio = {'L':1, 'M':2, 'H':3}\n    arrive = {'L':0, 'H':1, 'M':2}\n    need = {'L':10, 'M':100, 'H':5}   # L과 H는 전 구간이 임계구역\n    eff = dict(prio); lock = None; blocked = set(); done = {}; t = 0\n    while len(done) < 3 and t < 1000:\n        ready = [k for k in need if need[k] > 0 and arrive[k] <= t and k not in blocked]\n        if not ready:\n            t += 1; continue\n        cur = max(ready, key=lambda k: (eff[k], -arrive[k]))\n        if cur in ('L','H'):\n            if lock is None: lock = cur\n            elif lock != cur:\n                blocked.add(cur)\n                if inherit: eff[lock] = max(eff[lock], eff[cur])\n                continue\n        need[cur] -= 1; t += 1\n        if need[cur] == 0:\n            done[cur] = t\n            if lock == cur:\n                lock = None; eff[cur] = prio[cur]; blocked.clear()\n    return done\n\nno_inh = sim(False); inh = sim(True)\n# 상속이 없으면 최고 우선순위 H가 중간 우선순위 M(100틱)에 막힌다\nprint(no_inh['H'] == 115 and inh['H'] == 15 and no_inh['M'] == 102 and inh['M'] == 115)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "우선순위 역전을 해결하는 대표적 기법 이름은?",
+      "accept": [
+        "상속",
+        "inheritance",
+        "천장",
+        "ceiling",
+        "계승"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-010",
+    "domain": "os",
+    "topic": "교착상태",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "은행원 알고리즘은 요청을 승인할지 어떻게 판단해?",
+    "answer": "요청을 가상으로 반영한 뒤 그 상태가 안전한지 검사하고, 안전하면 승인하고 아니면 요청자를 대기시킨다. Available이 (3,3,2)이고 Allocation과 Max가 교재 예제와 같을 때 초기 상태는 안전하며 안전 순서는 P1, P3, P4, P0, P2다. P1이 (1,0,2)를 요청하면 반영 후에도 안전 순서가 남아 승인된다. 반면 P4가 (3,3,0)을 요청하면 Available이 (0,0,2)가 되어 Need를 채울 수 있는 프로세스가 하나도 없으므로 불안전이고, 자원이 실제로 남아 있어도 거절한다. 은행원 알고리즘은 교착 회피(avoidance)이지 탐지가 아니다.",
+    "verify": {
+      "lang": "python",
+      "code": "import copy\ndef safe(avail, alloc, mx):\n    n, m = len(alloc), len(avail)\n    need = [[mx[i][j]-alloc[i][j] for j in range(m)] for i in range(n)]\n    work = list(avail); fin = [False]*n; seq = []\n    changed = True\n    while changed:\n        changed = False\n        for i in range(n):\n            if not fin[i] and all(need[i][j] <= work[j] for j in range(m)):\n                for j in range(m): work[j] += alloc[i][j]\n                fin[i] = True; seq.append(i); changed = True\n    return all(fin), seq\n\nalloc = [[0,1,0],[2,0,0],[3,0,2],[2,1,1],[0,0,2]]\nmx    = [[7,5,3],[3,2,2],[9,0,2],[2,2,2],[4,3,3]]\navail = [3,3,2]\nok0, seq0 = safe(avail, alloc, mx)\n\n# P1이 (1,0,2) 요청 -> 승인해도 안전\na1 = copy.deepcopy(alloc); a1[1] = [3,0,2]\nok1, _ = safe([2,3,0], a1, mx)\n# P4가 (3,3,0) 요청 -> 승인하면 불안전, 따라서 거절한다\na2 = copy.deepcopy(alloc); a2[4] = [3,3,2]\nok2, _ = safe([0,0,2], a2, mx)\n\nprint(ok0 and seq0 == [1,3,4,0,2] and ok1 and not ok2)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "은행원 알고리즘이 자원이 남아 있는데도 요청을 거절하는 경우는?",
+      "accept": [
+        "불안전",
+        "안전하지",
+        "안전 순서",
+        "safe",
+        "unsafe"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-011",
+    "domain": "os",
+    "topic": "교착상태",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "불안전 상태면 교착상태인 거 아니야?",
+    "answer": "아니다. 불안전 상태는 최악의 경우 교착에 빠질 수 있다는 뜻이지 이미 빠졌다는 뜻이 아니다. 테이프 12개에 P0, P1, P2의 Max가 10, 4, 9이고 현재 할당이 5, 2, 3이면 여유가 2다. 은행원 알고리즘으로는 P1만 끝낼 수 있고 그 뒤가 막혀 불안전이다. 그런데 각 프로세스가 선언한 최대치를 다 쓰지 않고 실제로 3, 2, 6만 더 요청한다면 전부 정상 종료한다. Max는 최악을 대비한 선언값이기 때문이다. 정리하면 안전이면 교착이 없다는 명제는 참이고, 불안전이면 교착이라는 명제는 거짓이다. 은행원 알고리즘이 지나치게 보수적이라는 비판이 여기서 나온다.",
+    "verify": {
+      "lang": "python",
+      "code": "def safe(total, alloc, mx):\n    n = len(alloc)\n    avail = total - sum(alloc)\n    need = [mx[i]-alloc[i] for i in range(n)]\n    fin = [False]*n; work = avail; changed = True\n    while changed:\n        changed = False\n        for i in range(n):\n            if not fin[i] and need[i] <= work:\n                work += alloc[i]; fin[i] = True; changed = True\n    return all(fin)\n\nTOTAL = 12\nalloc = [5,2,3]; mx = [10,4,9]      # P2가 1개 더 받은 직후의 상태\nprint_unsafe = not safe(TOTAL, alloc, mx)\n\n# 하지만 교착은 아니다: 각 프로세스가 선언한 최대치보다 적게 요청하면 전부 끝난다\nactual_extra = [3,2,6]               # 실제로 더 필요한 양 (최대치 이하)\navail = TOTAL - sum(alloc); a = list(alloc); fin = [False]*3; changed = True\nwhile changed:\n    changed = False\n    for i in range(3):\n        if not fin[i] and actual_extra[i] <= avail:\n            avail += a[i]; fin[i] = True; changed = True\nall_done = all(fin)\nprint(print_unsafe and all_done)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "불안전 상태와 교착상태의 관계를 한 줄로 말하면?",
+      "accept": [
+        "교착은 아니",
+        "가능성",
+        "반드시",
+        "최악",
+        "아닐 수도"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-012",
+    "domain": "os",
+    "topic": "교착상태",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "자원 할당 그래프에 사이클이 있으면 교착이야?",
+    "answer": "자원마다 인스턴스가 하나뿐이면 사이클은 교착의 필요충분조건이지만, 인스턴스가 여러 개면 필요조건일 뿐이다. R1과 R2가 각각 인스턴스 2개이고 P1이 R1 하나를 쥔 채 R2를, P3이 R2 하나를 쥔 채 R1을 기다리면 P1→R2→P3→R1→P1 사이클이 생긴다. 그러나 R1의 남은 인스턴스는 P2가, R2의 남은 인스턴스는 P4가 쥐고 있고 이 둘은 아무것도 기다리지 않으므로, P2가 반납하면 P3이 풀리고 이어서 P1도 풀린다. 그래프 축소로 모든 프로세스가 제거되면 교착이 아니다.",
+    "verify": {
+      "lang": "python",
+      "code": "# 자원 R1, R2가 각각 인스턴스 2개. 대기 그래프에 사이클이 있지만 교착은 아니다.\nalloc   = {'P1':[1,0], 'P2':[1,0], 'P3':[0,1], 'P4':[0,1]}\nrequest = {'P1':[0,1], 'P2':[0,0], 'P3':[1,0], 'P4':[0,0]}\ntotal   = [2,2]\n\n# 1) 사이클 존재 확인: P1 -> R2 -> P3 -> R1 -> P1\ndef waits_for(a, b):   # a가 요청한 자원을 b가 점유하고 있는가\n    return any(request[a][j] > 0 and alloc[b][j] > 0 for j in range(2)) and a != b\ncycle = waits_for('P1','P3') and waits_for('P3','P1')\n\n# 2) 교착 탐지(그래프 축소)\navail = [total[j] - sum(alloc[p][j] for p in alloc) for j in range(2)]\nfin = {p: False for p in alloc}; changed = True\nwhile changed:\n    changed = False\n    for p in alloc:\n        if not fin[p] and all(request[p][j] <= avail[j] for j in range(2)):\n            for j in range(2): avail[j] += alloc[p][j]\n            fin[p] = True; changed = True\nprint(cycle and all(fin.values()))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "자원 인스턴스가 여러 개일 때 그래프의 사이클은 교착의 무슨 조건이야?",
+      "accept": [
+        "필요",
+        "necessary",
+        "필요조건"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-013",
+    "domain": "os",
+    "topic": "교착상태",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "교착 4조건이 다 성립하면 교착이 일어난 거야?",
+    "answer": "아니다. 상호 배제, 점유와 대기, 비선점, 순환 대기 네 가지는 교착이 일어나기 위한 필요조건이다. 네 조건이 동시에 성립해도 실제로 교착이 발생하지 않을 수 있으며, 특히 자원 인스턴스가 여러 개면 순환 대기가 보여도 풀릴 수 있다. 반대로 교착 예방(prevention)은 이 네 조건 중 하나만 성립하지 못하게 막으면 되는데, 필요조건을 부정하면 결과도 부정되기 때문이다. 필요조건을 충분조건처럼 뒤집어 쓰는 것이 흔한 오류다. 단일 인스턴스 자원만 있는 경우에 한해 순환 대기는 교착과 동치가 된다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "네 조건이 필요조건이라는 논리적 함의 관계에 대한 주장이라 특정 실행 하나로 참을 보일 수 없다. 다만 '순환 대기가 보여도 교착이 아닐 수 있다'는 핵심 부분은 os-012에서 코드로 검산했다.",
+    "quiz": {
+      "q": "교착 예방을 하려면 4조건 중 몇 개를 깨야 해?",
+      "accept": [
+        "하나",
+        "1개",
+        "한 가지",
+        "한 개",
+        "1개만",
+        "one"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-014",
+    "domain": "os",
+    "topic": "메모리 단편화",
+    "kind": "misconception",
+    "difficulty": "easy",
+    "question": "내부 단편화랑 외부 단편화가 계속 헷갈려.",
+    "answer": "내부 단편화는 할당 단위가 고정이라 마지막 조각에 남는 낭비이고, 외부 단편화는 여유 공간이 흩어져 연속 배치가 안 되는 낭비다. 페이지 크기 4096에서 크기 10000짜리를 담으면 페이지 3개를 써서 2288바이트가 내부 단편화로 버려지며, 최대 낭비는 4095바이트로 상한이 있다. 반면 여유 공간이 100, 50, 80으로 흩어진 가변 분할에서는 총 230이 남아도 120짜리 요청을 넣을 수 없다. 이것이 외부 단편화다. 페이징은 외부 단편화가 원리상 0이고 내부 단편화만 생기며, 세그먼테이션은 그 반대다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\nPS = 4096\nsizes = [1, 4095, 4096, 4097, 10000, 65536]\ninternal = [PS*math.ceil(s/PS) - s for s in sizes]\n# 페이징의 내부 단편화는 마지막 페이지에만, 최대 PS-1 바이트\nok_internal = internal == [4095, 1, 0, 4095, 2288, 0] and all(v <= PS-1 for v in internal)\n\n# 가변 분할의 외부 단편화: 여유 총합은 충분한데 연속 공간이 없다\nholes = [100, 50, 80]; req = 120\nexternal_stuck = sum(holes) > req and not any(h >= req for h in holes)\n# 같은 요청을 페이징으로 하면 흩어진 프레임에 배치되어 성공한다\nFR = 32\nok_paged = sum(h//FR for h in holes) >= math.ceil(req/FR)\nprint(ok_internal and external_stuck and ok_paged)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "페이징에서 생기는 단편화는 내부야 외부야?",
+      "accept": [
+        "내부",
+        "internal"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-015",
+    "domain": "os",
+    "topic": "페이징",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "페이지 크기를 키우면 뭐가 좋아지고 뭐가 나빠져?",
+    "answer": "페이지 크기 p, 프로세스 크기 s, 페이지 테이블 항목 크기 e라 하면 총 오버헤드는 테이블 크기 s·e/p와 평균 내부 단편화 p/2의 합이다. p로 미분해 0으로 두면 p = √(2se)가 나온다. s가 1MB이고 e가 8바이트면 p는 4096바이트로 실제 페이지 크기와 일치한다. 즉 페이지를 키우면 페이지 테이블이 작아지고 디스크 전송 효율과 TLB 커버리지가 좋아지지만 내부 단편화가 커지고 쓰지 않을 부분까지 읽어오게 된다. 최근에는 TLB 미스 비용이 커져서 2MB 같은 대형 페이지를 선택적으로 쓴다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\ns = 1 << 20   # 프로세스 크기 1MB\ne = 8         # 페이지 테이블 항목 8바이트\n# 총 오버헤드 = 페이지 테이블 크기(s/p * e) + 평균 내부 단편화(p/2)\ndef overhead(p): return s*e/p + p/2\nbest_p = min(range(64, 1 << 16), key=overhead)\ntheory = math.sqrt(2*s*e)\n# 페이지를 키우면 테이블은 작아지지만 내부 단편화가 커진다\nprint(best_p == 4096 and abs(theory - 4096.0) < 1e-6\n      and overhead(1024) > overhead(4096) < overhead(16384))\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "내부 단편화와 페이지 테이블 크기를 함께 최소화하는 최적 페이지 크기 공식은?",
+      "accept": [
+        "2se",
+        "sqrt",
+        "√",
+        "루트",
+        "제곱근"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-016",
+    "domain": "os",
+    "topic": "TLB",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "TLB 히트율이 80%면 성능이 얼마나 떨어져?",
+    "answer": "TLB 조회 20ns, 메모리 접근 100ns라 하자. TLB 히트면 20 + 100 = 120ns이고, 미스면 페이지 테이블을 한 번 더 읽어야 하므로 20 + 100 + 100 = 220ns다. 히트율 80%의 실효 접근 시간은 0.8×120 + 0.2×220 = 140ns로, 페이징이 없을 때의 100ns 대비 40% 느리다. 히트율을 99%로 올리면 121ns가 되어 저하가 21%로 줄어든다. 미스의 추가 비용이 크기 때문에 히트율 몇 퍼센트 차이가 성능을 좌우하며, 이것이 TLB 커버리지와 대형 페이지가 중요한 이유다.",
+    "verify": {
+      "lang": "python",
+      "code": "TLB, MEM = 20, 100     # ns\ndef eat(h): return h*(TLB+MEM) + (1-h)*(TLB+MEM+MEM)\ne80, e99 = eat(0.8), eat(0.99)\n# TLB 히트율 80%면 접근 시간이 100ns -> 140ns, 즉 40% 느려진다\nprint(e80 == 140.0 and e99 == 121.0\n      and round((e80-MEM)/MEM, 2) == 0.40 and round((e99-MEM)/MEM, 2) == 0.21)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "TLB 미스가 나면 메모리에 몇 번 접근해야 해?",
+      "accept": [
+        "두 번",
+        "두번",
+        "2번",
+        "2회"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-017",
+    "domain": "os",
+    "topic": "요구 페이징",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "페이지 폴트율이 0.1%면 별거 아니지 않아?",
+    "answer": "치명적이다. 메모리 접근 200ns, 폴트 처리 8ms = 8,000,000ns라 하면 실효 접근 시간은 (1−p)×200 + p×8,000,000이다. p가 0.001이면 8200ns로 정상보다 41배 느리다. 성능 저하를 10% 이내로 묶으려면 p가 2.5×10⁻⁶ 미만, 즉 40만 번에 한 번 미만이어야 한다. 디스크가 메모리보다 4만 배 느리기 때문에 폴트율은 백만분의 일 단위로 관리해야 하는 값이다. 요구 페이징이 실용적인 이유는 폴트가 싸서가 아니라 지역성 덕분에 폴트율이 극도로 낮아서다.",
+    "verify": {
+      "lang": "python",
+      "code": "MA = 200          # ns 정상 메모리 접근\nFAULT = 8_000_000 # ns = 8ms 디스크 페이지 폴트 처리\ndef eat(p): return (1-p)*MA + p*FAULT\n# 폴트율 1/1000 이면\ne_1000 = eat(0.001)\n# 성능 저하 10% 이내로 묶으려면 필요한 폴트율\np_limit = (0.1*MA)/(FAULT-MA)\nprint(round(e_1000) == 8200 and round(e_1000/MA) == 41\n      and abs(p_limit - 2.5e-6) < 1e-8 and abs(eat(p_limit) - 220.0) < 1e-6)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "요구 페이징에서 페이지 폴트율이 왜 백만분의 일 수준이어야 해?",
+      "accept": [
+        "디스크",
+        "느리",
+        "백만",
+        "4만",
+        "배 느",
+        "만 배"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-018",
+    "domain": "os",
+    "topic": "파일 시스템",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "inode가 직접 12개, 단일·이중·삼중 간접 1개씩일 때 최대 파일 크기는?",
+    "answer": "블록 4096바이트에 블록 포인터 4바이트면 간접 블록 하나에 포인터가 1024개 들어간다. 도달 가능한 블록 수는 직접 12, 단일 간접 1024, 이중 간접 1024² = 1,048,576, 삼중 간접 1024³ = 1,073,741,824이고 합이 1,074,791,436블록이다. 여기에 4096을 곱하면 4,402,345,721,856바이트, 약 4.004TiB다. 삼중 간접 항이 전체의 99.9%를 차지하므로 앞의 세 항을 빠뜨려도 값이 거의 같지만, 계산 자체는 네 항을 모두 더해야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "B = 4096   # 블록 크기\nP = 4      # 블록 포인터 크기\nk = B // P # 간접 블록 하나가 담는 포인터 수 = 1024\nblocks = 12 + k + k**2 + k**3\nsize = blocks * B\nprint(k == 1024 and blocks == 1074791436 and size == 4402345721856\n      and round(size / 2**40, 3) == 4.004)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "블록 4KB, 블록 포인터 4B일 때 간접 블록 하나에 포인터가 몇 개 들어가?",
+      "accept": [
+        "1024",
+        "1,024",
+        "1K",
+        "1k"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-019",
+    "domain": "os",
+    "topic": "파일 시스템",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "블록 크기를 4KB에서 8KB로 키우면 최대 파일 크기는 몇 배가 돼?",
+    "answer": "약 16배다. 블록 크기가 2배가 되면 블록 하나에 담기는 포인터 수 k도 2배가 되는데, 최대 크기를 지배하는 항이 k³·B이므로 2³ × 2 = 16배가 된다. 실제로 4KB 블록은 4,402,345,721,856바이트, 8KB 블록은 70,403,120,791,552바이트로 비율이 15.99다. 흔한 오답이 2배 또는 8배라고 말하는 것이다. 대신 블록을 키우면 평균 내부 단편화가 블록 크기의 절반으로 늘어나므로 작은 파일이 많은 워크로드에서는 손해가 된다.",
+    "verify": {
+      "lang": "python",
+      "code": "def max_size(B, P=4, direct=12):\n    k = B // P\n    return (direct + k + k**2 + k**3) * B\n\ns4, s8 = max_size(4096), max_size(8192)\nratio = s8 / s4\n# 블록 2배 -> 포인터 수 k 2배 -> 삼중 간접 항이 k^3*B 이므로 2^4 = 16배\nprint(s4 == 4402345721856 and abs(ratio - 16) < 0.01 and 15.9 < ratio < 16.0)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "블록 크기를 2배로 하면 삼중 간접까지 쓰는 최대 파일 크기는 몇 배가 돼?",
+      "accept": [
+        "16",
+        "십육",
+        "열여섯"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-020",
+    "domain": "os",
+    "topic": "동기화",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "세마포어랑 뮤텍스 차이가 뭐야? 카운트가 1이면 똑같은 거 아니야?",
+    "answer": "값이 1인 세마포어와 뮤텍스는 동작이 비슷해 보이지만 소유권 개념이 다르다. 뮤텍스는 잠근 스레드만 풀 수 있는 소유권이 있어서 우선순위 상속이나 재귀 잠금 같은 기능을 붙일 수 있다. 세마포어는 소유자가 없어 A가 wait하고 B가 signal해도 되며, 그래서 상호 배제보다는 스레드 간 신호 전달이나 자원 개수 관리에 쓴다. 생산자·소비자에서 버퍼의 빈 칸 수를 세는 것은 세마포어의 일이고, 버퍼 자료구조 자체를 보호하는 것은 뮤텍스의 일이다. 이진 세마포어로 상호 배제를 구현하면 우선순위 역전 대응이 불가능해진다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "소유권 유무와 API 의미론에 대한 설명이라 실행 결과가 참·거짓을 판정하지 못한다. 파이썬 threading.Lock과 Semaphore로 예시는 만들 수 있으나 언어 구현에 종속되어 일반 주장의 근거가 되지 못한다.",
+    "quiz": {
+      "q": "뮤텍스에는 있고 세마포어에는 없는 개념은?",
+      "accept": [
+        "소유권",
+        "소유자",
+        "owner",
+        "잠근 스레드",
+        "ownership"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-021",
+    "domain": "os",
+    "topic": "동기화",
+    "kind": "tradeoff",
+    "difficulty": "medium",
+    "question": "스핀락은 CPU를 태우는데 언제 쓰는 게 이득이야?",
+    "answer": "예상 대기 시간이 컨텍스트 스위치 두 번의 비용보다 짧을 때다. 스핀하면 대기 시간 w만큼 CPU를 낭비하지만, 블로킹하면 재우고 깨우는 스위치 2회 비용이 든다. 스위치 1회의 실효 비용을 캐시와 TLB 오염을 포함해 2μs로 잡으면 손익분기는 4μs이고, 임계구역이 그보다 짧으면 스핀이 유리하다. 조건이 하나 더 있는데 멀티프로세서여야 한다. 단일 코어에서는 락 소유자가 실행되지 못하는 동안 스피너가 CPU를 붙잡고 있어 대기가 퀀텀 하나만큼 늘어난다. 리눅스 커널이 짧은 임계구역에만 스핀락을 쓰는 이유다.",
+    "verify": {
+      "lang": "python",
+      "code": "CS = 2000            # 컨텍스트 스위치 1회 비용 (ns, 캐시/TLB 오염 포함한 실효값)\ndef spin_cost(w):  return w            # 대기 시간만큼 CPU를 태운다\ndef block_cost(w): return 2*CS         # 재우고 깨우는 스위치 2회\nbreakeven = 2*CS\nres = [(w, spin_cost(w) < block_cost(w)) for w in [100, 1000, 3999, 4000, 8000]]\nprint(breakeven == 4000\n      and res == [(100,True),(1000,True),(3999,True),(4000,False),(8000,False)])\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "손익분기 조건(대기 시간 < 컨텍스트 스위치 2회)의 산술은 코드로 검산했다. 컨텍스트 스위치 실효 비용 2μs는 하드웨어에 따라 달라지는 가정값이다.",
+    "quiz": {
+      "q": "스핀락이 유리하려면 어떤 조건 두 가지가 필요해?",
+      "accept": [
+        "짧은",
+        "짧게",
+        "멀티",
+        "다중",
+        "코어",
+        "프로세서",
+        "multi"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-022",
+    "domain": "os",
+    "topic": "동기화",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "이중 검사 잠금은 왜 깨져?",
+    "answer": "instance = new Singleton() 한 줄이 하나의 동작이 아니기 때문이다. 이 문장은 메모리 할당, 생성자 실행, 참조 대입 세 단계로 나뉘는데 컴파일러나 CPU가 참조 대입을 생성자 실행보다 먼저 배치할 수 있다. 그러면 다른 스레드가 첫 번째 null 검사에서 null이 아닌 값을 보고 락을 잡지도 않은 채 아직 초기화되지 않은 객체를 반환받는다. 락은 상호 배제만 보장하고 락 밖에서 일어나는 읽기의 가시성과 순서는 보장하지 않는다. 해결하려면 필드를 volatile로 선언해 재정렬을 막거나, 정적 홀더 클래스나 enum처럼 초기화 순서가 보장되는 기법을 쓴다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "명령어 재정렬은 JVM과 CPU 구현, 타이밍에 의존해 재현이 보장되지 않는다. 파이썬에는 해당 메모리 모델이 없어 실행으로 참을 보일 수 없다. 자바 메모리 모델 명세와 JSR-133에 근거한 정설이다.",
+    "quiz": {
+      "q": "이중 검사 잠금이 깨지는 근본 원인은?",
+      "accept": [
+        "재정렬",
+        "reorder",
+        "순서",
+        "가시성",
+        "volatile",
+        "메모리 모델"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-023",
+    "domain": "os",
+    "topic": "프로세스",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "fork 하면 부모랑 자식이 메모리를 공유해?",
+    "answer": "공유하지 않는다. fork 직후 자식은 부모 주소 공간의 논리적 복사본을 가지며 전역 변수든 힙 객체든 한쪽이 바꾼 값은 다른 쪽에 보이지 않는다. 실제로 fork 후 자식이 리스트에 원소를 추가하고 전역 변수를 999로 바꿔도 부모 쪽은 원래 값 그대로다. 헷갈리는 지점은 COW(Copy-On-Write)인데, COW는 물리 페이지 복사를 쓰기 시점까지 미루는 최적화일 뿐 의미론은 여전히 완전 복사다. 반면 열린 파일 디스크립터는 파일 오프셋까지 공유되므로 이쪽은 진짜 공유가 맞다.",
+    "verify": {
+      "lang": "python",
+      "code": "import os\nr, w = os.pipe()\nheap_obj = [1,2,3]; g = 100\npid = os.fork()\nif pid == 0:\n    heap_obj.append(4); g = 999\n    os.close(r)\n    os.write(w, (\"%s|%d|%d\" % (heap_obj, g, os.getpid())).encode())\n    os._exit(0)\nos.close(w); os.waitpid(pid, 0)\ncx, cg, cpid = os.read(r, 200).decode().split('|')\n# 자식이 바꾼 값은 부모에 전혀 보이지 않는다 (COW로 복사된 별개 주소공간)\nprint(cx == '[1, 2, 3, 4]' and cg == '999'\n      and heap_obj == [1,2,3] and g == 100 and int(cpid) != os.getpid())\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "fork 후 자식이 전역 변수를 바꾸면 부모에도 반영돼?",
+      "accept": [
+        "아니",
+        "않는다",
+        "반영되지 않",
+        "독립",
+        "별개",
+        "복사",
+        "no"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-024",
+    "domain": "os",
+    "topic": "프로세스",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "for 루프 안에서 fork를 3번 호출하면 프로세스가 몇 개 생겨?",
+    "answer": "총 8개, 즉 2³개이고 새로 생긴 자식은 3개가 아니라 7개다. 반복문 안의 fork는 최초 부모만 실행하는 게 아니라 그 시점에 존재하는 모든 프로세스가 각각 실행하므로 매 회 프로세스 수가 2배가 된다. 3회면 1 → 2 → 4 → 8이다. 실제로 fork를 3번 돌린 뒤 각 프로세스가 파일에 1바이트씩 쓰면 8바이트가 쌓인다. 자식이 남은 fork를 이어서 실행하지 않게 하려면 fork 반환값이 0인 분기에서 즉시 break하거나 exit해야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import os, time, tempfile\npath = tempfile.mktemp(); open(path,'w').close()\nroot = os.getpid()\nfor i in range(3):\n    os.fork()                       # 반복문 안의 fork는 매 회 프로세스 수를 2배로\nfd = os.open(path, os.O_WRONLY | os.O_APPEND); os.write(fd, b'x'); os.close(fd)\nif os.getpid() != root:\n    os._exit(0)\nwhile True:\n    try: os.waitpid(-1, 0)\n    except ChildProcessError: break\ntime.sleep(0.2)\nn = len(open(path).read()); os.remove(path)\nprint(n == 2**3 == 8)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "루프에서 fork를 n번 호출하면 프로세스는 총 몇 개가 돼?",
+      "accept": [
+        "2^n",
+        "2의 n",
+        "2ⁿ",
+        "2**n",
+        "2배",
+        "두 배",
+        "2의 거듭"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-025",
+    "domain": "os",
+    "topic": "프로세스",
+    "kind": "comparison",
+    "difficulty": "medium",
+    "question": "좀비 프로세스랑 고아 프로세스 차이가 뭐야?",
+    "answer": "좀비는 자식이 먼저 죽었는데 부모가 wait으로 종료 상태를 수거하지 않은 경우다. 메모리는 이미 회수되고 프로세스 테이블 항목과 종료 코드만 남아 있으며 ps에서 상태 Z로 보인다. 부모가 waitpid를 호출하는 순간 사라진다. 고아는 반대로 부모가 먼저 죽고 자식이 살아 있는 경우다. 자식은 init(PID 1)에 입양되어 getppid가 1을 반환하고, init이 주기적으로 wait을 해주므로 나중에 좀비로 남지 않는다. 위험한 쪽은 고아가 아니라 좀비이며, 좀비가 쌓이면 PID 공간이 고갈된다.",
+    "verify": {
+      "lang": "python",
+      "code": "import os, sys, time, subprocess, tempfile\ndef stat_of(pid):\n    return subprocess.run(['ps','-o','stat=','-p',str(pid)],\n                          capture_output=True, text=True).stdout.strip()\n\n# 1) 좀비: 자식이 끝났는데 부모가 wait 하지 않음\npid = os.fork()\nif pid == 0: os._exit(0)\ntime.sleep(0.3)\nzombie = stat_of(pid).startswith('Z')\nos.waitpid(pid, 0)                     # 부모가 수거하면 사라진다\nreaped = stat_of(pid) == ''\n\n# 2) 고아: 부모가 먼저 죽고 자식이 남음 -> init(1)이 입양\npath = tempfile.mktemp()\ncode = (\"import os,time\\n\"\n        \"if os.fork()==0:\\n\"\n        \"    time.sleep(0.6); open(%r,'w').write(str(os.getppid())); os._exit(0)\\n\"\n        \"os._exit(0)\\n\" % path)\nsubprocess.run([sys.executable, '-c', code])\ntime.sleep(1.0)\nnew_ppid = int(open(path).read()); os.remove(path)\nprint(zombie and reaped and new_ppid == 1)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "macOS/Linux에서 실제 fork로 좀비 상태(ps STAT=Z)와 고아의 재부모화(getppid()==1)를 확인했다. POSIX 환경에서만 실행 가능하다.",
+    "quiz": {
+      "q": "부모가 먼저 죽어서 생긴 고아 프로세스는 누구에게 입양돼?",
+      "accept": [
+        "init",
+        "PID 1",
+        "1번",
+        "systemd",
+        "launchd"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-026",
+    "domain": "os",
+    "topic": "스레드",
+    "kind": "misconception",
+    "difficulty": "easy",
+    "question": "같은 프로세스의 스레드끼리 뭘 공유하고 뭘 따로 가져?",
+    "answer": "코드, 데이터(전역), 힙, 열린 파일 디스크립터, 시그널 핸들러는 공유하고 스택과 레지스터, 프로그램 카운터, 스레드 지역 저장소는 각자 갖는다. 그래서 전역 리스트에 여러 스레드가 append하면 하나의 리스트에 다 쌓이지만, 함수 안 지역 변수는 스레드마다 별개 스택 프레임에 있어 서로 간섭하지 않는다. 자주 나오는 오해가 지역 변수도 공유된다는 것인데 지역 변수 자체는 안전하고, 위험한 것은 지역 변수가 가리키는 힙 객체가 공유될 때다. 스레드 간 컨텍스트 스위치는 주소 공간 전환이 없어 프로세스 간 전환보다 싸다.",
+    "verify": {
+      "lang": "python",
+      "code": "import threading\nshared = []          # 힙 객체: 모든 스레드가 같은 것을 본다\nseen = []\ndef worker(n):\n    private = n * 10 # 스택 프레임의 지역 변수: 스레드마다 독립\n    shared.append(n)\n    private += 1\n    seen.append(private)\nts = [threading.Thread(target=worker, args=(i,)) for i in range(5)]\n[t.start() for t in ts]; [t.join() for t in ts]\nprint(sorted(shared) == [0,1,2,3,4] and sorted(seen) == [1,11,21,31,41])\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "같은 프로세스의 스레드끼리 공유하지 않는 것은?",
+      "accept": [
+        "스택",
+        "레지스터",
+        "PC",
+        "프로그램 카운터",
+        "TLS",
+        "stack"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-027",
+    "domain": "os",
+    "topic": "동기화",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "counter += 1 한 줄인데도 락이 필요해?",
+    "answer": "필요하다. 한 줄이라는 건 소스 코드의 모양일 뿐이고 실제로는 읽기, 더하기, 쓰기 세 단계로 나뉜다. 두 스레드가 같은 값을 읽은 뒤 각각 1을 더해 쓰면 증가 하나가 사라지는데 이것이 갱신 손실이다. 스레드 8개가 각각 200번씩 증가시켜 1600이 나와야 하는 코드를 락 없이 돌리면 수백 수준의 값이 나오고, 락을 걸면 정확히 1600이 나온다. 임계구역의 크기는 문장 수가 아니라 불변식이 깨져 있는 구간의 길이로 정해야 한다. 파이썬 GIL이나 x86의 강한 메모리 모델도 이 문제를 없애주지 않는다.",
+    "verify": {
+      "lang": "python",
+      "code": "import threading, time\ndef run(use_lock):\n    counter = 0\n    lock = threading.Lock()\n    def inc():\n        nonlocal counter\n        for _ in range(200):\n            if use_lock: lock.acquire()\n            tmp = counter      # read\n            time.sleep(0)      # 스케줄러 양보: 인터리빙을 강제한다\n            counter = tmp + 1  # write\n            if use_lock: lock.release()\n    ts = [threading.Thread(target=inc) for _ in range(8)]\n    [t.start() for t in ts]; [t.join() for t in ts]\n    return counter\n\nlost = min(run(False) for _ in range(3))\nlocked = run(True)\n# read-modify-write는 한 줄이어도 원자적이지 않다\nprint(locked == 1600 and lost < 1600)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "",
+    "quiz": {
+      "q": "락 없이 여러 스레드가 counter += 1 할 때 증가분이 사라지는 현상 이름은?",
+      "accept": [
+        "경쟁",
+        "race",
+        "갱신 손실",
+        "lost update",
+        "레이스",
+        "경합"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "os-028",
+    "domain": "os",
+    "topic": "스래싱",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "다중 프로그래밍 정도를 높이면 CPU 이용률이 계속 올라가?",
+    "answer": "어느 지점까지만 오르고 그 뒤엔 급락한다. 프레임 10개를 놓고 워킹셋이 각각 5페이지인 프로세스를 늘려가며 시뮬레이션하면 2개까지는 폴트율이 0.1% 미만이지만 3개가 되는 순간 33%로 튄다. 워킹셋의 합이 가용 프레임 수를 넘는 순간 서로의 페이지를 밀어내며 스래싱이 시작되기 때문이다. 이때 CPU 이용률이 떨어지므로 스케줄러가 프로세스를 더 올리면 상황이 더 나빠지는 양의 되먹임이 생긴다. 해법은 워킹셋 모델이나 페이지 폴트 빈도(PFF) 기준으로 프레임을 할당하고, 모자라면 프로세스를 스왑 아웃하는 것이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import random\ndef fault_rate(frames, procs, ws, steps=40000, seed=0):\n    random.seed(seed); mem = []; f = 0\n    for _ in range(steps):\n        page = (random.randrange(procs), random.randrange(ws))\n        if page in mem:\n            mem.remove(page); mem.append(page); continue\n        f += 1\n        if len(mem) == frames: mem.pop(0)\n        mem.append(page)\n    return f/steps\n\nFRAMES, WS = 10, 5\nr = [fault_rate(FRAMES, n, WS) for n in (1,2,3,4)]\n# 워킹셋 합(n*5)이 프레임 수를 넘는 순간 폴트율이 폭증한다\nprint(r[0] < 0.001 and r[1] < 0.001 and r[2] > 0.3 and r[3] > 0.4\n      and r[2]/max(r[1],1e-9) > 100)\n",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "무작위 워킹셋 참조 모델 시뮬레이션이라 절대 수치는 모델 가정에 따라 달라진다. 워킹셋 합이 프레임 수를 넘는 지점에서 폴트율이 급격히 꺾인다는 결론 자체는 재현된다.",
+    "quiz": {
+      "q": "스래싱이 시작되는 조건을 워킹셋으로 표현하면?",
+      "accept": [
+        "워킹셋 합",
+        "합이",
+        "프레임",
+        "초과",
+        "넘으면",
+        "넘어",
+        "working set"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  }
+]
