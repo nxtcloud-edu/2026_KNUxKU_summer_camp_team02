@@ -39,7 +39,7 @@ import { screenUtterance, looksComplete, joinVoice, WHY_LABEL } from '../lib/voi
 import { requestSummary, requestReply } from '../lib/agent/client'
 import { useVision } from '../lib/vision/useVision'
 import { wakeChime } from '../lib/chime'
-import { readDocument, toPrompt, asInlineFile, MAX_INLINE_PDF_BYTES } from '../lib/docReader'
+import { planDocument, toPrompt, asInlineFile } from '../lib/docReader'
 import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
 
 /* ── 지역 헬퍼 (새 의존 파일을 만들지 않는다) ─────────────────── */
@@ -775,76 +775,45 @@ export default function StudyRoomScreen() {
         topic_source: 'document',
       })
 
-      // 실제로 읽는다. 예전에는 파일 **이름만** 보고 고정 문구를 읊으면서
-      // "훑어봤어요"라고 말했다. 읽지 않은 걸 읽었다고 하는 건 있어서는 안 될 일이다.
-      const doc = await readDocument(file)
+      const plan = await planDocument(file)
 
-      // 글자층이 깨졌거나 비어 있는 PDF. 사람 눈에는 멀쩡히 보이는 문서다.
-      //
-      // **PDF 를 통째로 모델에 넘겨 글로 옮긴다.** 우리가 쪽을 그림으로 그려 보내는 것보다
-      // 토큰이 비슷하면서 더 정확하고, 브라우저에서 캔버스를 돌릴 일도 없다.
-      // 한 번 글로 만들어 두면 이후 질문은 값싼 글자 호출로 끝난다.
-      if (!doc.ok && doc.kind === 'pdf' && (doc.garbled || /글자가 없는/.test(doc.reason))) {
-        if (file.size > MAX_INLINE_PDF_BYTES) {
-          toast(
-            `자료가 너무 커요 (${(file.size / 1024 / 1024).toFixed(1)}MB). 20MB 아래로 줄여서 올려주세요.`,
-            'danger',
-          )
-          return
-        }
-        toast('글자를 못 뽑아서 자료를 통째로 읽는 중이에요…', 'info')
-        try {
-          const inline = await asInlineFile(file)
-          const got = await requestReply({
-            mode: 'extract',
-            settings: {},
-            turns: [],
-            images: [inline],
-            message: `"${file.name}" 자료의 내용을 빠짐없이 글로 옮겨 적어줘.`,
-          })
-          if (!got?.text) throw new Error('빈 응답')
-
-          docRef.current = { name: file.name, prompt: toPrompt(file.name, { text: got.text }) }
-          db.addStudyPoint(sid, `${file.name} 읽음 (${got.text.length.toLocaleString()}자로 옮김)`, file.name)
-
-          const speaker = pickInterventionSpeaker(useStore.getState().seats)
-          if (speaker) {
-            await mateSay(speaker, () =>
-              generateReply({
-                seat: speaker,
-                text: `${docRef.current.prompt}\n\n위 자료를 방금 훑어본 사람처럼, 무엇에 대한 자료인지 두세 문장으로 말해줘. 없는 내용을 지어내지 않는다.`,
-                withDoc: true,
-                settings: { ...useStore.getState().settings, replyLength: 'brief' },
-                history: [],
-                summary: '',
-              }),
-            )
-          }
-        } catch (e) {
-          console.warn('[doc] 자료 읽기 실패', e)
-          toast('자료를 읽지 못했어요.', 'danger')
-        }
-        return
-      }
-
-      if (!doc.ok) {
+      if (plan.mode === 'no') {
         // 못 읽으면 못 읽었다고 말한다. 지어내지 않는다
         const s2 = pickInterventionSpeaker(useStore.getState().seats)
         if (s2) {
           await mateSay(s2, async () => {
             await sleep(500)
-            return `“${topic}” 열어봤는데 ${doc.reason}. 중요한 부분만 붙여넣어 주면 같이 볼게.`
+            return `“${topic}” 열어봤는데 ${plan.reason}. 중요한 부분만 붙여넣어 주면 같이 볼게.`
           })
         }
         return
       }
 
-      docRef.current = { name: file.name, prompt: toPrompt(file.name, doc) }
-      db.addStudyPoint(
-        sid,
-        `${file.name} 읽음 (${doc.chars.toLocaleString()}자${doc.pages ? `, ${doc.pages}쪽` : ''})`,
-        file.name,
-      )
+      let body = plan.text
+
+      // PDF 는 모델이 직접 읽는다. 우리가 글자를 뽑지 않는다 (docReader 주석 참고).
+      // 한 번 글로 옮겨 두면 이후 질문은 값싼 글자 호출로 끝난다.
+      if (plan.mode === 'model') {
+        toast('자료를 읽는 중이에요…', 'info')
+        try {
+          const got = await requestReply({
+            mode: 'extract',
+            settings: {},
+            turns: [],
+            images: [await asInlineFile(file)],
+            message: `"${file.name}" 자료의 내용을 빠짐없이 글로 옮겨 적어줘.`,
+          })
+          if (!got?.text) throw new Error('빈 응답')
+          body = got.text
+        } catch (e) {
+          console.warn('[doc] 자료 읽기 실패', e)
+          toast(`자료를 읽지 못했어요. (${String(e?.message || e).slice(0, 60)})`, 'danger')
+          return
+        }
+      }
+
+      docRef.current = { name: file.name, prompt: toPrompt(file.name, body) }
+      db.addStudyPoint(sid, `${file.name} 읽음 (${body.length.toLocaleString()}자)`, file.name)
 
       const speaker = pickInterventionSpeaker(useStore.getState().seats)
       if (speaker) {
@@ -852,6 +821,7 @@ export default function StudyRoomScreen() {
           generateReply({
             seat: speaker,
             text: `${docRef.current.prompt}\n\n위 자료를 방금 훑어본 사람처럼, 무엇에 대한 자료인지 두세 문장으로 말해줘. 없는 내용을 지어내지 않는다.`,
+            withDoc: true,
             settings: { ...useStore.getState().settings, replyLength: 'brief' },
             history: [],
             summary: '',

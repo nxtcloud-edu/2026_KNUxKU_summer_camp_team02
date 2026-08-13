@@ -1,12 +1,17 @@
 /**
- * 올린 파일에서 글자를 뽑아낸다.
+ * 올린 파일을 읽을 수 있는 형태로 만든다.
  *
- * 이게 없던 동안 캐릭터는 **읽지도 않은 파일을 "훑어봤어요"** 라고 말했다.
- * 파일 이름만 보고 고정 문구 다섯 개 중 하나를 뽑아 읊었을 뿐이다.
- * 지어내느니 "못 읽었다"고 말하는 게 낫고, 읽을 수 있으면 진짜로 읽는 게 제일 낫다.
+ * 처음에는 pdf.js 로 브라우저에서 글자를 뽑았다. 그런데 하루에 세 번 발목을 잡혔다.
+ *   · 워커가 application/octet-stream 으로 나가 실행 거부됨 (배포에서만)
+ *   · 배경 탭에서 캔버스 렌더링이 멈춤
+ *   · 400KB 짜리 청크를 터널 너머로 받아야 함
+ * 게다가 한글 PDF 는 글꼴에 유니코드 대응표가 없으면 "사본"이 "칺쫆"으로 나온다.
  *
- * 전부 브라우저 안에서 처리한다. 파일은 서버로 올라가지 않는다 —
- * 모델에게 보내는 건 뽑아낸 글자뿐이다.
+ * 그래서 **PDF 는 그냥 모델에게 준다.** 실측에서 모델이 9쪽을 4,811토큰에 정확히 읽었고
+ * (표 안의 값, 예외 조항까지) 우리가 글자를 뽑아 넘긴 것보다 나았다.
+ * 라이브러리도, 워커도, 깨짐 판별도 필요 없어졌다.
+ *
+ * 글자 파일(txt·md·코드)은 브라우저가 그냥 읽는다. 그건 모델에 보낼 이유가 없다.
  */
 
 /**
@@ -16,8 +21,11 @@
  */
 export const MAX_CHARS = 8000
 
-/** 이 크기를 넘으면 열지 않는다 (브라우저가 멈춘다) */
-export const MAX_BYTES = 20 * 1024 * 1024
+/** PDF 를 통째로 모델에 넘길 수 있는 크기. base64 로 1.33배가 된다 */
+export const MAX_PDF_BYTES = 10 * 1024 * 1024
+
+/** 글자 파일 크기 상한 */
+export const MAX_TEXT_BYTES = 5 * 1024 * 1024
 
 const TEXT_EXT =
   /\.(txt|md|markdown|csv|tsv|json|log|ya?ml|html?|xml|js|ts|jsx|tsx|py|java|c|cpp|h|go|rs|sql|sh)$/i
@@ -29,35 +37,6 @@ export function fileKind(file) {
   if ((file?.type || '').startsWith('image/')) return 'image'
   return 'other'
 }
-
-/**
- * 뽑아낸 한글이 진짜 글자인지, 깨진 것인지 가린다.
- *
- * PDF 안의 글꼴에 유니코드 대응표(ToUnicode)가 없으면 pdf.js 는 글리프 번호를
- * 엉뚱한 코드포인트로 옮긴다. 그래서 "사본"이 "칺쫆"으로 나온다.
- * 브라우저 인쇄로 만든 한글 PDF 에서 흔하다.
- *
- * 이걸 못 거르면 **모델에게 쓰레기를 주고 그럴듯한 요약을 받게 된다.**
- * 읽은 척하는 것보다 나쁘다 — 읽었는데 틀린 말을 하게 되니까.
- *
- * 판별은 간단하다. 한국어 글에서 압도적으로 흔한 음절이 차지하는 비율을 본다.
- * 실측: 정상 한국어 36~49% · 깨진 추출문 0.0%
- */
-const COMMON_SYLLABLES = new Set(
-  '이다는에의를은가고하지서로들과한나수있게내년월일도만부터까지어요습니당그리저우무엇왜때문거것적으면서'.split(
-    '',
-  ),
-)
-
-/** @returns {null | {hangul:number, ratio:number}} 한글이 적으면 판단하지 않는다 */
-function hangulHealth(text) {
-  const h = [...text].filter((c) => c >= '가' && c <= '힣')
-  if (h.length < 30) return null // 영어 문서일 수도 있다. 섣불리 깨졌다고 하지 않는다
-  return { hangul: h.length, ratio: h.filter((c) => COMMON_SYLLABLES.has(c)).length / h.length }
-}
-
-/** 이 아래면 깨진 것으로 본다 (정상 36~49% · 깨짐 0%) */
-const GARBLED_BELOW = 0.1
 
 /** 너무 길면 가운데를 접는다. 앞과 끝이 대개 제일 많은 걸 말해준다 */
 function fit(text, max = MAX_CHARS) {
@@ -74,37 +53,6 @@ function fit(text, max = MAX_CHARS) {
   }
 }
 
-async function readPdf(file, onProgress) {
-  // 필요할 때만 불러온다. 1MB 가까이 되는 라이브러리를 첫 화면부터 들고 있을 이유가 없다
-  const pdfjs = await import('pdfjs-dist')
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href
-
-  const buf = await file.arrayBuffer()
-  const doc = await pdfjs.getDocument({ data: buf }).promise
-  const parts = []
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i)
-    const content = await page.getTextContent()
-    const line = content.items.map((it) => it.str).join(' ')
-    if (line.trim()) parts.push(line)
-    onProgress?.(i, doc.numPages)
-  }
-  await doc.destroy()
-  return { raw: parts.join('\n\n'), pages: doc.numPages }
-}
-
-/**
- * PDF 를 통째로 모델에 넘길 수 있는 크기 상한.
- *
- * 실측 비교 (같은 9쪽 문서):
- *   쪽을 그림으로 → 4쪽 461KB · 4,731토큰 · 브라우저에서 캔버스 렌더 필요
- *   PDF 통째로   → 9쪽 9.3MB · 4,811토큰 · 렌더 불필요, 정확도 더 좋음
- *
- * 토큰은 비슷한데 통째로 넘기는 쪽이 더 정확하고, 브라우저에서 캔버스를 돌릴 일도 없다.
- * 대신 전송량이 크므로 이 선을 넘으면 받지 않는다.
- */
-export const MAX_INLINE_PDF_BYTES = 10 * 1024 * 1024
-
 /** 파일을 모델에 그대로 넘길 형태로 (base64) */
 export async function asInlineFile(file) {
   const buf = new Uint8Array(await file.arrayBuffer())
@@ -117,57 +65,42 @@ export async function asInlineFile(file) {
 }
 
 /**
- * @returns {Promise<{ok:true, kind:string, text:string, chars:number, pages?:number, truncated:boolean}
- *                 | {ok:false, kind:string, reason:string}>}
+ * 이 파일을 어떻게 다룰지 정한다. 실제 모델 호출은 화면 쪽이 한다.
+ *
+ * @returns {{mode:'text', text:string, chars:number, truncated:boolean}
+ *          |{mode:'model'}
+ *          |{mode:'no', reason:string}}
  */
-export async function readDocument(file, { onProgress } = {}) {
+export async function planDocument(file) {
   const kind = fileKind(file)
 
-  if (file.size > MAX_BYTES) {
-    return { ok: false, kind, reason: `파일이 너무 커요 (${(file.size / 1024 / 1024).toFixed(1)}MB)` }
-  }
-
-  try {
-    if (kind === 'text') {
+  if (kind === 'text') {
+    if (file.size > MAX_TEXT_BYTES) {
+      return { mode: 'no', reason: `글자 파일이 너무 커요 (${(file.size / 1024 / 1024).toFixed(1)}MB)` }
+    }
+    try {
       const raw = await file.text()
+      if (!raw.trim()) return { mode: 'no', reason: '내용이 비어 있어요' }
       const { text, truncated } = fit(raw)
-      return { ok: true, kind, text, chars: raw.length, truncated }
+      return { mode: 'text', text, chars: raw.length, truncated }
+    } catch (e) {
+      return { mode: 'no', reason: `파일을 여는 데 실패했어요 (${String(e?.message || e).slice(0, 60)})` }
     }
-
-    if (kind === 'pdf') {
-      const { raw, pages } = await readPdf(file, onProgress)
-      if (!raw.trim()) {
-        // 스캔본이면 글자가 없다. 그림만 있는 PDF 다
-        return { ok: false, kind, reason: '글자가 없는 PDF 예요 (스캔본일 수 있어요)' }
-      }
-      // 글자는 나왔는데 깨진 경우. 이걸 넘기면 모델이 쓰레기를 읽고 그럴듯하게 지어낸다
-      const health = hangulHealth(raw)
-      if (health && health.ratio < GARBLED_BELOW) {
-        return {
-          ok: false,
-          kind,
-          reason: '한글이 깨져서 나와요 (글꼴 정보가 없는 PDF 예요)',
-          garbled: true,
-        }
-      }
-      const { text, truncated } = fit(raw)
-      return { ok: true, kind, text, chars: raw.length, pages, truncated }
-    }
-
-    if (kind === 'image') return { ok: false, kind, reason: '이미지는 아직 못 읽어요' }
-    return { ok: false, kind, reason: '이 형식은 아직 못 읽어요' }
-  } catch (e) {
-    console.warn('[doc] 읽기 실패', e)
-    if (typeof window !== 'undefined') window.__lastDocError = (e && (e.stack || e.message)) || String(e)
-    // 무엇이 문제였는지 화면에도 남긴다. "실패했어요"만으로는 사용자도 우리도 알 수 없다
-    return { ok: false, kind, reason: `파일을 여는 데 실패했어요 (${String(e?.message || e).slice(0, 80)})` }
   }
+
+  if (kind === 'pdf') {
+    if (file.size > MAX_PDF_BYTES) {
+      const mb = (file.size / 1024 / 1024).toFixed(1)
+      return { mode: 'no', reason: `PDF 가 너무 커요 (${mb}MB · ${MAX_PDF_BYTES / 1024 / 1024}MB 까지)` }
+    }
+    return { mode: 'model' } // 모델이 직접 읽는다
+  }
+
+  if (kind === 'image') return { mode: 'no', reason: '이미지는 아직 못 읽어요' }
+  return { mode: 'no', reason: '이 형식은 아직 못 읽어요' }
 }
 
 /** 모델에게 넘길 형태로 감싼다 */
-export function toPrompt(fileName, doc) {
-  const head = `[학생이 올린 자료 — "${fileName}"${doc.pages ? ` · ${doc.pages}쪽` : ''}${doc.truncated ? ' · 일부 생략됨' : ''}]`
-  return `${head}\n${doc.text}\n[자료 끝]`
+export function toPrompt(fileName, text) {
+  return `[학생이 올린 자료 — "${fileName}"]\n${text}\n[자료 끝]`
 }
-
-if (typeof window !== 'undefined') window.__readDocument = readDocument
