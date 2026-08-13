@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useStore } from './store/useStore'
 import { Toasts } from './components/ui'
+import LandingScreen from './screens/LandingScreen'
 import HomeScreen from './screens/HomeScreen'
 import LobbyScreen from './screens/LobbyScreen'
 import StudyRoomScreen from './screens/StudyRoomScreen'
@@ -12,11 +13,12 @@ export default function App() {
   const toasts = useStore((s) => s.toasts)
 
   useEffect(() => {
-    document.title = 'AI 스터디룸 — 프로토타입'
+    document.title = 'Alongside — AI 스터디 메이트'
   }, [])
 
   return (
     <>
+      {route === 'landing' && <LandingScreen />}
       {route === 'home' && <HomeScreen />}
       {route === 'lobby' && <LobbyScreen />}
       {route === 'room' && <StudyRoomScreen />}
