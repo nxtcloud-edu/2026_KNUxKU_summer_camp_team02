@@ -56,6 +56,8 @@ const MAX_HISTORY_TURNS = 40 // 서버가 예산으로 또 자르지만, 전송�
 const COMPACT_ABOVE_TURNS = 50 // 이보다 길어지면 앞부분을 요약으로 접는다
 /** 말끝이 애매할 때, 이만큼 더 기다렸다가 그래도 안 이어지면 보낸다 */
 const VOICE_IDLE_MS = 3000
+/** 이만큼 끊기지 않고 집중해야 칭찬 한마디. 이유 없는 칭찬은 소음이다 */
+const CHEER_AFTER_STREAK_SEC = 25 * 60
 /** 올린 자료를 가리키는 말 — 이럴 때만 본문을 같이 넘긴다 */
 const DOC_REF_WORDS = /파일|자료|문서|pdf|이거|저거|방금|올린|첨부|요약|정리해|내용/i
 
@@ -329,7 +331,9 @@ export default function StudyRoomScreen() {
   const voiceIdleRef = useRef(null) // 말끝이 애매할 때 기다리는 타이머
   const docRef = useRef(null) // 마지막으로 올린 자료의 본문 — 이후 질문에 같이 넘긴다
   const replyChainRef = useRef(Promise.resolve()) // 답변 루프를 한 줄로 세운다
+  const lastCheerStreakRef = useRef(0) // 마지막으로 칭찬한 집중 구간
   const [typingSlots, setTypingSlots] = useState([]) // 타이핑 인디케이터 (§6-3)
+  const [readingDoc, setReadingDoc] = useState(null) // 자료를 읽는 중이면 파일 이름
   const [draft, setDraft] = useState('')
   const [mention, setMention] = useState(null) // {q, start, end}
   const [mentionIdx, setMentionIdx] = useState(0)
@@ -589,7 +593,16 @@ export default function StudyRoomScreen() {
       const s = tracker.snapshot()
 
       // 상황 판정 — settings.triggers가 꺼진 상황은 건너뛴다 (§7-3, §10 규칙 6)
-      let kind = 'cheer'
+      /**
+       * 무슨 일이 있어야 말을 건다.
+       *
+       * 예전에는 `cheer` 가 기본값이라 **아무 상황도 해당 안 되면 그냥 칭찬을 던졌다.**
+       * 파일을 올리자마자 "오늘 진짜 잘하고 있는데?!" 가 튀어나온 게 그것이다.
+       * 이유 없는 말 걸기는 존재감이 아니라 소음이다.
+       *
+       * 이제 아래 상황 중 하나여야 말한다. 아무것도 아니면 조용히 있는다.
+       */
+      let kind = null
       if (pendingAwayRef.current && st.triggers.windowAway && st.privacyFlags.awayDetect) {
         kind = 'away'
       } else if (
@@ -610,7 +623,17 @@ export default function StudyRoomScreen() {
         (now - tracker.lastInputAt) / 1000 >= st.thresholds.idleMin * 60
       ) {
         kind = 'idle'
+      } else if (
+        // 칭찬은 **끊기지 않고 오래 집중했을 때만.** 그것도 한 구간에 한 번만
+        st.triggers.longStudy &&
+        s.bestStreakSec >= CHEER_AFTER_STREAK_SEC &&
+        s.bestStreakSec - lastCheerStreakRef.current >= CHEER_AFTER_STREAK_SEC
+      ) {
+        kind = 'cheer'
+        lastCheerStreakRef.current = s.bestStreakSec
       }
+
+      if (!kind) return // 말할 이유가 없으면 조용히 있는다
 
       // 1순위 방해 방지 · 전역 개입 빈도 상한 (§7-3, §10 규칙 10)
       const ctx = {
@@ -794,7 +817,11 @@ export default function StudyRoomScreen() {
       // PDF 는 모델이 직접 읽는다. 우리가 글자를 뽑지 않는다 (docReader 주석 참고).
       // 한 번 글로 옮겨 두면 이후 질문은 값싼 글자 호출로 끝난다.
       if (plan.mode === 'model') {
-        toast('자료를 읽는 중이에요…', 'info')
+        // 20초쯤 걸린다. 토스트는 사라지므로 채팅에 계속 남는 표시를 둔다.
+        // 그동안 발언권을 쥐고 있어야 개입 엔진이 끼어들지 않는다 —
+        // 자료를 기다리는데 "오늘 잘하고 있는데?!" 가 튀어나오면 안 된다
+        setReadingDoc(file.name)
+        floorRef.current += 1
         try {
           const got = await requestReply({
             mode: 'extract',
@@ -809,6 +836,9 @@ export default function StudyRoomScreen() {
           console.warn('[doc] 자료 읽기 실패', e)
           toast(`자료를 읽지 못했어요. (${String(e?.message || e).slice(0, 60)})`, 'danger')
           return
+        } finally {
+          setReadingDoc(null)
+          floorRef.current = Math.max(0, floorRef.current - 1)
         }
       }
 
@@ -988,7 +1018,7 @@ export default function StudyRoomScreen() {
   /* ── 채팅 스크롤 ───────────────────────────────────────── */
   useEffect(() => {
     listEndRef.current?.scrollIntoView({ block: 'end' })
-  }, [messages, typingSlots])
+  }, [messages, typingSlots, readingDoc])
 
   /* ── @멘션 자동완성 ─────────────────────────────────────── */
 
@@ -1167,6 +1197,26 @@ export default function StudyRoomScreen() {
                   )}
                 </li>
               ))}
+
+              {/* 자료 읽는 중 — 20초쯤 걸리므로 끝날 때까지 남아 있어야 한다 */}
+              {readingDoc && (
+                <li className="flex gap-2" aria-live="polite">
+                  <span className="mt-0.5 shrink-0 flex h-[26px] w-[26px] items-center justify-center">
+                    <FileText size={16} className="text-subtle" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="t-caption">자료</div>
+                    <div className="mt-0.5 inline-flex max-w-full items-center gap-2 rounded-sm border border-hairline bg-white px-4 py-3">
+                      <span className="t-body truncate">“{readingDoc}” 읽는 중이에요</span>
+                      <span className="inline-flex shrink-0 items-center gap-1">
+                        <span className="dot h-1.5 w-1.5 rounded-full bg-[var(--text-muted)]" />
+                        <span className="dot h-1.5 w-1.5 rounded-full bg-[var(--text-muted)]" />
+                        <span className="dot h-1.5 w-1.5 rounded-full bg-[var(--text-muted)]" />
+                      </span>
+                    </div>
+                  </div>
+                </li>
+              )}
 
               {/* 타이핑 인디케이터 — 로딩 스피너 금지 (§6-3) */}
               {typingSlots.map((no) => (
