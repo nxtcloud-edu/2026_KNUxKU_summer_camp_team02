@@ -58,6 +58,14 @@ const COMPACT_ABOVE_TURNS = 50 // 이보다 길어지면 앞부분을 요약으�
 const VOICE_IDLE_MS = 3000
 /** 이만큼 끊기지 않고 집중해야 칭찬 한마디. 이유 없는 칭찬은 소음이다 */
 const CHEER_AFTER_STREAK_SEC = 25 * 60
+
+/** 시계가 멈춘 이유 — 색만으로는 알 수 없으니 글자로도 붙인다 */
+const PAUSE_LABEL = {
+  away: '자리 비움',
+  absent: '자리 비움',
+  phone: '휴대폰',
+  drowsy: '졸음',
+}
 /** 올린 자료를 가리키는 말 — 이럴 때만 본문을 같이 넘긴다 */
 const DOC_REF_WORDS = /파일|자료|문서|pdf|이거|저거|방금|올린|첨부|요약|정리해|내용/i
 
@@ -380,7 +388,7 @@ export default function StudyRoomScreen() {
 
     // 오늘 누적 = 이미 저장된 오늘치 − 이 세션 몫 (하단바에서 실시간으로 더한다, §8-1)
     const row = db.getSession(id)
-    setTodayBase(Math.max(0, db.todayTotalSec() - (row?.study_sec || 0)))
+    setTodayBase(Math.max(0, db.todayFocusSec() - (row?.focus_sec || 0)))
 
     const st = useStore.getState().settings
     const tracker = new MetricsTracker(id, {
@@ -1092,7 +1100,15 @@ export default function StudyRoomScreen() {
   /* ── 렌더 ──────────────────────────────────────────────── */
 
   const tints = { 1: 'bg-sage', 2: 'bg-lavender', 3: 'bg-peach' }
-  const todaySec = todayBase + (snap?.studySec || 0)
+  /**
+   * 화면의 시계는 **집중 시간**을 센다.
+   *
+   * 총 시간을 보여주면 자리를 비워도, 폰을 봐도 숫자가 계속 올라간다.
+   * 그건 "화면 앞에 있던 시간"이지 공부한 시간이 아니다.
+   * 집중이 끊기면 숫자가 멈추고 빨갛게 바뀌어, 왜 안 오르는지가 바로 보인다.
+   */
+  const todaySec = todayBase + (snap?.focusSec ?? snap?.studySec ?? 0)
+  const pausedBy = snap?.pausedBy || null
   const seatName = (no) => seats.find((s) => s.slotNo === no)?.name || `${no}번`
 
   return (
@@ -1337,9 +1353,20 @@ export default function StudyRoomScreen() {
           <span className="font-hand text-[26px] leading-none text-subtle" aria-hidden="true">
             Today
           </span>
-          <span className="t-section tnum" aria-label={`오늘 누적 학습 시간 ${fmtHMS(todaySec)}`}>
+          <span
+            className={['t-section tnum transition-colors duration-300', pausedBy ? 'text-danger' : ''].join(
+              ' ',
+            )}
+            aria-label={`오늘 집중한 시간 ${fmtHMS(todaySec)}${pausedBy ? ` — ${PAUSE_LABEL[pausedBy]}라 멈춰 있어요` : ''}`}
+          >
             {fmtHMS(todaySec)}
           </span>
+          {/* 색만으로 알리지 않는다 (§4-5, §11). 왜 멈췄는지 글자로도 말한다 */}
+          {pausedBy && (
+            <span className="t-caption shrink-0 text-danger" aria-hidden="true">
+              {PAUSE_LABEL[pausedBy]}
+            </span>
+          )}
         </div>
 
         {/* 중앙 — 공부 종료 */}
