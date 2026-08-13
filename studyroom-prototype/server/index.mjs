@@ -13,10 +13,33 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const DIST = join(root, 'dist')
 const PORT = Number(process.env.PORT || 8080)
 
+/**
+ * ⚠️ 여기 빠진 확장자는 application/octet-stream 으로 나간다.
+ *    브라우저는 **자바스크립트 MIME 이 아닌 모듈 워커를 실행 거부**한다.
+ *    실제로 `.mjs` 가 빠져 있어서 pdf.js 워커가 안 떴고, PDF 열기가 통째로 실패했다.
+ *    Vite 개발 서버는 알아서 붙여 주므로 로컬에서는 멀쩡했다 —
+ *    개발과 배포가 갈리지 않게 하려고 만든 파일에서 정확히 그 일이 났다.
+ */
 const MIME = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css',
-  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
-  '.wasm': 'application/wasm', '.woff2': 'font/woff2',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.map': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.txt': 'text/plain; charset=utf-8',
+  '.pdf': 'application/pdf',
 }
 
 createServer(async (req, res) => {
