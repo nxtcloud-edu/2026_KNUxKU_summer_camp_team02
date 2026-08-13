@@ -24,7 +24,8 @@ import {
   seatFromPreset,
 } from '../lib/presets'
 import { canIntervene, pickInterventionSpeaker, routeReply } from '../lib/mockAgent'
-import { toneOf, toneSample } from '../lib/agent/tone'
+import { toneOf, toneSample, TONE_OPTIONS } from '../lib/agent/tone'
+import { FUNCS, FUNC_META, ownerSlot, validateOwner } from '../lib/agent/functions'
 import { sttSupported, ttsSupported, speechSupportNote } from '../lib/speech'
 import {
   Section,
@@ -170,9 +171,7 @@ function deviceOptions(list, kind, tempName) {
 
 function previewAnswerSample(seat, settings) {
   const style =
-    { easy: '쉬운 말로 풀어서', example: '예시를 들어', stepwise: '단계별로 나눠서', concise: '핵심만 짧게' }[
-      seat.explainStyle
-    ] || '단계별로 나눠서'
+    { T1: '짧게 끊어서', T2: '가볍게', T3: '부드럽게', T4: '단정적으로' }[seat.tone] || '짧게 끊어서'
   const len = { short: '한마디로', brief: '간단히', detailed: '자세히' }[settings.replyLength] || '간단히'
   return `"${SAMPLE_QUESTION}" → ${seat.name}이(가) ${style} ${len} 답합니다.`
 }
@@ -1194,7 +1193,7 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
       title: `${PRESETS[key].name} 프리셋으로 바꿀까요?`,
       body:
         `이름·이미지·성격과 말투·설명 방식·먼저 말 거는 정도가 ${PRESETS[key].name}의 기본값으로 덮어써집니다.\n\n` +
-        `${PRESETS[key].tone}\n\n지금 직접 고친 값은 사라져요.`,
+        `${PRESETS[key].blurb}\n\n지금 직접 고친 값은 사라져요.`,
       confirmLabel: '프리셋 적용',
       tone: 'primary',
       onConfirm: () => {
@@ -1213,7 +1212,6 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
     ...PRESET_ORDER.map((k) => ({ value: k, label: `${PRESETS[k].name} · ${PRESETS[k].archetype}` })),
     { value: 'custom', label: '직접 설정' },
   ]
-  const proactHelp = PROACTIVITY.find((p) => p.value === seat.proactivity)?.help || ''
 
   return (
     <>
@@ -1274,35 +1272,30 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
             options={presetOptions}
           />
         </Row>
-        <Row title="성격과 말투" help="여러 개를 고를 수 있어요.">
-          <div className="w-[380px]">
-            <Chips
-              ariaLabel="성격과 말투"
-              options={TRAIT_OPTIONS}
-              values={seat.traits || []}
-              onChange={(v) => patchPersonality({ traits: v })}
-            />
-          </div>
-        </Row>
-        <Row title="설명 방식" help="질문에 답할 때의 기본 태도예요.">
+        <Row title="말투" help="같은 내용을 어떻게 말할지만 정해요. 무엇을 말할지는 담당 기능이 정합니다.">
           <div className="w-[420px]">
             <CardChoice
-              ariaLabel="설명 방식"
+              ariaLabel="말투"
               columns={2}
-              value={seat.explainStyle}
-              onChange={(v) => patchPersonality({ explainStyle: v })}
-              options={EXPLAIN_STYLES}
+              value={seat.tone || 'T1'}
+              onChange={(v) => patchPersonality({ tone: v })}
+              options={TONE_OPTIONS.map((t) => ({
+                value: t.id,
+                label: t.label,
+                help: `${t.one} · ${t.ending}`,
+              }))}
             />
           </div>
         </Row>
-        <Row title="먼저 말 거는 정도" help={proactHelp} last>
-          <Segmented
-            ariaLabel="먼저 말 거는 정도"
-            value={seat.proactivity}
-            onChange={(v) => patchPersonality({ proactivity: v })}
-            options={PROACTIVITY.map((p) => ({ value: p.value, label: p.label }))}
-          />
+        <Row title="이렇게 말해요" help="실제 AI를 부르지 않고 보여주는 예시예요." last>
+          <p className="t-body text-subtle w-[420px] leading-relaxed">
+            {toneSample(seat.tone || 'T1', '개념')}
+          </p>
         </Row>
+      </Section>
+
+      <Section title="담당 기능" help="여섯 가지를 세 자리에 나눠 맡깁니다. 한 자리에 두 개씩이에요.">
+        <FunctionAssign slotNo={seat.slotNo} />
       </Section>
 
       <p className="t-help -mt-4 flex items-start gap-1.5">
@@ -1569,5 +1562,73 @@ function PreviewBlock({ step, title, children }) {
       </h3>
       {children}
     </section>
+  )
+}
+
+/**
+ * 기능 배정.
+ *
+ * 배정은 좌석이 아니라 **방 전체의 맵 하나**에 있다(settings.functionOwner).
+ * 맵이면 "두 캐릭터가 같은 기능을 맡음"과 "아무도 안 맡음"이 표현 자체가 불가능하다.
+ *
+ * 여섯 기능을 세 자리에 나누면 한 자리당 정확히 두 개라 **여유가 0**이다.
+ * 그래서 고르면 비활성화가 아니라 **자리를 맞바꾼다** — 비활성화만 쓰면 한 번 정해진 뒤
+ * 어떤 줄에서도 다른 자리를 고를 수 없어 배정기가 잠긴 것처럼 보인다.
+ *
+ * 개념 해설과 심화 해설은 한 줄로 묶었다. 문서가 "같은 캐릭터여야 한다"고 못 박았고,
+ * 따로 두면 사용자가 어길 수 있는 규칙을 만들어 놓고 나중에 혼내는 꼴이 된다.
+ */
+function FunctionAssign({ slotNo }) {
+  const seats = useStore((s) => s.seats)
+  const settings = useStore((s) => s.settings)
+  const updateSettings = useStore((s) => s.updateSettings)
+
+  const rows = [
+    { key: 'F1', label: '개념 해설 + 심화 해설', pair: ['F1', 'F6'], hint: FUNC_META.F1.hint },
+    { key: 'F2', label: FUNC_META.F2.label, pair: ['F2'], hint: FUNC_META.F2.hint },
+    { key: 'F3', label: FUNC_META.F3.label, pair: ['F3'], hint: FUNC_META.F3.hint },
+    { key: 'F4', label: FUNC_META.F4.label, pair: ['F4'], hint: FUNC_META.F4.hint },
+    { key: 'F5', label: FUNC_META.F5.label, pair: ['F5'], hint: FUNC_META.F5.hint },
+  ]
+
+  const move = (pair, toSlot) => {
+    const map = { ...settings.functionOwner }
+    const fromSlot = map[pair[0]]
+    if (fromSlot === toSlot) return
+    // 자리를 맞바꾼다. 상대 자리에서 옮겨올 기능을 하나 고른다
+    const victim = FUNCS.filter((f) => map[f] === toSlot && !pair.includes(f))
+      .filter((f) => !(pair.includes('F1') && f === 'F6'))
+      .slice(0, pair.length)
+    for (const f of pair) map[f] = toSlot
+    for (const f of victim) map[f] = fromSlot
+    // F1·F6 는 언제나 함께
+    if (map.F1 !== map.F6) map.F6 = map.F1
+    if (validateOwner(map).length) return // 규칙을 어기는 이동은 무시한다
+    updateSettings({ functionOwner: map })
+  }
+
+  const warnings = validateOwner(settings.functionOwner)
+
+  return (
+    <>
+      {rows.map((r, i) => (
+        <Row key={r.key} title={r.label} help={r.hint} last={i === rows.length - 1}>
+          <Segmented
+            ariaLabel={r.label}
+            value={ownerSlot(settings, r.key)}
+            onChange={(v) => move(r.pair, Number(v))}
+            options={seats.map((st) => ({
+              value: st.slotNo,
+              label: st.name + (st.slotNo === slotNo ? ' (여기)' : ''),
+            }))}
+          />
+        </Row>
+      ))}
+      {warnings.map((w) => (
+        <p key={w} className="t-help text-danger mt-2">
+          {w}
+        </p>
+      ))}
+    </>
   )
 }

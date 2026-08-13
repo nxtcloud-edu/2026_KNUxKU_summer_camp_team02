@@ -8,6 +8,7 @@
 
 import { PRESETS, ANIMATION_STATES } from './presets'
 import { requestReply } from './agent/client'
+import { ownerSlot } from './agent/functions'
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
 
@@ -26,16 +27,21 @@ export function nextAnimationState(seat, current) {
   return ANIMATION_STATES.includes(next) ? next : 'studying'
 }
 
-/** 성격에 따라 상태를 바꾸는 주기(ms) */
+/**
+ * 자세를 바꾸는 주기(ms).
+ *
+ * 예전엔 "먼저 말 거는 정도" 축을 썼는데, 그 축은 페이스 케어와 지시가 겹쳐서 없앴다.
+ * 이건 발화가 아니라 **몸짓** 빈도라 말투로 정해도 어색하지 않다 —
+ * 장난스러운 쪽이 자주 움직이고 차분한 쪽이 덜 움직인다.
+ */
 export function stateInterval(seat) {
-  const base = { rare: 26000, when_needed: 20000, active: 14000 }[seat.proactivity] || 20000
+  const base = { T1: 26000, T2: 14000, T3: 20000, T4: 22000 }[seat.tone] || 20000
   return base + Math.random() * base * 0.6
 }
 
 /* ── 개입 판정 (§7-3) ─────────────────────────────────────── */
 
 const CAP = { quiet: 0, moderate: 1, lively: 2.2, auto: 1.4 }
-const WEIGHT = { rare: -1, when_needed: 0, active: 1 }
 
 /**
  * @returns {{allowed:boolean, reason?:string}}
@@ -68,16 +74,24 @@ function isQuietHour(dnd) {
   return from <= to ? cur >= from && cur < to : cur >= from || cur < to
 }
 
-/** 캐릭터별 가중치를 반영해 발화자를 고른다 */
-export function pickInterventionSpeaker(seats) {
+/**
+ * 이 기능을 맡은 캐릭터가 말한다.
+ *
+ * 예전에는 가중치 뽑기로 아무나 골랐다. 그러면 기능 배정이 화면에만 있는 장식이 된다 —
+ * "목표 추적은 테오가 맡는다"고 정해 놓고 정작 미나가 목표를 되묻는다.
+ *
+ * 맡은 캐릭터가 참여를 껐으면 다른 자리에 넘긴다. 기능이 조용히 사라지는 것보다는
+ * 다른 캐릭터가 대신 말하는 쪽이 낫다.
+ */
+export function pickInterventionSpeaker(seats, settings = null, funcId = null) {
   const active = seats.filter((s) => s.enabled)
   if (!active.length) return null
-  const pool = []
-  active.forEach((s) => {
-    const n = 3 + (WEIGHT[s.proactivity] ?? 0) * 2
-    for (let i = 0; i < Math.max(1, n); i++) pool.push(s)
-  })
-  return pick(pool)
+  if (funcId) {
+    const slot = ownerSlot(settings, funcId)
+    const owner = active.find((s) => s.slotNo === slot)
+    if (owner) return owner
+  }
+  return pick(active)
 }
 
 /*
@@ -109,42 +123,37 @@ export function mentionRe(name) {
 /* ── 답변자 라우팅 (§10 규칙 11) ────────────────────────────
    우선순위: @멘션 > 답변 캐릭터 설정 > 자동 라우팅 */
 
-export function routeReply(text, seats, settings) {
+export function routeReply(text, seats, settings, funcId = null) {
   const active = seats.filter((s) => s.enabled)
   if (!active.length) return []
 
-  // 1) @멘션
+  /**
+   * 1) @멘션이 최우선.
+   *
+   * 부른 사람이 그 기능을 안 맡았어도 그 사람이 답한다 — 기능 블록만 빌려 쓴다.
+   * 이름을 불렀는데 다른 캐릭터가 답하면 신뢰가 깨진다.
+   */
   const mentioned = active.filter((s) => mentionRe(s.name).test(text))
   if (mentioned.length) return mentioned.slice(0, maxRepliers(settings))
 
-  // 2) 주 담당 캐릭터
+  // 2) 이 기능을 맡은 캐릭터
+  if (funcId) {
+    const owner = active.find((s) => s.slotNo === ownerSlot(settings, funcId))
+    if (owner) return [owner]
+  }
+
+  // 3) 주 담당 캐릭터
   if (settings.replyPolicy === 'primary') {
     const primary = active.find((s) => s.slotNo === settings.primarySlotNo)
     if (primary) return [primary]
   }
 
-  // 3) 자동 라우팅 — Coordinator/Router Agent 자리 [1장 §17]
-  const scored = active.map((s) => ({ s, score: routeScore(text, s) }))
-  scored.sort((a, b) => b.score - a.score)
-  return scored.slice(0, maxRepliers(settings)).map((x) => x.s)
+  return [pick(active)]
 }
 
 function maxRepliers(settings) {
   if (settings.noSupplement) return 1
   return { one: 1, two: 2, many: 3 }[settings.multiReply] ?? 1
-}
-
-function routeScore(text, seat) {
-  let s = Math.random() * 2
-  const t = text.toLowerCase()
-  if (/왜|이유|원리|개념/.test(t) && seat.explainStyle === 'stepwise') s += 3
-  if (/예시|예를|사례/.test(t) && seat.explainStyle === 'example') s += 3
-  if (/간단|요약|짧게/.test(t) && seat.explainStyle === 'concise') s += 3
-  if (/쉽게|모르겠/.test(t) && seat.explainStyle === 'easy') s += 3
-  // 좌석 축을 T1~T4 로 갈아탈 때 traits 가 없는 좌석이 생긴다.
-  // 여기는 사용자가 말을 보낼 때마다 도는 자리라, 없으면 첫 질문에서 통째로 터진다
-  if (seat.traits?.includes?.('활발함')) s += 0.6
-  return s
 }
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -249,7 +258,10 @@ async function mockReply({ seat, text, settings }) {
     '노트에 한 줄로 적어두면 나중에 훨씬 빨라요.',
   ]
 
-  const parts = [pick(openers[preset.key]), bodies[seat.explainStyle] || bodies.stepwise]
+  const parts = [
+    pick(openers[preset.key]),
+    bodies[{ T1: 'stepwise', T2: 'example', T3: 'easy', T4: 'concise' }[seat.tone] || 'stepwise'],
+  ]
   for (let i = 2; i < n; i++) parts.push(pick(tails))
   return parts.join(' ')
 }

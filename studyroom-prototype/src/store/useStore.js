@@ -10,6 +10,8 @@
 import { create } from 'zustand'
 import { db } from './db'
 import { defaultSeats } from '../lib/presets'
+import { DEFAULT_OWNER, validateOwner } from '../lib/agent/functions'
+import { toneOf } from '../lib/agent/tone'
 import { GUEST, accountKeyOf, clearAccount, displayNameOf, loadAccount, saveAccount } from '../lib/auth'
 
 export const DEFAULT_SETTINGS = {
@@ -41,6 +43,16 @@ export const DEFAULT_SETTINGS = {
     quietFrom: '23:00',
     quietTo: '07:00',
   },
+
+  /**
+   * 어느 캐릭터가 어느 기능을 맡는가. 값은 좌석 번호.
+   *
+   * 좌석 배열이 아니라 **방 전체의 맵 하나**에 둔다. 맵이면 중복 배정과 미배정이
+   * 자료 구조상 표현 불가능해지고, 세 좌석을 동시에 고칠 때 중간 상태가 저장되지 않는다.
+   * 게다가 settings 에는 이미 마이그레이션(mergeSettings)이 있어 기존 사용자가
+   * 기본 배정을 공짜로 받는다.
+   */
+  functionOwner: { ...DEFAULT_OWNER },
 
   // 대화 운영 (§6-5)
   replyPolicy: 'auto', // primary | mention | auto
@@ -91,7 +103,7 @@ const initial = () => {
 function configOf() {
   const saved = db.loadConfig()
   return {
-    seats: saved.seats?.length === 3 ? saved.seats : defaultSeats(),
+    seats: saved.seats?.length === 3 ? saved.seats.map(mergeSeat) : defaultSeats(),
     settings: saved.settings ? mergeSettings(saved.settings) : DEFAULT_SETTINGS,
   }
 }
@@ -107,7 +119,25 @@ function mergeSettings(s) {
     memoryFlags: { ...DEFAULT_SETTINGS.memoryFlags, ...(s.memoryFlags || {}) },
     privacyFlags: { ...DEFAULT_SETTINGS.privacyFlags, ...(s.privacyFlags || {}) },
     voice: { ...DEFAULT_SETTINGS.voice, ...(s.voice || {}) },
+    // 배정이 규칙을 어기면(옛 저장값·손댄 값) 기본으로 되돌린다.
+    // 어긋난 배정으로 도는 것보다 기본값이 낫다 — 기능 하나가 조용히 사라지는 게 제일 나쁘다
+    functionOwner: validateOwner(s.functionOwner).length
+      ? { ...DEFAULT_OWNER }
+      : { ...DEFAULT_OWNER, ...(s.functionOwner || {}) },
   }
+}
+
+/**
+ * 좌석 마이그레이션.
+ *
+ * settings 와 달리 좌석에는 마이그레이션이 없었다 — 개수만 3개인지 보고 통과시켰다.
+ * 그래서 축을 바꾸면 **이미 저장된 브라우저**의 좌석에 tone 이 없는 채로 들어온다.
+ * toneOf 가 옛 traits 에서 말투를 유추해 주므로 그걸 한 번 확정해 둔다.
+ */
+function mergeSeat(seat, i) {
+  const base = defaultSeats()[i] || {}
+  const { traits, explainStyle, proactivity, ...rest } = seat || {}
+  return { ...base, ...rest, tone: seat?.tone || toneOf(seat) || base.tone }
 }
 
 const boot = initial()

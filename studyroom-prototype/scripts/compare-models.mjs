@@ -11,7 +11,14 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildSystemPrompt, SAMPLE_SEATS } from '../src/lib/agent/persona.js'
+import { buildPrompt } from '../src/lib/agent/prompt.js'
+
+/** 비교용 좌석 — 말투만 다르게 */
+const SAMPLE_SEATS = [
+  { slotNo: 1, name: 'Mina', preset: 'mina', tone: 'T1' },
+  { slotNo: 2, name: 'Theo', preset: 'theo', tone: 'T2' },
+  { slotNo: 3, name: 'Juno', preset: 'juno', tone: 'T4' },
+]
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -79,7 +86,11 @@ async function callGemini({ model, system, user, apiKey }) {
   if (!res.ok) throw new Error(redact(j.error?.message || JSON.stringify(j)))
   const parts = j.candidates?.[0]?.content?.parts || []
   return {
-    text: parts.map((p) => p.text).join('').trim() || `(빈 응답 · finish=${j.candidates?.[0]?.finishReason})`,
+    text:
+      parts
+        .map((p) => p.text)
+        .join('')
+        .trim() || `(빈 응답 · finish=${j.candidates?.[0]?.finishReason})`,
     inTok: j.usageMetadata?.promptTokenCount,
     outTok: j.usageMetadata?.candidatesTokenCount,
   }
@@ -112,7 +123,7 @@ const stats = new Map(TARGETS.map((t) => [t.label, { ms: [], inTok: 0, outTok: 0
 
 for (const c of CASES) {
   const seat = SAMPLE_SEATS[c.seat]
-  const system = buildSystemPrompt(seat, settings)
+  const system = buildPrompt({ seat, funcId: 'F1', settings }).system
   console.log('━'.repeat(78))
   console.log(`[${seat.name}] 사용자: "${c.user}"`)
   console.log('━'.repeat(78))
@@ -126,7 +137,9 @@ for (const c of CASES) {
       s.ms.push(ms)
       s.inTok += r.inTok || 0
       s.outTok += r.outTok || 0
-      console.log(`\n  ▸ ${t.label}  (${(ms / 1000).toFixed(1)}초, in ${r.inTok ?? '?'} / out ${r.outTok ?? '?'})`)
+      console.log(
+        `\n  ▸ ${t.label}  (${(ms / 1000).toFixed(1)}초, in ${r.inTok ?? '?'} / out ${r.outTok ?? '?'})`,
+      )
       for (const line of r.text.split('\n')) console.log(`      ${line}`)
     } catch (e) {
       stats.get(t.label).fail += 1
@@ -139,7 +152,14 @@ for (const c of CASES) {
 console.log('━'.repeat(78))
 console.log('요약')
 console.log('━'.repeat(78))
-console.log('모델'.padEnd(34) + '중앙값'.padStart(9) + '최대'.padStart(9) + '입력tok'.padStart(9) + '출력tok'.padStart(9) + '실패'.padStart(6))
+console.log(
+  '모델'.padEnd(34) +
+    '중앙값'.padStart(9) +
+    '최대'.padStart(9) +
+    '입력tok'.padStart(9) +
+    '출력tok'.padStart(9) +
+    '실패'.padStart(6),
+)
 for (const [label, s] of stats) {
   const sorted = [...s.ms].sort((a, b) => a - b)
   const med = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0

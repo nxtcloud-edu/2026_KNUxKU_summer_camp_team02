@@ -586,7 +586,7 @@ export default function StudyRoomScreen() {
       if (kind === 'drowsy' && st.privacyFlags.wakeOnDrowsy) wakeChime()
       // 누가 말하는 중이면 겹치지 않게 미룬다
       if (floorRef.current > 0 || isSpeaking()) return
-      const speaker = pickInterventionSpeaker(useStore.getState().seats)
+      const speaker = pickInterventionSpeaker(useStore.getState().seats, st, 'F5')
       if (!speaker) return
       db.logEvent(sidRef.current, 'intervention', { kind, slot_no: speaker.slotNo, source: 'vision' })
       // 졸음·휴대폰도 "먼저 말 걸기"라 페이스 케어와 같은 기능이다.
@@ -767,7 +767,8 @@ export default function StudyRoomScreen() {
       }
       if (!canIntervene(st, ctx).allowed) return
 
-      const speaker = pickInterventionSpeaker(allSeats)
+      // 이 기능을 맡은 캐릭터가 말한다. 배정이 화면에만 있는 장식이 되지 않게
+      const speaker = pickInterventionSpeaker(allSeats, st, kind === 'goal' ? 'F4' : 'F5')
       if (!speaker) return
 
       // 기습 질문 — 세션 20분 경과 후 개입 상한 안에서 최대 3회 (§7-5)
@@ -780,7 +781,7 @@ export default function StudyRoomScreen() {
       if (quizReady && Math.random() < 0.5) {
         markIntervention(now)
         // 문제를 **창으로** 띄운다. 채팅으로 내면 그다음 메시지가 무엇이든 답안이 된다
-        openQuiz(speaker)
+        openQuiz(pickInterventionSpeaker(allSeats, st, 'F3') || speaker)
         return
       }
 
@@ -884,7 +885,21 @@ export default function StudyRoomScreen() {
 
       const st = useStore.getState().settings
       const allSeats = useStore.getState().seats
-      const repliers = routeReply(text, allSeats, st) // §10 규칙 11 @멘션 > 답변 캐릭터 > 자동
+
+      /**
+       * 두 축을 차례로 정한다. **기능이 먼저다** — 화자 선택이 "이 기능을 누가 맡았나"를
+       * 봐야 하기 때문이다. 예전에는 한 함수가 둘을 같이 정해서, "정리해줘"에 답할 사람을
+       * 고르는 규칙과 "정리 형식으로 답하라"는 규칙이 한 덩어리로 엉켜 있었다.
+       */
+      const { funcId, rule } = routeFunction(text, {
+        lastFunc: lastTurnRef.current?.funcId,
+        lastAt: lastTurnRef.current?.at,
+        now: Date.now(),
+      })
+      if (import.meta.env.DEV) console.debug('[route]', funcId, rule, text.slice(0, 30))
+
+      // @멘션 > 기능 소유자 > 주 담당 > 아무나 (§10 규칙 11)
+      const repliers = routeReply(text, allSeats, st, funcId)
 
       // 답변이 끝나기 전에 사용자가 또 보내면 루프 두 개가 겹친다.
       // 줄을 세워서 앞 대화가 끝난 뒤에 다음 답변이 시작되게 한다
@@ -909,20 +924,6 @@ export default function StudyRoomScreen() {
               : pastContext
                 ? `${pastContext}\n\n${text}`
                 : text
-
-          /**
-           * 무엇으로 답할지 정한다 (agent/functions.js).
-           *
-           * 화자 선택(routeReply)과 **따로** 돈다. 예전에는 한 함수가 둘을 같이 정해서,
-           * "정리해줘"에 답할 사람을 고르는 규칙과 "정리 형식으로 답하라"는 규칙이
-           * 한 덩어리로 엉켜 있었다.
-           */
-          const { funcId, rule } = routeFunction(text, {
-            lastFunc: lastTurnRef.current?.funcId,
-            lastAt: lastTurnRef.current?.at,
-            now: Date.now(),
-          })
-          if (import.meta.env.DEV) console.debug('[route]', funcId, rule, text.slice(0, 30))
 
           // 문제를 달라고 했으면 말풍선이 아니라 창으로 낸다
           if (funcId === 'F3') {
