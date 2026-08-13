@@ -1278,7 +1278,7 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
             <Chips
               ariaLabel="성격과 말투"
               options={TRAIT_OPTIONS}
-              values={seat.traits}
+              values={seat.traits || []}
               onChange={(v) => patchPersonality({ traits: v })}
             />
           </div>

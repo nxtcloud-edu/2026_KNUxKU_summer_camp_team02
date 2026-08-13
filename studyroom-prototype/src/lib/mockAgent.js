@@ -186,7 +186,9 @@ function routeScore(text, seat) {
   if (/예시|예를|사례/.test(t) && seat.explainStyle === 'example') s += 3
   if (/간단|요약|짧게/.test(t) && seat.explainStyle === 'concise') s += 3
   if (/쉽게|모르겠/.test(t) && seat.explainStyle === 'easy') s += 3
-  if (seat.traits.includes('활발함')) s += 0.6
+  // 좌석 축을 T1~T4 로 갈아탈 때 traits 가 없는 좌석이 생긴다.
+  // 여기는 사용자가 말을 보낼 때마다 도는 자리라, 없으면 첫 질문에서 통째로 터진다
+  if (seat.traits?.includes?.('활발함')) s += 0.6
   return s
 }
 
