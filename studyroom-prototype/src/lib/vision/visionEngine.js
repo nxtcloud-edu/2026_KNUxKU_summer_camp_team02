@@ -255,8 +255,7 @@ export function createVisionLoop({
       faceInterval = Math.min(DEGRADE.maxIntervalMs, faceInterval * 2)
       diag.intervalMs = faceInterval
       diag.degradeNote = `느려서 주기를 ${faceInterval}ms로 늘렸습니다 (p95 ${p95.toFixed(0)}ms)`
-      clearInterval(faceTimer)
-      faceTimer = setInterval(stepFace, faceInterval)
+      // 구동기가 주기를 함수로 읽으므로 다시 만들 필요가 없다
       perf.faceMs.length = 0 // 새 주기로 다시 측정
       onDegrade({ kind: 'slow', p95, intervalMs: faceInterval })
     }
@@ -294,8 +293,6 @@ export function createVisionLoop({
       if (p95 != null && p95 > dutyLimit) {
         phoneInterval = Math.min(DEGRADE.maxIntervalMs * 4, phoneInterval * 2)
         diag.phoneIntervalMs = phoneInterval
-        clearInterval(phoneTimer)
-        phoneTimer = setInterval(stepPhone, phoneInterval)
         perf.phoneMs.length = 0
         phoneSteps = 0 // 새 주기에서 다시 워밍업부터
         onDegrade({ kind: 'phoneSlow', p95, intervalMs: phoneInterval, limitMs: dutyLimit })
@@ -327,7 +324,7 @@ export function createVisionLoop({
     face = f.instance
     diag.delegate = f.delegate
     diag.renderer = f.gpu?.renderer || ''
-    faceTimer = setInterval(stepFace, faceInterval)
+    faceTimer = driveFrames(() => faceInterval, stepFace)
 
     if (detectPhone) {
       const d = await createObjectDetector({ allowCpu, modelUrl: phoneModelUrl || MODELS.objectDetector })
@@ -336,15 +333,65 @@ export function createVisionLoop({
         return
       }
       detector = d.instance
-      phoneTimer = setInterval(stepPhone, phoneInterval)
+      phoneTimer = driveFrames(() => phoneInterval, stepPhone)
     }
     return { faceDelegate: f.delegate }
   }
 
+  /**
+   * **프레임이 나올 때** 돌린다. 벽시계로 깨우지 않는다.
+   *
+   * setInterval 은 카메라가 새 프레임을 냈는지 모른 채 깨운다. 그래서
+   *   · 같은 프레임을 두 번 판단하거나 (추론 낭비)
+   *   · 프레임을 통째로 건너뛰거나 (반응 지연)
+   *   · 추론이 주기보다 길면 타이머가 쌓여 메인 스레드를 잡는다
+   *
+   * requestVideoFrameCallback 은 **새 프레임이 실제로 준비됐을 때** 부른다.
+   * 거기서 목표 주기만큼 솎아내면, 언제나 최신 프레임으로 판단하면서
+   * 느린 기기에서는 자연스럽게 횟수만 줄어든다 (밀려 쌓이지 않는다).
+   *
+   * @param {() => number} targetMs  목표 주기 (강등으로 바뀌므로 함수로 받는다)
+   */
+  function driveFrames(targetMs, step) {
+    let last = 0
+    let busy = false
+    let rvfcHandle = null
+    let timeoutHandle = null
+    const useRvfc = typeof video?.requestVideoFrameCallback === 'function'
+
+    const schedule = () => {
+      if (stopped) return
+      if (useRvfc) rvfcHandle = video.requestVideoFrameCallback(tick)
+      // rVFC 가 없는 브라우저는 짧은 타이머로 흉내낸다. 그래도 busy 가드는 그대로 산다
+      else timeoutHandle = setTimeout(tick, Math.max(16, Math.floor(targetMs() / 3)))
+    }
+
+    const tick = () => {
+      if (stopped) return
+      schedule() // 다음 프레임을 먼저 예약해 둔다
+      if (busy) return // 이전 추론이 아직 안 끝났다. 이번 프레임은 버린다
+      const now = performance.now()
+      if (now - last < targetMs()) return // 목표 주기보다 이르다
+      last = now
+      busy = true
+      try {
+        step()
+      } finally {
+        busy = false
+      }
+    }
+
+    schedule()
+    return () => {
+      if (rvfcHandle != null && video?.cancelVideoFrameCallback) video.cancelVideoFrameCallback(rvfcHandle)
+      clearTimeout(timeoutHandle)
+    }
+  }
+
   function stop() {
     stopped = true
-    clearInterval(faceTimer)
-    clearInterval(phoneTimer)
+    faceTimer?.() // 구동기 해제
+    phoneTimer?.()
     try {
       face?.close?.()
       detector?.close?.()
