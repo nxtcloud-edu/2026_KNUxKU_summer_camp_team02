@@ -269,6 +269,20 @@ export function createVisionLoop({
       return
     }
 
+    // 여유로운 상태가 이어지면 주기를 되돌린다. 강등만 있고 복귀가 없으면
+    // 초반에 한 번 튄 것만으로 세션 내내 굼뜬 채로 굳는다
+    if (
+      faceInterval > faceMs &&
+      p95 < faceInterval * DEGRADE.recoverDutyLimit &&
+      perf.faceMs.length >= DEGRADE.recoverSamples
+    ) {
+      faceInterval = Math.max(faceMs, Math.round(faceInterval / 2))
+      diag.intervalMs = faceInterval
+      perf.faceMs.length = 0
+      onDegrade({ kind: 'recover', p95, intervalMs: faceInterval })
+      return
+    }
+
     if (p95 > DEGRADE.slowMs && faceInterval < DEGRADE.maxIntervalMs) {
       faceInterval = Math.min(DEGRADE.maxIntervalMs, faceInterval * 2)
       diag.intervalMs = faceInterval
@@ -308,6 +322,24 @@ export function createVisionLoop({
     ) {
       const p95 = pct(perf.phoneMs, 0.95)
       const dutyLimit = phoneInterval * DEGRADE.phoneDutyLimit
+
+      // 되돌리기를 먼저 본다.
+      // 실측에서 폰 추론이 39ms 인데 주기가 500ms 로 굳어 있었다 —
+      // 초반 셰이더 컴파일 여파로 한 번 강등된 뒤 회복 경로가 없어서였다
+      if (
+        p95 != null &&
+        phoneInterval > phoneMs &&
+        p95 < phoneInterval * DEGRADE.recoverDutyLimit &&
+        perf.phoneMs.length >= DEGRADE.recoverSamples
+      ) {
+        phoneInterval = Math.max(phoneMs, Math.round(phoneInterval / 2))
+        diag.phoneIntervalMs = phoneInterval
+        perf.phoneMs.length = 0
+        phoneSteps = 0
+        onDegrade({ kind: 'phoneRecover', p95, intervalMs: phoneInterval })
+        return
+      }
+
       if (p95 != null && p95 > dutyLimit) {
         phoneInterval = Math.min(DEGRADE.maxIntervalMs * 4, phoneInterval * 2)
         diag.phoneIntervalMs = phoneInterval
