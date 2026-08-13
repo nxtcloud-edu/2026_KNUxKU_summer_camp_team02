@@ -48,7 +48,12 @@ export const ALERT_COOLDOWN_MS = {
  * @param {(sig:{absent:boolean,phone:boolean,drowsy:boolean})=>void} o.onSignal
  * @param {(kind:'drowsy'|'phone')=>void} o.onAlert  깨우기·환기가 필요한 순간
  */
+/** 이만큼 표본이 안 들어오면 죽은 것으로 보고 되살린다 */
+const WATCHDOG_MS = 6000
+
 export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
+  // 되살릴 때 이 값을 올려 effect 를 다시 돌린다
+  const [reviveTick, setReviveTick] = useState(0)
   const [status, setStatus] = useState({ running: false, error: '', state: 'unknown' })
   const videoRef = useRef(null)
   const loopRef = useRef(null)
@@ -75,6 +80,7 @@ export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
     const cur = { absent: false, phone: false, drowsy: false }
     const lastAlert = { drowsy: 0, phone: 0 }
     let lastPerfLog = 0
+    let lastSampleAt = Date.now()
 
     const mark = (key, on, now) => {
       if (on) since[key] = since[key] ?? now
@@ -85,6 +91,7 @@ export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
     const onSample = (s) => {
       if (dead) return
       const now = Date.now()
+      lastSampleAt = now
       let changed = false
 
       // ── 자리 비움 ──
@@ -193,8 +200,30 @@ export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
       }
     })()
 
+    /**
+     * 감시견 — 판정이 조용히 죽는 걸 잡는다.
+     *
+     * 프레임에 맞춰 도는 구조라, 영상이 멈추면(탭 전환, 스트림 종료, GPU 컨텍스트 손실)
+     * 콜백이 아예 안 온다. 예전 setInterval 은 최소한 계속 깨어는 있었다.
+     * 그래서 표본이 끊기면 알아채고 되살린다.
+     */
+    const watchdog = setInterval(() => {
+      if (dead) return
+      const gap = Date.now() - lastSampleAt
+      if (gap < WATCHDOG_MS) return
+      console.warn(`[vision] ${gap}ms 동안 표본 없음 — 되살립니다`)
+      fetch('/api/diag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'vision-stall', gapMs: gap }),
+      }).catch(() => {})
+      lastSampleAt = Date.now() // 되살리는 동안 또 울리지 않게
+      setReviveTick((n) => n + 1)
+    }, 2000)
+
     return () => {
       dead = true
+      clearInterval(watchdog)
       loopRef.current?.stop?.()
       loopRef.current = null
       video.srcObject = null
@@ -202,7 +231,7 @@ export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
       // 화면을 떠나면 판정도 없던 것으로
       cbRef.current.onSignal?.({ absent: false, phone: false, drowsy: false })
     }
-  }, [stream, enabled])
+  }, [stream, enabled, reviveTick])
 
   return status
 }
