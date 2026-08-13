@@ -1,0 +1,1067 @@
+/**
+ * 스터디룸 — 통합 설계서 §6-3 (레이아웃·타일·채팅·휴식·하단바)
+ *                        §7-3 (개입 우선순위) · §7-5 (기습 질문·심화 학습 포인트)
+ *                        §8   (지표) · §10 (설정 충돌 우선순위)
+ *
+ * 모션 존 B (§4-3): 배경 블롭·그레인·카드 기울임 금지.
+ *   전환/호버 애니메이션과 캐릭터 애니메이션만 허용하고, 영상 위에는 어떤 오버레이도 겹치지 않는다.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Paperclip, Send, Mic, MicOff, Video, VideoOff, Settings, PhoneOff, FileText } from 'lucide-react'
+
+import { useStore, isRelaxed, activeSeats, allSeatsOff } from '../store/useStore'
+import { db } from '../store/db'
+import { PRESETS } from '../lib/presets'
+import { MetricsTracker, computeScore, fmtHMS } from '../lib/metrics'
+import {
+  nextAnimationState,
+  stateInterval,
+  canIntervene,
+  pickInterventionSpeaker,
+  interventionLine,
+  routeReply,
+  generateReply,
+  makeQuiz,
+  judgeQuiz,
+  makeStudyPoint,
+} from '../lib/mockAgent'
+import { sttSupported, ttsSupported, createRecognizer, speak, stopSpeaking } from '../lib/speech'
+import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
+
+/* ── 지역 헬퍼 (새 의존 파일을 만들지 않는다) ─────────────────── */
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const rid = () => Math.random().toString(36).slice(2, 10)
+const NAME_MAX = 12 // §7-2 이름 최대 12자
+const ENGINE_TICK_MS = 15000 // 개입 엔진 판정 주기
+const QUIZ_AFTER_SEC = 20 * 60 // §7-5 세션 20분 경과 후
+const QUIZ_MAX = 3 // §7-5 세션당 최대 3회
+const REST_HINT_MS = 5 * 60 * 1000 // §6-3 휴식 힌트 유지 시간
+const REST_WORDS = /쉬|휴식|잠깐/ // §6-3 휴식 감지 키워드
+
+/** 파일 크기 표기 */
+function fmtBytes(n = 0) {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** 입력창 커서 앞의 "@검색어"를 찾아낸다 (§6-3 @멘션 자동완성) */
+function findMention(text, caret) {
+  const before = text.slice(0, caret)
+  const m = /(?:^|\s)@([^\s@]{0,12})$/.exec(before)
+  if (!m) return null
+  return { q: m[1], start: caret - m[1].length - 1, end: caret }
+}
+
+/** 이름 검증 — §5-1 즉시 반영 · §7-2 빈 값 불가 / 12자 / 중복 불가 */
+function validateName(raw, others) {
+  const v = raw.trim()
+  if (!v) return '이름을 비워 둘 수 없어요.'
+  if (v.length > NAME_MAX) return `이름은 ${NAME_MAX}자까지 쓸 수 있어요.`
+  if (others.some((n) => n.trim().toLowerCase() === v.toLowerCase()))
+    return '다른 자리와 같은 이름은 쓸 수 없어요. (@멘션이 헷갈려요)'
+  return ''
+}
+
+/* ── 타일 ──────────────────────────────────────────────────── */
+
+/** 자리1 — 나. 웹캠 스트림은 대기 화면에서 받은 것을 그대로 재사용한다 (§5-4) */
+function SelfTile({ stream, cameraOn, micOn, mirror, name }) {
+  const videoRef = useRef(null)
+
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    if (stream) {
+      if (v.srcObject !== stream) v.srcObject = stream
+    } else {
+      v.srcObject = null
+    }
+  }, [stream, cameraOn])
+
+  const showVideo = cameraOn && !!stream
+
+  return (
+    <div className="flex min-h-0 flex-col overflow-hidden rounded-md border border-hairline bg-surface shadow-soft">
+      <div className="relative flex min-h-0 flex-1 items-center justify-center bg-surface-dark">
+        {showVideo ? (
+          // 영상 위에는 어떤 오버레이도 겹치지 않는다 (§4-3)
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            aria-label="내 카메라 화면"
+            className="h-full w-full object-cover"
+            style={{ transform: mirror ? 'scaleX(-1)' : 'none' }}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-warm">
+            <VideoOff size={28} aria-hidden="true" />
+            <span className="t-body">카메라가 꺼져 있어요</span>
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2 border-t border-hairline px-4 py-2.5">
+        <span className="t-item truncate">{name}</span>
+        <span className="t-caption rounded-full bg-peach px-2 py-0.5">나</span>
+        <span className="ml-auto flex items-center gap-1.5 text-subtle">
+          {/* ON/OFF는 색이 아니라 아이콘 모양(사선)과 글자로도 구분한다 (§4-5, §11) */}
+          {cameraOn ? <Video size={15} aria-hidden="true" /> : <VideoOff size={15} aria-hidden="true" />}
+          <span className="t-caption">{cameraOn ? '카메라 켜짐' : '카메라 꺼짐'}</span>
+          {micOn ? <Mic size={15} aria-hidden="true" /> : <MicOff size={15} aria-hidden="true" />}
+          <span className="t-caption">{micOn ? '마이크 켜짐' : '마이크 꺼짐'}</span>
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** 자리2~4 — 스터디 메이트. 카메라·마이크·음소거 아이콘을 표시하지 않는다 (§6-3, §10 규칙 2) */
+function MateTile({ seat, state, tint, otherNames, onRename }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(seat.name)
+  const [error, setError] = useState('')
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (!editing) setDraft(seat.name)
+  }, [seat.name, editing])
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus()
+  }, [editing])
+
+  const commit = () => {
+    const msg = validateName(draft, otherNames)
+    if (msg) {
+      // 검증 실패 시 편집 모드를 유지한다 (§5-1)
+      setError(msg)
+      return
+    }
+    setError('')
+    setEditing(false)
+    onRename(draft.trim())
+  }
+
+  const cancel = () => {
+    setDraft(seat.name)
+    setError('')
+    setEditing(false)
+  }
+
+  return (
+    <div className="flex min-h-0 flex-col overflow-hidden rounded-md border border-hairline bg-surface shadow-soft">
+      <div className={`flex min-h-0 flex-1 items-center justify-center ${tint}`}>
+        {/* 상태를 텍스트로 표시하지 않는다. 애니메이션만 바뀐다 (§6-3) */}
+        <CharacterSprite imageKey={seat.imageKey} state={state} size={148} />
+      </div>
+      <div className="border-t border-hairline px-4 py-2.5">
+        {editing ? (
+          <div>
+            <div className="flex items-center gap-2">
+              <input
+                ref={inputRef}
+                value={draft}
+                aria-label={`${seat.slotNo}번 자리 이름`}
+                aria-invalid={!!error}
+                onChange={(e) => {
+                  setDraft(e.target.value)
+                  if (error) setError('')
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    commit()
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    cancel()
+                  }
+                }}
+                onBlur={commit}
+                className={[
+                  'min-w-0 flex-1 rounded-full border bg-white px-3 py-1 t-body transition-colors duration-300',
+                  error ? 'border-danger' : 'border-hairline',
+                ].join(' ')}
+              />
+              <span className="t-caption tnum shrink-0">
+                {draft.trim().length}/{NAME_MAX}
+              </span>
+            </div>
+            {error && <div className="t-caption mt-1 text-danger">{error}</div>}
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            {/* 이름을 누르면 인라인 편집. 별도 Edit 버튼 없음 (§6-3) */}
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              aria-label={`${seat.name} 이름 바꾸기`}
+              className="t-item truncate rounded-full px-2 py-0.5 -mx-2 text-left transition-colors duration-300 hover:bg-[var(--hover-bg)]"
+            >
+              {seat.name}
+            </button>
+            <span className="t-caption shrink-0 rounded-full bg-[var(--hover-bg)] px-2 py-0.5">
+              {seat.slotNo}번 자리
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 참여 OFF인 자리 — 빈 책상 느낌으로 옅게. 2×2 그리드는 유지한다 (§6-3) */
+function EmptySeatTile({ seat, onOpenSettings }) {
+  return (
+    <div className="flex min-h-0 flex-col overflow-hidden rounded-md border border-dashed border-hairline bg-[var(--hover-bg)]">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 text-muted">
+        <svg viewBox="0 0 140 96" width="150" height="103" aria-hidden="true" className="opacity-45">
+          <rect x="20" y="52" width="100" height="8" rx="4" fill="currentColor" opacity="0.55" />
+          <rect x="30" y="60" width="6" height="28" rx="3" fill="currentColor" opacity="0.35" />
+          <rect x="104" y="60" width="6" height="28" rx="3" fill="currentColor" opacity="0.35" />
+          <rect
+            x="46"
+            y="32"
+            width="34"
+            height="20"
+            rx="3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            opacity="0.5"
+          />
+          <path
+            d="M52 39h22M52 45h14"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            opacity="0.4"
+          />
+          <path
+            d="M92 40h12v10a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4z"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            opacity="0.45"
+          />
+        </svg>
+        <span className="t-body">빈 자리</span>
+      </div>
+      <div className="flex items-center gap-2 border-t border-hairline px-4 py-2.5">
+        <span className="t-item truncate text-muted">{seat.name}</span>
+        <span className="t-caption shrink-0 rounded-full border border-hairline bg-white px-2 py-0.5">
+          참여 꺼짐
+        </span>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="ml-auto t-caption rounded-full px-2 py-0.5 underline transition-colors duration-300 hover:bg-white"
+        >
+          설정에서 켜기
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ── 화면 ──────────────────────────────────────────────────── */
+
+export default function StudyRoomScreen() {
+  /* 셀렉터는 필드 단위로 하나씩 구독한다 (객체를 새로 만들면 무한 렌더) */
+  const go = useStore((s) => s.go)
+  const seats = useStore((s) => s.seats)
+  const settings = useStore((s) => s.settings)
+  const device = useStore((s) => s.device)
+  const setDevice = useStore((s) => s.setDevice)
+  const stream = useStore((s) => s.stream)
+  const setStream = useStore((s) => s.setStream)
+  const displayName = useStore((s) => s.displayName)
+  const updateSeat = useStore((s) => s.updateSeat)
+  const openSettings = useStore((s) => s.openSettings)
+  const setSessionId = useStore((s) => s.setSessionId)
+  const setLastSessionId = useStore((s) => s.setLastSessionId)
+  const toast = useStore((s) => s.toast)
+
+  const [snap, setSnap] = useState(null) // MetricsTracker 스냅샷 (§8)
+  const [animStates, setAnimStates] = useState({ 1: 'studying', 2: 'reading', 3: 'studying' })
+  const [messages, setMessages] = useState([])
+  const [typingSlots, setTypingSlots] = useState([]) // 타이핑 인디케이터 (§6-3)
+  const [draft, setDraft] = useState('')
+  const [mention, setMention] = useState(null) // {q, start, end}
+  const [mentionIdx, setMentionIdx] = useState(0)
+  const [listening, setListening] = useState(false)
+  const [confirmEnd, setConfirmEnd] = useState(false)
+
+  const trackerRef = useRef(null)
+  const sidRef = useRef(null)
+  const [todayBase, setTodayBase] = useState(0)
+  const aliveRef = useRef(true)
+  const endedRef = useRef(false)
+
+  const draftRef = useRef('')
+  const lastKeyRef = useRef(0)
+  const lastInterventionRef = useRef(null) // null = 아직 한 번도 개입하지 않음
+  const interventionsRef = useRef([])
+  const pendingAwayRef = useRef(false) // 이탈 복귀 대기
+  const awayStartedRef = useRef(0)
+  const prevAwayRef = useRef(false)
+  const longStudyFiredRef = useRef(false)
+  const restStartRef = useRef(null)
+  const restTimerRef = useRef(null)
+  const quizCountRef = useRef(0)
+  const pendingQuizRef = useRef(null) // {quiz, slotNo}
+  const recRef = useRef(null)
+  const sttBaseRef = useRef('')
+  const fileRef = useRef(null)
+  const inputRef = useRef(null)
+  const listEndRef = useRef(null)
+
+  const actives = useMemo(() => activeSeats(seats), [seats])
+  const noMates = allSeatsOff(seats) // §10 규칙 9
+
+  useEffect(() => {
+    draftRef.current = draft
+  }, [draft])
+
+  /* ── 세션 · 지표 (§8, §9-3) ─────────────────────────────── */
+  useEffect(() => {
+    aliveRef.current = true
+    let id = useStore.getState().sessionId
+    if (!id) {
+      id = db.startSession()
+      useStore.getState().setSessionId(id)
+    }
+    sidRef.current = id
+
+    // 오늘 누적 = 이미 저장된 오늘치 − 이 세션 몫 (하단바에서 실시간으로 더한다, §8-1)
+    const row = db.getSession(id)
+    setTodayBase(Math.max(0, db.todayTotalSec() - (row?.study_sec || 0)))
+
+    const st = useStore.getState().settings
+    const tracker = new MetricsTracker(id, {
+      awayDetect: st.privacyFlags.awayDetect,
+      inputDetect: st.privacyFlags.inputDetect,
+      idleMin: st.thresholds.idleMin,
+      relaxed: isRelaxed(st), // §8-2 완화 모드 → integrity='relaxed'
+    })
+    trackerRef.current = tracker
+    const off = tracker.onChange((s) => setSnap(s))
+    tracker.start()
+    setSnap(tracker.snapshot())
+
+    return () => {
+      aliveRef.current = false
+      off()
+      if (!endedRef.current) tracker.stop()
+      trackerRef.current = null
+      clearTimeout(restTimerRef.current)
+      recRef.current?.abort()
+      recRef.current = null
+      stopSpeaking() // 화면을 떠날 때 읽어주기 중단
+    }
+  }, [])
+
+  /* 이탈 시작/복귀 감지 → 개입 kind 'away' 예약 (§7-3) */
+  useEffect(() => {
+    const away = !!snap?.isAway
+    if (away && !prevAwayRef.current) awayStartedRef.current = Date.now()
+    if (!away && prevAwayRef.current) {
+      const sec = (Date.now() - (awayStartedRef.current || Date.now())) / 1000
+      if (sec >= settings.thresholds.awayMin * 60) pendingAwayRef.current = true
+    }
+    prevAwayRef.current = away
+  }, [snap?.isAway, settings.thresholds.awayMin])
+
+  /* ── 채팅 기록 ─────────────────────────────────────────── */
+
+  const pushMsg = useCallback((m) => {
+    const row = { id: rid(), at: Date.now(), ...m }
+    setMessages((prev) => [...prev, row])
+    if (sidRef.current) {
+      // §9-2 message(sender_type: me|mate, kind: text|file)
+      db.addMessage(sidRef.current, {
+        sender_type: m.senderType,
+        sender_id: m.seat ?? null,
+        body: m.body,
+        kind: m.kind === 'file' ? 'file' : 'text',
+      })
+    }
+    return row
+  }, [])
+
+  /** ① 타이핑 인디케이터 → ② 생성 → ③ 말풍선 (§6-3) */
+  const mateSay = useCallback(
+    async (seat, produce, kind = 'text') => {
+      if (!aliveRef.current) return
+      setTypingSlots((t) => (t.includes(seat.slotNo) ? t : [...t, seat.slotNo]))
+      try {
+        const body = await produce()
+        if (!aliveRef.current || !body) return
+        pushMsg({ senderType: 'mate', seat: seat.slotNo, body, kind })
+        const st = useStore.getState().settings
+        if (st.voice.tts && ttsSupported) speak(body, PRESETS[seat.preset]?.voice)
+      } catch {
+        if (aliveRef.current) toast('답변을 만들지 못했어요. 다시 물어봐 주세요.', 'danger')
+      } finally {
+        setTypingSlots((t) => t.filter((x) => x !== seat.slotNo))
+      }
+    },
+    [pushMsg, toast],
+  )
+
+  /* ── 자율 행동 (§7-3 3순위) ──────────────────────────────
+     ambient random은 animationState만 바꾸고 발화하지 않는다 (§10 규칙 12) */
+  useEffect(() => {
+    const timers = seats.map((seat) => {
+      if (!seat.enabled) return null
+      return setInterval(() => {
+        setAnimStates((prev) => ({
+          ...prev,
+          [seat.slotNo]: nextAnimationState(seat, prev[seat.slotNo]),
+        }))
+      }, stateInterval(seat))
+    })
+    return () => timers.forEach((t) => t && clearInterval(t))
+  }, [seats])
+
+  /* ── 휴식 감지 (§6-3) ───────────────────────────────────── */
+  const startRest = useCallback(() => {
+    const tracker = trackerRef.current
+    if (!tracker) return
+    tracker.setRestingHint(true)
+    restStartRef.current = Date.now()
+    clearTimeout(restTimerRef.current)
+    restTimerRef.current = setTimeout(() => {
+      trackerRef.current?.setRestingHint(false)
+    }, REST_HINT_MS)
+  }, [])
+
+  /* ── 개입 엔진 (§7-3) + 기습 질문 (§7-5) ────────────────── */
+  useEffect(() => {
+    const markIntervention = (now) => {
+      lastInterventionRef.current = now
+      interventionsRef.current = interventionsRef.current.filter((t) => now - t < 3600000)
+      interventionsRef.current.push(now)
+    }
+
+    const tick = () => {
+      const tracker = trackerRef.current
+      const sid = sidRef.current
+      if (!tracker || !sid || !aliveRef.current) return
+
+      const st = useStore.getState().settings
+      const allSeats = useStore.getState().seats
+      if (!activeSeats(allSeats).length) return // §10 규칙 2
+
+      const now = Date.now()
+      const s = tracker.snapshot()
+
+      // 상황 판정 — settings.triggers가 꺼진 상황은 건너뛴다 (§7-3, §10 규칙 6)
+      let kind = 'cheer'
+      if (pendingAwayRef.current && st.triggers.windowAway && st.privacyFlags.awayDetect) {
+        kind = 'away'
+      } else if (
+        st.triggers.restOver &&
+        restStartRef.current &&
+        (now - restStartRef.current) / 1000 >= st.thresholds.restOverMin * 60
+      ) {
+        kind = 'restOver'
+      } else if (
+        st.triggers.longStudy &&
+        !longStudyFiredRef.current &&
+        s.studySec >= st.thresholds.longStudyMin * 60
+      ) {
+        kind = 'longStudy'
+      } else if (
+        st.triggers.idle &&
+        st.privacyFlags.inputDetect &&
+        (now - tracker.lastInputAt) / 1000 >= st.thresholds.idleMin * 60
+      ) {
+        kind = 'idle'
+      }
+
+      // 1순위 방해 방지 · 전역 개입 빈도 상한 (§7-3, §10 규칙 10)
+      const ctx = {
+        userTyping: draftRef.current.trim().length > 0 || now - lastKeyRef.current < 8000,
+        sinceLastInterventionSec:
+          lastInterventionRef.current == null
+            ? Number.MAX_SAFE_INTEGER
+            : (now - lastInterventionRef.current) / 1000,
+        interventionsThisHour: interventionsRef.current.filter((t) => now - t < 3600000).length,
+      }
+      if (!canIntervene(st, ctx).allowed) return
+
+      const speaker = pickInterventionSpeaker(allSeats)
+      if (!speaker) return
+
+      // 기습 질문 — 세션 20분 경과 후 개입 상한 안에서 최대 3회 (§7-5)
+      const quizReady =
+        st.memoryFlags.makeQuiz &&
+        st.interventionStyles.ask &&
+        quizCountRef.current < QUIZ_MAX &&
+        !pendingQuizRef.current &&
+        s.studySec >= QUIZ_AFTER_SEC
+      if (quizReady && Math.random() < 0.5) {
+        const quiz = makeQuiz()
+        pendingQuizRef.current = { quiz, slotNo: speaker.slotNo }
+        quizCountRef.current += 1
+        markIntervention(now)
+        db.logEvent(sid, 'quiz', { question: quiz.q, slot_no: speaker.slotNo })
+        mateSay(
+          speaker,
+          async () => {
+            await sleep(700 + Math.random() * 700)
+            return quiz.q
+          },
+          'quiz',
+        )
+        return
+      }
+
+      // 개입 방식이 꺼져 있으면 발화하지 않는다 (§6-5 interventionStyles)
+      const styleOn = {
+        cheer: st.interventionStyles.cheer,
+        longStudy: st.interventionStyles.rest,
+        restOver: st.interventionStyles.rest,
+        idle: st.interventionStyles.bubble,
+        away: st.interventionStyles.bubble,
+      }[kind]
+      if (!styleOn) return
+
+      if (kind === 'away') pendingAwayRef.current = false
+      if (kind === 'longStudy') longStudyFiredRef.current = true
+      if (kind === 'restOver') restStartRef.current = null
+
+      markIntervention(now)
+      db.logEvent(sid, 'intervention', { kind, slot_no: speaker.slotNo })
+      mateSay(speaker, async () => {
+        await sleep(600 + Math.random() * 800)
+        return interventionLine(speaker, kind)
+      })
+    }
+
+    const id = setInterval(tick, ENGINE_TICK_MS)
+    return () => clearInterval(id)
+  }, [mateSay])
+
+  /* ── 전송 ──────────────────────────────────────────────── */
+
+  const send = useCallback(
+    async (raw) => {
+      const text = (raw ?? '').trim()
+      if (!text) return
+      setDraft('')
+      setMention(null)
+      pushMsg({ senderType: 'me', body: text, kind: 'text' })
+
+      // 휴식 감지 (§6-3) — restingHint가 그 구간의 이탈을 "휴식"으로 분류한다 (§8-2)
+      if (REST_WORDS.test(text)) startRest()
+      else restStartRef.current = null
+
+      // 기습 질문 채점 — 바로 다음 사용자 메시지를 채점한다 (§7-5)
+      const pending = pendingQuizRef.current
+      if (pending) {
+        pendingQuizRef.current = null
+        const correct = judgeQuiz(pending.quiz, text)
+        db.addQuizResult(sidRef.current, {
+          question: pending.quiz.q,
+          user_answer: text,
+          is_correct: correct,
+        })
+        const seat = useStore.getState().seats.find((x) => x.slotNo === pending.slotNo)
+        if (seat) {
+          await mateSay(seat, async () => {
+            await sleep(600 + Math.random() * 600)
+            return correct
+              ? '맞아요. 그 부분은 확실히 잡은 것 같네요.'
+              : '음, 조금 달라요. 그 부분은 이따 한 번 더 짚고 갈게요.'
+          })
+        }
+        return
+      }
+
+      const st = useStore.getState().settings
+      const allSeats = useStore.getState().seats
+      const repliers = routeReply(text, allSeats, st) // §10 규칙 11 @멘션 > 답변 캐릭터 > 자동
+      for (const seat of repliers) {
+        // 답변자마다 순차로: 타이핑 인디케이터 → 생성 → 말풍선
+        await mateSay(seat, () => generateReply({ seat, text, settings: st }))
+      }
+    },
+    [mateSay, pushMsg, startRest],
+  )
+
+  /* ── 문서 업로드 (§6-3, §7-5) ──────────────────────────── */
+
+  const onPickFile = useCallback(
+    async (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ''
+      if (!file) return
+      const sid = sidRef.current
+
+      pushMsg({
+        senderType: 'me',
+        kind: 'file',
+        body: file.name,
+        file: { name: file.name, size: file.size },
+      })
+
+      // 세션 주제를 파일명으로 기록 (§9-2 topics / topic_source)
+      const topic = file.name.replace(/\.[^.]+$/, '').slice(0, 40)
+      const prev = db.getSession(sid)?.topics || []
+      db.heartbeat(sid, {
+        topics: prev.includes(topic) ? prev : [...prev, topic],
+        topic_source: 'document',
+      })
+
+      // Document Reader Agent → 심화 학습 포인트 1~2개 (§7-4, §7-5)
+      const points = []
+      const want = 1 + Math.round(Math.random())
+      for (let i = 0; i < want * 3 && points.length < want; i++) {
+        const p = makeStudyPoint()
+        if (!points.includes(p)) points.push(p)
+      }
+      points.forEach((p) => db.addStudyPoint(sid, p, file.name))
+
+      const speaker = pickInterventionSpeaker(useStore.getState().seats)
+      if (speaker && points.length) {
+        await mateSay(speaker, async () => {
+          await sleep(900 + Math.random() * 700)
+          return `“${topic}” 훑어봤어요. 더 깊이 볼 만한 건 ${points.map((p) => `「${p}」`).join(', ')} 예요.`
+        })
+      }
+    },
+    [mateSay, pushMsg],
+  )
+
+  /* ── 음성 입력 (Web Speech API) ─────────────────────────── */
+
+  const toggleListen = useCallback(() => {
+    if (listening) {
+      recRef.current?.stop()
+      return
+    }
+    sttBaseRef.current = draftRef.current
+    const rec = createRecognizer({
+      onPartial: (t) => setDraft(`${sttBaseRef.current}${sttBaseRef.current ? ' ' : ''}${t}`),
+      onFinal: (t) => setDraft(`${sttBaseRef.current}${sttBaseRef.current ? ' ' : ''}${t}`),
+      onEnd: () => {
+        setListening(false)
+        recRef.current = null
+      },
+      onError: () => {
+        setListening(false)
+        recRef.current = null
+        toast('음성을 인식하지 못했어요.', 'danger')
+      },
+    })
+    if (!rec) {
+      toast('이 브라우저는 음성 입력을 지원하지 않아요.', 'danger')
+      return
+    }
+    recRef.current = rec
+    rec.start()
+    setListening(true)
+  }, [listening, toast])
+
+  /* ── 기기 토글 · 종료 ───────────────────────────────────── */
+
+  const toggleCam = () => {
+    const on = !device.cameraOn
+    setDevice({ cameraOn: on })
+    stream?.getVideoTracks?.().forEach((t) => {
+      t.enabled = on
+    })
+  }
+  const toggleMic = () => {
+    const on = !device.micOn
+    setDevice({ micOn: on })
+    stream?.getAudioTracks?.().forEach((t) => {
+      t.enabled = on
+    })
+  }
+
+  /** 세션 마감 (§9-3 공부 종료) */
+  const endStudy = () => {
+    const tracker = trackerRef.current
+    const sid = sidRef.current
+    setConfirmEnd(false)
+    if (!tracker || !sid) {
+      go('ending')
+      return
+    }
+
+    endedRef.current = true
+    tracker.stop()
+    const s = tracker.snapshot()
+    const score = computeScore(s) // §8-4
+    db.endSession(sid, {
+      study_sec: s.studySec,
+      focus_sec: s.focusSec ?? 0,
+      away_sec: s.awaySec ?? 0,
+      away_count: s.awayCount ?? 0,
+      best_streak_sec: s.bestStreakSec ?? 0,
+      score_mode: s.scoreMode,
+      integrity: s.integrity,
+      score,
+    })
+    db.logEvent(sid, 'end', { score })
+    setLastSessionId(sid)
+    setSessionId(null)
+
+    stopSpeaking()
+    recRef.current?.abort()
+    // 스트림의 모든 track을 정지한다 (카메라 표시등이 남지 않도록)
+    stream?.getTracks?.().forEach((t) => t.stop())
+    setStream(null)
+
+    go('ending')
+  }
+
+  /* ── 채팅 스크롤 ───────────────────────────────────────── */
+  useEffect(() => {
+    listEndRef.current?.scrollIntoView({ block: 'end' })
+  }, [messages, typingSlots])
+
+  /* ── @멘션 자동완성 ─────────────────────────────────────── */
+
+  const mentionList = useMemo(() => {
+    if (!mention) return []
+    const q = mention.q.toLowerCase()
+    return actives.filter((s) => s.name.toLowerCase().startsWith(q))
+  }, [mention, actives])
+
+  const insertMention = (seat) => {
+    const before = draft.slice(0, mention.start)
+    const after = draft.slice(mention.end)
+    const next = `${before}@${seat.name} ${after}`
+    setDraft(next)
+    setMention(null)
+    const caret = before.length + seat.name.length + 2
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      inputRef.current?.setSelectionRange(caret, caret)
+    })
+  }
+
+  const onDraftChange = (e) => {
+    const v = e.target.value
+    setDraft(v)
+    lastKeyRef.current = Date.now()
+    const found = findMention(v, e.target.selectionStart ?? v.length)
+    setMention(found)
+    setMentionIdx(0)
+  }
+
+  const onInputKeyDown = (e) => {
+    lastKeyRef.current = Date.now()
+    if (mention && mentionList.length) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIdx((i) => (i + 1) % mentionList.length)
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIdx((i) => (i - 1 + mentionList.length) % mentionList.length)
+        return
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        insertMention(mentionList[mentionIdx] || mentionList[0])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMention(null)
+        return
+      }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      send(draft)
+    }
+  }
+
+  /* ── 렌더 ──────────────────────────────────────────────── */
+
+  const tints = { 1: 'bg-sage', 2: 'bg-lavender', 3: 'bg-peach' }
+  const todaySec = todayBase + (snap?.studySec || 0)
+  const seatName = (no) => seats.find((s) => s.slotNo === no)?.name || `${no}번`
+
+  return (
+    <div className="flex h-full min-w-[1280px] flex-col bg-warm">
+      <main className="flex min-h-0 flex-1">
+        {/* ── 좌 72% 참가자 ── */}
+        <section aria-label="참가자" className="min-w-0 p-6" style={{ width: '72%' }}>
+          <div className="grid h-full grid-cols-2 grid-rows-2 gap-4">
+            <SelfTile
+              stream={stream}
+              cameraOn={device.cameraOn}
+              micOn={device.micOn}
+              mirror={device.mirror}
+              name={displayName}
+            />
+            {seats.map((seat) =>
+              seat.enabled ? (
+                <MateTile
+                  key={seat.slotNo}
+                  seat={seat}
+                  tint={tints[seat.slotNo] || 'bg-sage'}
+                  state={typingSlots.includes(seat.slotNo) ? 'typing' : animStates[seat.slotNo] || 'studying'}
+                  otherNames={seats.filter((x) => x.slotNo !== seat.slotNo).map((x) => x.name)}
+                  onRename={(name) => updateSeat(seat.slotNo, { name })}
+                />
+              ) : (
+                <EmptySeatTile
+                  key={seat.slotNo}
+                  seat={seat}
+                  onOpenSettings={() => openSettings(seat.slotNo)}
+                />
+              ),
+            )}
+          </div>
+        </section>
+
+        {/* ── 우 28% 채팅 — 항상 열려 있고 닫기 버튼이 없다 (§6-3) ── */}
+        <aside
+          aria-label="채팅"
+          className="flex min-h-0 flex-col border-l border-hairline bg-surface"
+          style={{ width: '28%', minWidth: 380 }}
+        >
+          <header className="flex items-baseline gap-2 border-b border-hairline px-5 py-4">
+            <h2 className="t-section">채팅</h2>
+            <span className="t-caption">참여 중 {actives.length}명</span>
+          </header>
+
+          <div className="scroll-soft flex-1 overflow-y-auto px-5 py-4" role="log" aria-live="polite">
+            {noMates && (
+              <p className="t-help rounded-sm border border-hairline bg-[var(--hover-bg)] px-4 py-3">
+                참여 중인 스터디 메이트가 없어요. 설정에서 자리를 켜면 대화를 시작할 수 있어요.
+              </p>
+            )}
+            {!noMates && messages.length === 0 && (
+              <p className="t-help">
+                무엇이든 물어보세요. <span className="tnum">@</span>로 특정 메이트를 부를 수 있어요.
+              </p>
+            )}
+
+            <ul className="flex flex-col gap-3">
+              {messages.map((m) => (
+                <li key={m.id} className={m.senderType === 'me' ? 'flex justify-end' : ''}>
+                  {m.senderType === 'me' ? (
+                    <div className="max-w-[86%]">
+                      {m.kind === 'file' ? (
+                        <div className="flex items-center gap-3 rounded-sm border border-hairline bg-peach px-4 py-3">
+                          <FileText size={18} aria-hidden="true" />
+                          <div className="min-w-0">
+                            <div className="t-item truncate">{m.file?.name}</div>
+                            <div className="t-caption tnum">{fmtBytes(m.file?.size)}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="rounded-sm bg-peach px-4 py-2.5 t-body whitespace-pre-wrap break-words">
+                          {m.body}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex max-w-[92%] gap-2">
+                      <span className="mt-0.5 shrink-0">
+                        <CharacterSprite
+                          imageKey={seats.find((s) => s.slotNo === m.seat)?.imageKey || 'bear'}
+                          state="studying"
+                          size={26}
+                        />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="t-caption">
+                          {seatName(m.seat)}
+                          {m.kind === 'quiz' && (
+                            <span className="ml-1.5 rounded-full bg-[var(--hover-bg)] px-2 py-0.5">
+                              확인 질문
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 rounded-sm border border-hairline bg-white px-4 py-2.5 t-body whitespace-pre-wrap break-words">
+                          {m.body}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              ))}
+
+              {/* 타이핑 인디케이터 — 로딩 스피너 금지 (§6-3) */}
+              {typingSlots.map((no) => (
+                <li key={`typing-${no}`} className="flex gap-2">
+                  <span className="mt-0.5 shrink-0">
+                    <CharacterSprite
+                      imageKey={seats.find((s) => s.slotNo === no)?.imageKey || 'bear'}
+                      state="typing"
+                      size={26}
+                    />
+                  </span>
+                  <div>
+                    <div className="t-caption">{seatName(no)}</div>
+                    <div
+                      className="mt-0.5 inline-flex items-center gap-1 rounded-sm border border-hairline bg-white px-4 py-3"
+                      aria-label={`${seatName(no)} 님이 입력 중`}
+                    >
+                      <span className="dot h-1.5 w-1.5 rounded-full bg-[var(--text-muted)]" />
+                      <span className="dot h-1.5 w-1.5 rounded-full bg-[var(--text-muted)]" />
+                      <span className="dot h-1.5 w-1.5 rounded-full bg-[var(--text-muted)]" />
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div ref={listEndRef} />
+          </div>
+
+          {/* 입력 영역 */}
+          <div className="relative border-t border-hairline px-4 py-3">
+            {mention && mentionList.length > 0 && (
+              <ul
+                id="mention-list"
+                role="listbox"
+                aria-label="스터디 메이트 멘션"
+                className="absolute bottom-full left-4 mb-2 w-64 overflow-hidden rounded-sm border border-hairline bg-surface shadow-pop"
+              >
+                {mentionList.map((s, i) => (
+                  <li
+                    key={s.slotNo}
+                    id={`mention-opt-${s.slotNo}`}
+                    role="option"
+                    aria-selected={i === mentionIdx}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      insertMention(s)
+                    }}
+                    className={[
+                      'flex cursor-pointer items-center gap-2 px-4 py-2.5 transition-colors duration-300',
+                      i === mentionIdx ? 'bg-peach font-semibold' : 'hover:bg-[var(--hover-bg)]',
+                    ].join(' ')}
+                  >
+                    <CharacterSprite imageKey={s.imageKey} state="studying" size={22} />
+                    <span className="t-item truncate">{s.name}</span>
+                    <span className="t-caption ml-auto">{s.slotNo}번 자리</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="flex items-center gap-2">
+              <input
+                ref={fileRef}
+                type="file"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="hidden"
+                onChange={onPickFile}
+              />
+              <IconBtn label="문서 올리기" onClick={() => fileRef.current?.click()}>
+                <Paperclip size={17} />
+              </IconBtn>
+
+              <input
+                ref={inputRef}
+                value={draft}
+                onChange={onDraftChange}
+                onKeyDown={onInputKeyDown}
+                onClick={(e) => setMention(findMention(draft, e.target.selectionStart ?? draft.length))}
+                aria-label="메시지 입력"
+                aria-autocomplete="list"
+                aria-expanded={!!(mention && mentionList.length)}
+                aria-controls="mention-list"
+                aria-activedescendant={
+                  mention && mentionList.length
+                    ? `mention-opt-${(mentionList[mentionIdx] || mentionList[0]).slotNo}`
+                    : undefined
+                }
+                placeholder={noMates ? '참여 중인 메이트가 없어요' : '메시지를 입력하세요 (@로 부르기)'}
+                className="min-w-0 flex-1 rounded-full border border-hairline bg-white px-4 py-2.5 t-body transition-colors duration-300 focus:border-coral"
+              />
+
+              {/* 음성 입력 — 듣는 중에는 코랄로 강조하고 글자로도 알린다 (§11) */}
+              {settings.voice.stt && sttSupported && (
+                <IconBtn
+                  label={listening ? '음성 입력 멈추기 (듣는 중)' : '음성으로 입력하기'}
+                  aria-pressed={listening}
+                  onClick={toggleListen}
+                  className={listening ? 'bg-coral text-ink border border-[var(--text-dark)]' : ''}
+                >
+                  {listening ? <MicOff size={17} /> : <Mic size={17} />}
+                </IconBtn>
+              )}
+
+              <IconBtn label="보내기" active onClick={() => send(draft)} disabled={!draft.trim()}>
+                <Send size={17} />
+              </IconBtn>
+            </div>
+            {listening && <p className="t-caption mt-2">듣는 중이에요. 말이 끝나면 자동으로 멈춰요.</p>}
+          </div>
+        </aside>
+      </main>
+
+      {/* ── 하단 컨트롤 바 (§6-3) ── */}
+      <footer className="glass glass-spec z-30 mx-4 mb-4 flex h-[76px] shrink-0 items-center rounded-full px-8">
+        {/* 좌 — 오늘 누적 학습 시간 (§8-1). "Today"는 기조의 손글씨 액센트 (§4-2) */}
+        <div className="flex w-[280px] items-baseline gap-2.5">
+          <span className="font-hand text-[26px] leading-none text-subtle" aria-hidden="true">
+            Today
+          </span>
+          <span className="t-section tnum" aria-label={`오늘 누적 학습 시간 ${fmtHMS(todaySec)}`}>
+            {fmtHMS(todaySec)}
+          </span>
+        </div>
+
+        {/* 중앙 — 공부 종료 */}
+        <div className="flex flex-1 justify-center">
+          <Button variant="danger" onClick={() => setConfirmEnd(true)} className="px-7">
+            <PhoneOff size={17} aria-hidden="true" />
+            공부 종료
+          </Button>
+        </div>
+
+        {/* 우 — 카메라 → 마이크 → 설정 순서 고정 */}
+        <div className="flex w-[280px] items-center justify-end gap-2">
+          <IconBtn
+            label={device.cameraOn ? '카메라 끄기' : '카메라 켜기'}
+            aria-pressed={device.cameraOn}
+            onClick={toggleCam}
+            active={device.cameraOn}
+          >
+            {device.cameraOn ? <Video size={17} /> : <VideoOff size={17} />}
+          </IconBtn>
+          <IconBtn
+            label={device.micOn ? '마이크 끄기' : '마이크 켜기'}
+            aria-pressed={device.micOn}
+            onClick={toggleMic}
+            active={device.micOn}
+          >
+            {device.micOn ? <Mic size={17} /> : <MicOff size={17} />}
+          </IconBtn>
+          <IconBtn label="설정 열기" onClick={() => openSettings('me')}>
+            <Settings size={17} />
+          </IconBtn>
+        </div>
+      </footer>
+
+      <Confirm
+        open={confirmEnd}
+        title="공부를 끝낼까요?"
+        body={`지금까지 ${fmtHMS(snap?.studySec || 0)} 공부했어요.\n종료하면 이번 세션이 저장되고 요약 화면으로 넘어가요.`}
+        confirmLabel="공부 종료"
+        tone="danger"
+        onConfirm={endStudy}
+        onCancel={() => setConfirmEnd(false)}
+      />
+    </div>
+  )
+}
