@@ -66,7 +66,7 @@ function routeProvider(prefer) {
  * @param {string} [body.kind]    'reply' | 'intervention'
  */
 export async function handleChat(body) {
-  const { seat, settings = {}, turns = [], message = '', summary = '', kind = 'reply' } = body || {}
+  const { seat, settings = {}, turns = [], message = '', summary = '', kind = 'reply', images = [] } = body || {}
   if (!seat || !seat.name) throw new HttpError(400, { error: 'seat 이 필요합니다' })
 
   const route = routeProvider(settings.provider)
@@ -76,14 +76,16 @@ export async function handleChat(body) {
   // 개입 턴에는 넣지 않는다. 연관 낮은 조각이 긴 컨텍스트에서 답을 더 흐린다.
   let hits = []
   let knowledge = ''
-  if (kind === 'reply' && message) {
+  if (kind === 'reply' && message && !images.length) {
     hits = search(message, BANK_DIR)
     knowledge = toContext(hits)
   }
 
   const system = buildSystemPrompt(seat, settings)
   const history = [...turns]
-  if (message) history.push({ role: 'user', text: message })
+  if (message || images.length) {
+    history.push(images.length ? { role: 'user', text: message, images } : { role: 'user', text: message })
+  }
 
   let assembled = assemble({ system, knowledge, summary, turns: history })
 

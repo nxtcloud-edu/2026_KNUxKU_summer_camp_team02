@@ -65,6 +65,7 @@ async function post(url, body, signal) {
  * @param {Array}  o.turns     [{role:'user'|'model', text}]
  * @param {string} o.message   이번 발화 (개입이면 '')
  * @param {string} [o.summary] 압축해둔 앞부분
+ * @param {Array} [o.images]  쪽 그림 (글자층이 깨진 PDF 를 읽힐 때)
  * @param {'reply'|'intervention'} [o.kind]
  */
 export function requestReply(o, signal) {

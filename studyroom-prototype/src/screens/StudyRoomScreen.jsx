@@ -39,7 +39,7 @@ import { screenUtterance, looksComplete, joinVoice, WHY_LABEL } from '../lib/voi
 import { requestSummary } from '../lib/agent/client'
 import { useVision } from '../lib/vision/useVision'
 import { wakeChime } from '../lib/chime'
-import { readDocument, toPrompt } from '../lib/docReader'
+import { readDocument, toPrompt, renderPages } from '../lib/docReader'
 import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
 
 /* ── 지역 헬퍼 (새 의존 파일을 만들지 않는다) ─────────────────── */
@@ -723,7 +723,8 @@ export default function StudyRoomScreen() {
           // 올린 자료를 가리키는 질문이면 본문을 같이 넘긴다.
           // 매번 넘기면 토큰이 낭비되고, 안 넘기면 "저 파일 요약해줘"에 엉뚱한 답이 나온다
           const wantsDoc = docRef.current && DOC_REF_WORDS.test(text)
-          const payload = wantsDoc ? `${docRef.current.prompt}\n\n${text}` : text
+          const docImages = wantsDoc ? docRef.current.images || [] : []
+          const payload = wantsDoc && docRef.current.prompt ? `${docRef.current.prompt}\n\n${text}` : text
 
           for (const seat of repliers) {
             if (!aliveRef.current) return
@@ -732,6 +733,7 @@ export default function StudyRoomScreen() {
               generateReply({
                 seat,
                 text: payload,
+                images: docImages,
                 settings: st,
                 // 방금 넣은 사용자 발화는 서버가 message로 따로 받으므로 뺀다
                 history: historyRef.current.slice(0, -1).slice(-MAX_HISTORY_TURNS),
@@ -775,6 +777,34 @@ export default function StudyRoomScreen() {
       // 실제로 읽는다. 예전에는 파일 **이름만** 보고 고정 문구를 읊으면서
       // "훑어봤어요"라고 말했다. 읽지 않은 걸 읽었다고 하는 건 있어서는 안 될 일이다.
       const doc = await readDocument(file)
+
+      // 글자층이 깨졌거나 비어 있는 PDF 는 **쪽을 그림으로 만들어** 읽힌다.
+      // 사람 눈에는 멀쩡히 보이는 문서다 — 모델도 그림으로는 읽어낸다.
+      if (!doc.ok && doc.kind === 'pdf' && (doc.garbled || /글자가 없는/.test(doc.reason))) {
+        toast('글자를 못 뽑아서 페이지를 그림으로 읽는 중이에요…', 'info')
+        try {
+          const { images, pages, rendered } = await renderPages(file)
+          const speaker = pickInterventionSpeaker(useStore.getState().seats)
+          docRef.current = { name: file.name, images, pages }
+          db.addStudyPoint(sid, `${file.name} 그림으로 읽음 (${rendered}/${pages}쪽)`, file.name)
+          if (speaker) {
+            await mateSay(speaker, () =>
+              generateReply({
+                seat: speaker,
+                text: `방금 올린 "${file.name}" 자료야${rendered < pages ? ` (앞 ${rendered}쪽만)` : ''}. 무엇에 대한 자료인지 두세 문장으로 말해줘. 안 보이는 내용은 지어내지 않는다.`,
+                images,
+                settings: { ...useStore.getState().settings, replyLength: 'brief' },
+                history: [],
+                summary: '',
+              }),
+            )
+          }
+        } catch (e) {
+          console.warn('[doc] 그림 변환 실패', e)
+          toast('자료를 읽지 못했어요.', 'danger')
+        }
+        return
+      }
 
       if (!doc.ok) {
         // 못 읽으면 못 읽었다고 말한다. 지어내지 않는다

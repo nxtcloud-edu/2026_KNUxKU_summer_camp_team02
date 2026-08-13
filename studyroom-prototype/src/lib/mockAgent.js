@@ -214,9 +214,17 @@ const REST_REPLIES = {
  * @param {Array} [history]  [{role:'user'|'model', text}] 최근 대화
  * @param {string} [summary] 압축해둔 앞부분
  */
-export async function generateReply({ seat, text, settings, history = [], summary = '', kind = 'reply' }) {
+export async function generateReply({
+  seat,
+  text,
+  settings,
+  history = [],
+  summary = '',
+  kind = 'reply',
+  images = [],
+}) {
   try {
-    const r = await requestReply({ seat, settings, turns: history, message: text, summary, kind })
+    const r = await requestReply({ seat, settings, turns: history, message: text, summary, kind, images })
     if (r?.text) return { text: r.text, meta: r.meta }
   } catch (e) {
     console.warn('[agent] 서버 호출 실패 → 목업으로 대체', e.message)

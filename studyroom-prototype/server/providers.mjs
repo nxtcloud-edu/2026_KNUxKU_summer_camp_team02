@@ -64,7 +64,14 @@ export async function callGemini({
     systemInstruction: { parts: [{ text: system }] },
     contents: messages.map((m) => ({
       role: m.role === 'model' ? 'model' : 'user',
-      parts: [{ text: m.text }],
+      // 그림이 붙은 턴이 있다. 글자층이 깨진 PDF 를 쪽 그림으로 읽힐 때 쓴다.
+      // 그림을 글 앞에 두어야 "이걸 보고 답해라"가 자연스럽게 읽힌다
+      parts: [
+        ...(m.images || []).map((im) => ({
+          inlineData: { mimeType: im.mimeType || 'image/jpeg', data: im.data },
+        })),
+        ...(m.text ? [{ text: m.text }] : []),
+      ],
     })),
     generationConfig: {
       // 답변 몫 + 사고 몫. 사고 몫을 안 얹으면 답이 잘린다 (위 주석 참고)
