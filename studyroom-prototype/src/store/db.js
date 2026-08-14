@@ -336,6 +336,22 @@ export const db = {
     write()
   },
 
+  /**
+   * 그날 남긴 요약을 찾는다 (yyyy-mm-dd).
+   *
+   * 요약은 세션에 붙어 있는데 홈 화면은 **날짜**로 기록을 보여준다. 그 사이를
+   * 이어 줄 길이 없어서, 저장은 되는데 다시 볼 수가 없었다 — 사용자에게는
+   * "요약이 저장이 안 된다"로 보인다.
+   * 하루에 여러 번 공부했으면 **요약이 있는 마지막 세션**을 준다.
+   */
+  getReviewByDay(dayKey) {
+    const list = (read().session || [])
+      .filter((x) => x.review && todayKey(new Date(x.started_at)) === dayKey)
+      .sort((a, b) => a.started_at - b.started_at)
+    const s = list[list.length - 1]
+    return s ? { review: s.review, session: s } : null
+  },
+
   getReview(sessionId) {
     return read().session.find((x) => x.id === sessionId)?.review || null
   },

@@ -23,6 +23,7 @@ import {
 import ShopPage, { SECTIONS as SHOP_SECTIONS } from './ShopPage'
 import { useStore } from '../store/useStore'
 import { db, todayKey, weekStart, daysAgoKey } from '../store/db'
+import { buildSections, buildPrintHtml, printAsPdf } from '../lib/summaryDoc'
 import { fmtShort } from '../lib/metrics'
 import { Button, CharacterSprite } from '../components/ui'
 
@@ -750,11 +751,39 @@ function ShopCard({ onGoCategory }) {
 
 /* ── 더 공부하기 팝업 ─────────────────────────────────────── */
 
+/**
+ * 지난 날의 복습 — **저장된 요약을 실제로 읽는다.**
+ *
+ * 예전에는 "핵심 개념을 다시 정리해보세요" 같은 문구가 박혀 있었다. 세션이 끝날 때
+ * 만든 요약은 db 에 잘 들어가 있는데 여기서 읽지를 않아서, 사용자에게는
+ * **"요약이 저장이 안 된다"** 로 보였다. 엔딩 화면에서 한 번 고쳤던 것과 같은 고장이다.
+ *
+ * 그리고 없으면 없다고 말한다. 지어낸 복습은 복습이 아니다.
+ */
 function ReviewPopup({ item, onClose }) {
+  const found = useMemo(() => db.getReviewByDay(item.key), [item.key])
+  const review = found?.review || null
+  const concepts = useMemo(
+    () => (review?.conceptGroups || []).flatMap((g) => g.concepts.map((c) => ({ ...c, label: g.label }))),
+    [review],
+  )
+
+  const savePdf = () => {
+    if (!review) return
+    const started = found.session?.started_at
+    const facts = [{ label: '날짜', value: dayLabel(item.key) }]
+    if (item.studySec > 0) facts.push({ label: '공부 시간', value: fmtShort(item.studySec) })
+    printAsPdf({
+      html: buildPrintHtml({ title: '오늘의 공부 요약', facts, sections: buildSections(review) }),
+      filename: `공부 요약 — ${dayLabel(item.key)}`,
+    })
+    void started
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
       <div
-        className="relative w-full max-w-[480px] rounded-lg border border-hairline bg-surface p-8 shadow-soft"
+        className="relative w-full max-w-[480px] max-h-[80vh] overflow-y-auto rounded-lg border border-hairline bg-surface p-8 shadow-soft"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -771,35 +800,59 @@ function ReviewPopup({ item, onClose }) {
         </h2>
 
         <div className="mt-4 rounded-sm border border-hairline bg-[var(--hover-bg)] px-5 py-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="mb-2 flex items-center justify-between">
             <h3 className="t-item font-semibold">공부 종료 후 요약</h3>
-            <button
-              type="button"
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-white border border-hairline shadow-sm transition-colors hover:bg-[var(--hover-bg)]"
-              aria-label="PDF 다운로드"
-              title="PDF 다운로드"
-            >
-              <Download size={15} className="text-ink" />
-            </button>
+            {review && (
+              <button
+                type="button"
+                onClick={savePdf}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-hairline bg-white shadow-sm transition-colors hover:bg-[var(--hover-bg)]"
+                aria-label="PDF 로 저장"
+                title="PDF 로 저장"
+              >
+                <Download size={15} className="text-ink" />
+              </button>
+            )}
           </div>
-          {item.studySec > 0 ? (
-            <p className="t-body">이 날의 학습 요약 PDF를 다운로드할 수 있습니다.</p>
+          {review ? (
+            <p className="t-body break-words" style={{ lineHeight: 1.7 }}>
+              {review.summaryText || '요약 문장이 없어요.'}
+            </p>
           ) : (
-            <p className="t-help">이 날은 학습 기록이 없습니다.</p>
+            <p className="t-help">
+              {item.studySec > 0
+                ? '이 날은 요약을 만들지 못했어요. 대화가 짧으면 정리할 게 없어요.'
+                : '이 날은 학습 기록이 없습니다.'}
+            </p>
           )}
         </div>
 
-        <div className="mt-4 rounded-sm border border-hairline bg-[var(--hover-bg)] px-5 py-4">
-          <h3 className="t-item font-semibold mb-2">심화 학습 포인트</h3>
-          {item.studySec > 0 ? (
+        {concepts.length > 0 && (
+          <div className="mt-4 rounded-sm border border-hairline bg-[var(--hover-bg)] px-5 py-4">
+            <h3 className="t-item mb-2 font-semibold">공부한 개념</h3>
             <ul className="flex flex-col gap-1.5">
-              <li className="t-body">• 핵심 개념을 다시 정리해보세요.</li>
-              <li className="t-body">• 관련된 예제를 추가로 풀어보면 좋겠어요.</li>
+              {concepts.map((c) => (
+                <li key={c.title} className="t-body break-words">
+                  • {c.title}
+                  <span className="t-caption text-muted"> · {c.label}</span>
+                </li>
+              ))}
             </ul>
-          ) : (
-            <p className="t-help">학습 기록이 없어 심화 포인트를 제공할 수 없어요.</p>
-          )}
-        </div>
+          </div>
+        )}
+
+        {(review?.deepeningPoints || []).length > 0 && (
+          <div className="mt-4 rounded-sm border border-hairline bg-[var(--hover-bg)] px-5 py-4">
+            <h3 className="t-item mb-2 font-semibold">심화 학습 포인트</h3>
+            <ul className="flex flex-col gap-1.5">
+              {review.deepeningPoints.map((p) => (
+                <li key={p.title} className="t-body break-words">
+                  • <strong className="font-semibold">{p.title}</strong> — {p.body}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   )

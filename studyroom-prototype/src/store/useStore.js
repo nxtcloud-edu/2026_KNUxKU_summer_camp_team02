@@ -105,6 +105,14 @@ function configOf() {
   return {
     seats: saved.seats?.length === 3 ? saved.seats.map(mergeSeat) : defaultSeats(),
     settings: saved.settings ? mergeSettings(saved.settings) : DEFAULT_SETTINGS,
+    /**
+     * **이름도 여기서 읽는다.**
+     *
+     * setDisplayName 은 db 에 잘 쓰고 있었는데 다시 읽는 길이 없었다.
+     * 부팅할 때마다 구글 프로필 이름으로 되돌아가서, 사용자에게는
+     * "이름 설정이 저장이 안 된다"로 보였다. 쓰기만 있고 읽기가 없던 것이다.
+     */
+    displayName: db.getUser()?.display_name || displayNameOf(loadAccount()),
   }
 }
 
@@ -178,14 +186,17 @@ export const useStore = create((set, get) => ({
     saveAccount(profile)
     db.useAccount(accountKeyOf(profile))
     db.setUser({
-      display_name: displayNameOf(profile),
+      /**
+       * 이미 정해 둔 이름이 있으면 **건드리지 않는다.**
+       * 매번 구글 이름으로 덮어쓰면 다시 로그인할 때마다 바꿔 둔 이름이 사라진다.
+       */
+      display_name: db.getUser()?.display_name || displayNameOf(profile),
       avatar_url: profile.picture || null,
       email: profile.email || '',
       provider: profile.provider,
     })
     set({
       account: profile,
-      displayName: displayNameOf(profile),
       sessionId: null,
       lastSessionId: null,
       ...configOf(),
@@ -206,7 +217,7 @@ export const useStore = create((set, get) => ({
   },
 
   /* roomConfig — 영속 */
-  displayName: displayNameOf(boot.account),
+  displayName: boot.displayName,
   setDisplayName: (v) => {
     set({ displayName: v })
     db.setUser({ display_name: v })
