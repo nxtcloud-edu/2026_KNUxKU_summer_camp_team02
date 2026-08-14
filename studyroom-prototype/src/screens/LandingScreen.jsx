@@ -10,36 +10,65 @@
  * 인라인 style로만 올렸다(0.95) — index.css는 건드리지 않는다.
  */
 import { useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import BrandPanel from '../components/landing/BrandPanel'
 import StudyPreview from '../components/landing/StudyPreview'
 import LoginModal from '../components/landing/LoginModal'
+import LandingSections from '../components/landing/LandingSections'
 
 export default function LandingScreen() {
   const [loginOpen, setLoginOpen] = useState(false)
 
   /*
-   * 넓은 화면은 예전처럼 한 화면에 꽉 채우고(lg:h-full lg:overflow-hidden),
-   * 좁아져 두 패널이 세로로 쌓이면 스크롤을 연다.
+   * 첫 화면은 예전 그대로 한 화면에 꽉 채우고(lg:h-full), 그 아래로 소개 섹션이 이어진다.
    *
-   * 예전에는 `h-full overflow-hidden` 이라, 세로로 쌓인 뒤 아래로 밀려난
-   * Sign Up / Sign In 에 **닿을 수가 없었다.** 이 앱의 유일한 로그인 진입로다.
+   * 예전에는 바깥 컨테이너가 `lg:h-full lg:overflow-hidden` 이라 넓은 화면에서 스크롤 자체가
+   * 막혀 있었다. 그 잠금을 바깥에서 첫 화면 <section> 안으로 옮겼다 — 첫 화면의 "한 화면"
+   * 규칙(기획서 §1)은 그대로 지키면서 아래로는 내려갈 수 있게 된다.
+   *
+   * 블롭도 같이 안으로 옮긴다. 바깥에 두면 컨테이너가 페이지 전체 높이로 늘어나면서
+   * `bottom:-260` 블롭이 맨 아래 섹션까지 떠내려간다.
    */
-  return (
-    <div className="relative min-h-full overflow-y-auto bg-warm lg:h-full lg:overflow-hidden">
-      <div
-        className="blob bg-sage"
-        style={{ width: 720, height: 720, top: -280, left: -240, opacity: 0.95 }}
-        aria-hidden="true"
-      />
-      <div
-        className="blob blob-delayed bg-lavender"
-        style={{ width: 620, height: 620, bottom: -260, right: -220, opacity: 0.95 }}
-        aria-hidden="true"
-      />
+  const goToSections = () => {
+    const el = document.getElementById('landing-more')
+    if (!el) return
+    const calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    el.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' })
+  }
 
-      <div className="relative mx-auto flex min-h-full lg:h-full max-w-[1240px] w-full items-center justify-between gap-8 lg:gap-16 px-4 sm:px-6 lg:px-10 flex-col lg:flex-row py-10 lg:py-0">
-        <StudyPreview className="enter-up" onOpenLogin={() => setLoginOpen(true)} />
-        <BrandPanel onOpenLogin={() => setLoginOpen(true)} />
+  return (
+    <div className="h-full overflow-y-auto overflow-x-hidden bg-warm">
+      <section className="relative overflow-hidden lg:h-full">
+        <div
+          className="blob bg-sage"
+          style={{ width: 720, height: 720, top: -280, left: -240, opacity: 0.95 }}
+          aria-hidden="true"
+        />
+        <div
+          className="blob blob-delayed bg-lavender"
+          style={{ width: 620, height: 620, bottom: -260, right: -220, opacity: 0.95 }}
+          aria-hidden="true"
+        />
+
+        <div className="relative mx-auto flex min-h-full w-full max-w-[1240px] flex-col items-center justify-between gap-8 px-4 py-10 sm:px-6 lg:h-full lg:flex-row lg:gap-16 lg:px-10 lg:py-0">
+          <StudyPreview className="enter-up" onOpenLogin={() => setLoginOpen(true)} />
+          <BrandPanel onOpenLogin={() => setLoginOpen(true)} />
+        </div>
+
+        {/* 아래에 내용이 더 있다는 유일한 신호. 예전에는 한 화면으로 잠겨 있어 필요 없었다 */}
+        <button
+          type="button"
+          onClick={goToSections}
+          aria-label="서비스 소개 보기"
+          className="fade-in d4 absolute bottom-7 left-1/2 hidden -translate-x-1/2 flex-col items-center gap-1.5 text-muted transition-colors duration-300 ease-soft hover:text-ink lg:flex"
+        >
+          <span className="t-caption">아래로</span>
+          <ChevronDown size={18} className="anim-idle" aria-hidden="true" />
+        </button>
+      </section>
+
+      <div id="landing-more">
+        <LandingSections onOpenLogin={() => setLoginOpen(true)} />
       </div>
 
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
