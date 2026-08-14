@@ -194,6 +194,33 @@ if (targetSid) ok('새로고침해도 요약이 남아 있다', db.getReview(tar
   ok('새 계정에 데모 기록이 들어간다 (의도된 동작)', seeded > 10, `${seeded}일치`)
 }
 
+/* ══ 8. 옛 캐릭터 이름이 저장돼 있으면 지금 이름으로 올라오는가 ══ */
+{
+  /*
+   * 이름을 한글로 바꾼 뒤(Mina·Theo·Juno → 강두리·고범수·신유연) 이미 저장된 설정은
+   * 옛 이름을 붙들고 있었다. 랜딩은 PRESETS 를 직접 읽어 새 이름이 뜨는데
+   * 설정창·로비·스터디룸은 저장된 좌석을 읽어서 옛 이름이 떴다 — 한 화면 안에서 갈렸다.
+   * **직접 지은 이름은 건드리면 안 된다.** 그게 이 검사의 절반이다.
+   */
+  const P = join(tmp, 'presets.mjs')
+  execFileSync(
+    join(root, 'node_modules', '.bin', 'esbuild'),
+    [join(root, 'src', 'lib', 'presets.js'), '--bundle', '--format=esm', `--outfile=${P}`],
+    { stdio: 'pipe' },
+  )
+  const { freshName, PRESETS } = await import(P)
+
+  ok('옛 이름 Mina → 지금 이름', freshName('mina', 'Mina') === PRESETS.mina.name, freshName('mina', 'Mina'))
+  ok('옛 이름 Theo → 지금 이름', freshName('theo', 'Theo') === PRESETS.theo.name)
+  ok('옛 이름 Juno → 지금 이름', freshName('juno', 'Juno') === PRESETS.juno.name)
+  ok('직접 지은 이름은 그대로', freshName('juno', '내가지은이름') === '내가지은이름')
+  ok('지금 이름은 그대로', freshName('mina', PRESETS.mina.name) === PRESETS.mina.name)
+  ok('이름이 비면 기본값', freshName('mina', '') === PRESETS.mina.name)
+  ok('모르는 preset 은 손대지 않는다', freshName('없는키', '아무이름') === '아무이름')
+  // 다른 자리의 옛 이름을 잘못 가져오면 안 된다
+  ok('preset 을 넘어서 바꾸지 않는다', freshName('mina', 'Theo') === 'Theo')
+}
+
 rmSync(tmp, { recursive: true, force: true })
 
 console.log(`\n계정별 개인화 ${pass}/${pass + fails.length} 통과`)

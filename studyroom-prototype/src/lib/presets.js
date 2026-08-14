@@ -112,6 +112,33 @@ export const STATE_LABEL = {
 }
 
 /** 새 자리 하나를 프리셋으로 초기화 */
+/**
+ * 예전에 기본값이었던 이름들.
+ *
+ * 이름을 한글로 바꾼 뒤(ac62fc1), **이미 저장된 설정은 옛 이름을 그대로 붙들고 있었다.**
+ * 랜딩 미리보기는 PRESETS 를 직접 읽어 새 이름이 뜨는데, 설정창·로비·스터디룸은
+ * 저장된 좌석을 읽어서 옛 이름이 떴다 — 같은 화면 안에서 이름이 갈렸다.
+ *
+ * 그래서 읽을 때 갈아 끼운다. **직접 지은 이름은 건드리지 않는다** —
+ * 여기 적힌 "한때 기본값이었던 이름"일 때만 지금 기본값으로 올린다.
+ */
+export const LEGACY_NAMES = {
+  mina: ['Mina', '미나'],
+  theo: ['Theo', '테오'],
+  juno: ['Juno', '주노', '유리'],
+}
+
+/**
+ * 저장된 좌석 이름이 옛 기본값이면 지금 기본값으로 올린다.
+ * @returns {string} 화면에 쓸 이름
+ */
+export function freshName(presetKey, savedName) {
+  const p = PRESETS[presetKey]
+  if (!p) return savedName || ''
+  if (!savedName) return p.name
+  return (LEGACY_NAMES[presetKey] || []).includes(savedName) ? p.name : savedName
+}
+
 export function seatFromPreset(slotNo, presetKey) {
   const p = PRESETS[presetKey]
   return {

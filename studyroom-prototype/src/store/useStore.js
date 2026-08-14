@@ -9,7 +9,7 @@
 
 import { create } from 'zustand'
 import { db } from './db'
-import { defaultSeats } from '../lib/presets'
+import { defaultSeats, freshName } from '../lib/presets'
 import { DEFAULT_OWNER, validateOwner } from '../lib/agent/functions'
 import { toneOf } from '../lib/agent/tone'
 import { GUEST, accountKeyOf, clearAccount, displayNameOf, loadAccount, saveAccount } from '../lib/auth'
@@ -145,7 +145,17 @@ function mergeSettings(s) {
 function mergeSeat(seat, i) {
   const base = defaultSeats()[i] || {}
   const { traits, explainStyle, proactivity, ...rest } = seat || {}
-  return { ...base, ...rest, tone: seat?.tone || toneOf(seat) || base.tone }
+  const merged = { ...base, ...rest, tone: seat?.tone || toneOf(seat) || base.tone }
+  /**
+   * 저장된 이름이 **한때 기본값이었던 것**이면 지금 기본값으로 올린다.
+   *
+   * 이름을 한글로 바꿨는데 이미 저장된 설정은 옛 이름(Mina·Theo·Juno)을 붙들고 있어서,
+   * 랜딩(PRESETS 직독)에는 새 이름이 뜨고 설정창·로비·스터디룸(저장된 좌석)에는
+   * 옛 이름이 떴다. 한 화면 안에서 이름이 갈리는 것만큼 어설퍼 보이는 게 없다.
+   * 직접 지은 이름은 그대로 둔다 (presets.js 의 freshName).
+   */
+  merged.name = freshName(merged.preset || base.preset, merged.name)
+  return merged
 }
 
 const boot = initial()
