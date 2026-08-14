@@ -21,8 +21,8 @@ export const ANIM_TIMING = {
 /** imageKey → persona id. 새 캐릭터 추가 시 이 표만 확장하면 된다. */
 export const IMAGE_KEY_TO_PERSONA = {
   bear: 'persona1',
-  tiger: 'persona2',
-  duck: 'persona3',
+  tiger: 'persona3',
+  duck: 'persona2',
 }
 
 /** 각 페르소나가 노출하는 base loop 이름들 */

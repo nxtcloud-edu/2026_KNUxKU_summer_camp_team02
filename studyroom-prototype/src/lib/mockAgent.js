@@ -35,7 +35,7 @@ export function nextAnimationState(seat, current) {
  * 장난스러운 쪽이 자주 움직이고 차분한 쪽이 덜 움직인다.
  */
 export function stateInterval(seat) {
-  const base = { T1: 26000, T2: 14000, T3: 20000, T4: 22000 }[seat.tone] || 20000
+  const base = { T1: 13000, T2: 7000, T3: 10000, T4: 11000 }[seat.tone] || 10000
   return base + Math.random() * base * 0.6
 }
 
