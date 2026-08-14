@@ -65,14 +65,24 @@ const get = async (p) => {
 
 /* ══ 1. 이름에 공백·한글이 든 파일 ═══════════════════════ */
 {
-  // 이 폴더 이름에 공백이 있다. 그래서 이게 이 검사의 핵심이다
+  // 이 폴더 이름에 공백이 있다. 그래서 이게 이 검사의 핵심이다.
+  // 하위 폴더(alongside 상점 파일-세븐틴/)까지 훑는다 — **공백이 두 겹**이라 더 까다롭다
   const dir = join(DIST, 'alongside 상점')
-  const imgs = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.png')) : []
+  const walk = (d, prefix = '') =>
+    existsSync(d)
+      ? readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+          e.isDirectory() ? walk(join(d, e.name), `${prefix}${e.name}/`) : e.name.endsWith('.png') ? [prefix + e.name] : [],
+        )
+      : []
+  const imgs = walk(dir)
   ok('상점 이미지가 빌드에 들어 있다', imgs.length > 0, `${imgs.length}개`)
+  ok('하위 폴더 이미지도 있다 (공백 두 겹)', imgs.some((f) => f.includes('/')), imgs.slice(0, 2).join(', '))
 
-  for (const f of imgs.slice(0, 3)) {
+  // 평평한 것 하나 + 하위 폴더 하나는 반드시 확인한다
+  const 표본 = [imgs.find((f) => !f.includes('/')), ...imgs.filter((f) => f.includes('/')).slice(0, 2)].filter(Boolean)
+  for (const f of 표본) {
     const r = await get(`/alongside 상점/${f}`)
-    ok(`"${f}" 가 이미지로 나간다`, r.type.startsWith('image/'), `${r.status} ${r.type} ${r.size}B`)
+    ok(`"${f.slice(-24)}" 가 이미지로 나간다`, r.type.startsWith('image/'), `${r.status} ${r.type} ${r.size}B`)
     // index.html 은 1KB 안팎이다. 이미지가 그 크기면 폴백이 나간 것이다
     ok(`  ↳ 내용이 index.html 이 아니다`, !r.buf.slice(0, 200).includes('<!doctype'), `${r.size}B`)
   }
