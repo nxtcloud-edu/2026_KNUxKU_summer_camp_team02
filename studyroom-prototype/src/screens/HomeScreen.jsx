@@ -1,27 +1,35 @@
 /**
- * 홈 화면 — 통합 설계서 §6-1 (손그림 ex_04 기반 최소 정의)
- *
- * 레이아웃 (§6-1 손그림)
- *   ┌ 주간 스트립 ─────────────┬ 할일 [TBD] ┐
- *   ├ 통계 ───────────────────┼ 캐릭터 인사 ┤
- *
- * 모션 존 A (§4-4) — 홈은 배경 블롭 float 허용. 그레인·카드 기울임은 반입 목록에서 제외됐다.
- * 축 B (§1-3) — 홈은 숫자와 그래프를 본격적으로 보여주는 화면이다.
- *   다만 순위·상위 %는 엔딩 2단계 전용이라 여기서는 절대 노출하지 않는다.
+ * 홈 화면 v1 — UI 수정 실험본
  */
 
-import { useMemo, useState } from 'react'
-import { Settings, Play, Flame, Clock3, CalendarRange, ListTodo, Circle, Sparkles } from 'lucide-react'
+import { useMemo, useState, useCallback } from 'react'
+import {
+  Settings,
+  Play,
+  Flame,
+  Clock3,
+  CalendarRange,
+  ListTodo,
+  Circle,
+  CheckCircle2,
+  X,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  Send,
+  Download,
+  ShoppingBag,
+} from 'lucide-react'
+import ShopPage, { SECTIONS as SHOP_SECTIONS } from './ShopPage'
 import { useStore } from '../store/useStore'
 import { db, todayKey, weekStart, daysAgoKey } from '../store/db'
 import { fmtShort } from '../lib/metrics'
 import { Button, CharacterSprite } from '../components/ui'
 
-/* ── 지역 헬퍼 (§ 새 의존 파일을 만들지 않는다) ───────────────── */
+/* ── 지역 헬퍼 ───────────────────────────────────────────── */
 
 const WEEKDAY = ['월', '화', '수', '목', '금', '토', '일']
 
-/** 'YYYY-MM-DD' → Date */
 function parseKey(key) {
   const [y, m, d] = key.split('-').map(Number)
   return new Date(y, m - 1, d)
@@ -32,7 +40,11 @@ const dayLabel = (key) => {
   return `${d.getMonth() + 1}월 ${d.getDate()}일`
 }
 
-/** 이번 주 월~일 7일 (§5-3 주는 월요일 시작) */
+const shortLabel = (key) => {
+  const d = parseKey(key)
+  return `${d.getMonth() + 1}/${d.getDate()}`
+}
+
 function weekKeys() {
   const start = weekStart()
   return Array.from({ length: 7 }, (_, i) => {
@@ -42,13 +54,15 @@ function weekKeys() {
   })
 }
 
-/** 최근 7일 (오래된 → 최신) — 점수 추이 그래프용 */
 const recent7Keys = () => Array.from({ length: 7 }, (_, i) => daysAgoKey(6 - i))
 
-/**
- * 메시지 한 건이 몇 번 자리에서 나온 것인지 추정한다.
- * 스터디룸의 메시지 스키마가 아직 한 가지로 굳지 않아 후보 필드를 모두 살핀다 (§9-2 message).
- */
+function toDateKey(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 function slotOfMessage(m, seats) {
   const raw = m.slotNo ?? m.slot ?? m.seatNo ?? m.seat
   if (typeof raw === 'number') return raw
@@ -60,7 +74,6 @@ function slotOfMessage(m, seats) {
   return null
 }
 
-/** §6-1 [판단] 표시 캐릭터 = 최근 세션에서 가장 많이 상호작용한 자리, 없으면 1번 */
 function pickGreeter(seats, lastSessionId) {
   const enabled = seats.filter((s) => s.enabled)
   const fallback =
@@ -84,9 +97,6 @@ function pickGreeter(seats, lastSessionId) {
   return best || fallback
 }
 
-/**
- * 인사 한 줄 — 캐릭터는 평가자가 아니라 동료의 말투로 말한다 (§1-3 톤 관리)
- */
 function greetingLine(seat, { todaySec, streak }) {
   const key = seat?.preset || 'mina'
   if (todaySec >= 600) {
@@ -110,10 +120,35 @@ function greetingLine(seat, { todaySec, streak }) {
   }[key]
 }
 
+/* ── 학습 계획 로컬 스토리지 헬퍼 ─────────────────────────── */
+
+function loadPlans() {
+  try {
+    return JSON.parse(localStorage.getItem('studyPlans') || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function savePlans(plans) {
+  localStorage.setItem('studyPlans', JSON.stringify(plans))
+}
+
+function loadCompleted() {
+  try {
+    return JSON.parse(localStorage.getItem('studyPlansCompleted') || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function saveCompleted(completed) {
+  localStorage.setItem('studyPlansCompleted', JSON.stringify(completed))
+}
+
 /* ── 화면 ─────────────────────────────────────────────────── */
 
 export default function HomeScreen() {
-  // 셀렉터는 필드 단위로 하나씩 구독한다 (객체를 새로 만들면 무한 렌더)
   const go = useStore((s) => s.go)
   const openSettings = useStore((s) => s.openSettings)
   const seats = useStore((s) => s.seats)
@@ -121,15 +156,17 @@ export default function HomeScreen() {
 
   const today = todayKey()
   const [selected, setSelected] = useState(today)
+  const [plans, setPlans] = useState(loadPlans)
+  const [completed, setCompleted] = useState(loadCompleted)
+  const [shopCategory, setShopCategory] = useState(null) // null | 'newCollab' | 'twoDCollab' | 'alongside'
+  const [showPlanPopup, setShowPlanPopup] = useState(false)
 
-  // db.init()은 스토어가 이미 호출했다. 여기서는 읽기만 한다 (§9)
   const data = useMemo(() => {
     const stats = db.getDailyStats()
     const byDate = new Map(stats.map((r) => [r.date, r]))
     const todaySec = db.todayTotalSec()
     const week = weekKeys()
 
-    // 이번 주 합계 — 오늘은 진행 중 세션을 포함한 todayTotalSec을 쓴다 (§8-1)
     const weekSec = week.reduce((sum, k) => {
       if (k > today) return sum
       if (k === today) return sum + todaySec
@@ -141,7 +178,7 @@ export default function HomeScreen() {
       week,
       todaySec,
       weekSec,
-      streak: db.streakDays(), // 하루 10분 이상 (§8-4)
+      streak: db.streakDays(),
       trend: recent7Keys().map((k) => ({
         key: k,
         weekday: WEEKDAY[(parseKey(k).getDay() + 6) % 7],
@@ -158,9 +195,34 @@ export default function HomeScreen() {
   const selectedIsToday = selected === today
   const selectedSec = selectedIsToday ? data.todaySec : selectedRow?.total_study_sec || 0
 
+  const updatePlans = useCallback((newPlans) => {
+    setPlans(newPlans)
+    savePlans(newPlans)
+  }, [])
+
+  const updateCompleted = useCallback((newCompleted) => {
+    setCompleted(newCompleted)
+    saveCompleted(newCompleted)
+  }, [])
+
+  const toggleComplete = (idx) => {
+    const key = today
+    const current = completed[key] || []
+    const next = current.includes(idx) ? current.filter((i) => i !== idx) : [...current, idx]
+    updateCompleted({ ...completed, [key]: next })
+  }
+
+  const selectedPlans = plans[selected] || []
+  const selectedCompleted = completed[selected] || []
+
+  // 상점 카테고리 페이지 (홈에서 카테고리 카드 클릭 시)
+  if (shopCategory !== null) {
+    return <ShopPage onBack={() => setShopCategory(null)} category={shopCategory} />
+  }
+
   return (
     <div className="relative min-h-full overflow-hidden bg-warm">
-      {/* 존 A 배경 블롭 2개 — 홈·엔딩만 허용 (§4-4) */}
+      {/* 존 A 배경 블롭 2개 */}
       <div
         className="blob bg-sage"
         style={{ width: 520, height: 520, top: -190, left: -140 }}
@@ -173,12 +235,11 @@ export default function HomeScreen() {
       />
 
       <div className="relative mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-10 pb-16 pt-10">
-        {/* ── 상단 헤더 ─────────────────────────────────── */}
-        {/* 기조의 nav처럼 떠 있는 유리 pill (§4-4) */}
+        {/* ── 상단 헤더 ── */}
         <header className="glass glass-spec enter-up mb-10 flex items-center justify-between rounded-full py-4 pl-8 pr-4">
           <div className="flex items-baseline gap-3">
             <span className="h-6 w-6 shrink-0 self-center rounded-full bg-coral" aria-hidden="true" />
-            <h1 className="t-section">AI 스터디룸</h1>
+            <h1 className="t-section"><span className="text-coral opacity-[.82] font-bold">Al</span>ongside</h1>
             <p className="t-help">
               {dayLabel(today)} {WEEKDAY[(parseKey(today).getDay() + 6) % 7]}요일 · 혼자 공부하지만 혼자가
               아닌 시간
@@ -189,7 +250,6 @@ export default function HomeScreen() {
             <Button variant="secondary" onClick={() => openSettings('me')}>
               <Settings size={18} /> 설정
             </Button>
-            {/* 가장 눈에 띄는 진입 CTA (§6-1) — 홈 → 대기 화면 (§3-2) */}
             <Button
               variant="primary"
               onClick={() => go('lobby')}
@@ -207,8 +267,15 @@ export default function HomeScreen() {
           </div>
         </header>
 
-        {/* ── 1행: 주간 스트립 + 할일 ────────────────────── */}
+        {/* ── 1행: 할일 + 주간 스트립 ── */}
         <div className="mt-8 flex flex-col lg:flex-row items-stretch gap-6">
+          <TodoCard
+            selected={selected}
+            today={today}
+            selectedPlans={selectedPlans}
+            selectedCompleted={selectedCompleted}
+            onToggle={toggleComplete}
+          />
           <WeekStrip
             days={data.week}
             today={today}
@@ -216,12 +283,14 @@ export default function HomeScreen() {
             onSelect={setSelected}
             byDate={data.byDate}
             todaySec={data.todaySec}
+            plans={plans}
+            completed={completed}
+            onOpenPlan={() => setShowPlanPopup(true)}
           />
-          <TodoCard />
         </div>
 
-        {/* ── 2행: 통계 + 캐릭터 인사 ────────────────────── */}
-        <div className="mt-6 flex flex-col lg:flex-row items-stretch gap-6">
+        {/* ── 2행: 통계 (2/3 너비) + 상점 카드 (1/3 너비) ── */}
+        <div className="relative z-0 mt-6 flex flex-col lg:flex-row items-stretch gap-6">
           <StatsCard
             selected={selected}
             selectedIsToday={selectedIsToday}
@@ -231,23 +300,241 @@ export default function HomeScreen() {
             streak={data.streak}
             trend={data.trend}
           />
-          <GreetingCard seat={greeter} line={greeting} onStart={() => go('lobby')} />
+          <ShopCard onGoCategory={(key) => setShopCategory(key)} />
+        </div>
+
+        {/* ── 하단 인사 텍스트 ── */}
+        {greeter && (
+          <p className="t-help mt-10 text-center">
+            {greeter.name}: &ldquo;{greeting}&rdquo;
+          </p>
+        )}
+      </div>
+
+      {/* PlanPopup을 최상위에서 렌더 — z-index 문제 근본 해결 */}
+      {showPlanPopup && (
+        <PlanPopup onClose={() => setShowPlanPopup(false)} plans={plans} completed={completed} onUpdatePlans={updatePlans} />
+      )}
+    </div>
+  )
+}
+
+/* ── 학습 계획 팝업 (수정사항 1: 하단 잘림 수정 — overflow visible, 패딩 확보) ── */
+
+function PlanPopup({ onClose, plans, completed, onUpdatePlans }) {
+  const now = new Date()
+  const [viewYear, setViewYear] = useState(now.getFullYear())
+  const [viewMonth, setViewMonth] = useState(now.getMonth())
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [draft, setDraft] = useState('')
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const firstDayOfWeek = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7
+
+  const prevMonth = () => {
+    if (viewMonth === 0) {
+      setViewYear(viewYear - 1)
+      setViewMonth(11)
+    } else setViewMonth(viewMonth - 1)
+  }
+  const nextMonth = () => {
+    if (viewMonth === 11) {
+      setViewYear(viewYear + 1)
+      setViewMonth(0)
+    } else setViewMonth(viewMonth + 1)
+  }
+
+  const dateKey = selectedDate ? toDateKey(new Date(viewYear, viewMonth, selectedDate)) : null
+  const currentPlans = dateKey ? plans[dateKey] || [] : []
+
+  const addPlan = () => {
+    if (!draft.trim() || !dateKey) return
+    const updated = { ...plans, [dateKey]: [...currentPlans, draft.trim()] }
+    onUpdatePlans(updated)
+    setDraft('')
+  }
+
+  const removePlan = (idx) => {
+    if (!dateKey) return
+    const arr = [...currentPlans]
+    arr.splice(idx, 1)
+    const updated = { ...plans, [dateKey]: arr }
+    onUpdatePlans(updated)
+  }
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center" onClick={onClose}>
+      {/* 수정사항 1: pb-10으로 하단 여유 확보, overflow-hidden 제거 */}
+      <div
+        className="relative flex w-full max-w-[860px] flex-col rounded-lg border border-hairline bg-surface p-8 pb-10 shadow-soft"
+        style={{ height: 560 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* X 버튼 */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 rounded-full p-1 transition-colors duration-300 hover:bg-[var(--hover-bg)]"
+          aria-label="닫기"
+        >
+          <X size={20} />
+        </button>
+
+        <h2 className="t-section mb-6">이번 달 학습 계획</h2>
+
+        <div className="flex flex-1 min-h-0 gap-6">
+          {/* 달력 */}
+          <div className={`${selectedDate ? 'w-full lg:w-[380px]' : 'w-full'} transition-all duration-300`}>
+            <div className="mb-4 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={prevMonth}
+                className="rounded-full p-1 hover:bg-[var(--hover-bg)]"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <span className="t-item font-semibold">
+                {viewYear}년 {viewMonth + 1}월
+              </span>
+              <button
+                type="button"
+                onClick={nextMonth}
+                className="rounded-full p-1 hover:bg-[var(--hover-bg)]"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-7 gap-1 mb-2">
+              {WEEKDAY.map((w) => (
+                <div key={w} className="t-caption text-center py-1">
+                  {w}
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-2">
+              {Array.from({ length: firstDayOfWeek }, (_, i) => (
+                <div key={`empty-${i}`} />
+              ))}
+              {Array.from({ length: daysInMonth }, (_, i) => {
+                const day = i + 1
+                const key = toDateKey(new Date(viewYear, viewMonth, day))
+                const hasPlan = (plans[key] || []).length > 0
+                const isSelected = selectedDate === day
+                const dateObj = new Date(viewYear, viewMonth, day)
+                const today = new Date()
+                today.setHours(0, 0, 0, 0)
+                const isPast = dateObj < today
+                const dayPlans = plans[key] || []
+                const dayCompleted = completed[key] || []
+                const allDone = dayPlans.length > 0 && dayPlans.every((_, idx) => dayCompleted.includes(idx))
+
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    disabled={isPast}
+                    onClick={() => setSelectedDate(day)}
+                    className={[
+                      'relative flex h-10 w-full items-center justify-center rounded-md text-sm transition-colors duration-200',
+                      isPast ? 'opacity-40 cursor-not-allowed' : '',
+                      isSelected
+                        ? 'bg-coral font-bold text-ink'
+                        : hasPlan
+                          ? 'bg-sage/50 hover:bg-sage'
+                          : !isPast ? 'hover:bg-[var(--hover-bg)]' : '',
+                    ].join(' ')}
+                  >
+                    {day}
+                    {allDone && (
+                      <span className="absolute top-0.5 right-1 text-[10px] text-green-500 font-bold">✓</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* 계획 작성 패널 */}
+          {selectedDate && (
+            <div className="flex flex-1 flex-col border-l border-hairline pl-6 min-h-0">
+              <h3 className="t-item font-semibold mb-3">
+                {viewMonth + 1}월 {selectedDate}일 학습 계획
+              </h3>
+
+              <div className="flex-1 overflow-y-auto min-h-0">
+                {currentPlans.length > 0 ? (
+                  <ul className="flex flex-col gap-2">
+                    {currentPlans.map((p, idx) => (
+                      <li
+                        key={idx}
+                        className="flex items-center gap-2 rounded-sm bg-[var(--hover-bg)] px-3 py-2"
+                      >
+                        <span className="t-body flex-1">{p}</span>
+                        <button
+                          type="button"
+                          onClick={() => removePlan(idx)}
+                          className="text-muted hover:text-danger transition-colors"
+                          aria-label="삭제"
+                        >
+                          <X size={14} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="t-help">아직 작성한 계획이 없어요.</p>
+                )}
+              </div>
+
+              {/* 입력창 하단 고정 */}
+              <div className="flex gap-2 items-center mt-3 pt-3 border-t border-hairline shrink-0">
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addPlan()
+                    }
+                  }}
+                  placeholder="학습 계획을 입력하세요"
+                  className="flex-1 rounded-md border border-hairline bg-white px-3 py-1.5 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={addPlan}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-hairline bg-coral transition-colors hover:bg-coral/80"
+                  aria-label="추가"
+                >
+                  <Send size={13} className="text-ink" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-/* ── 주간 스트립 (§6-1) ────────────────────────────────────
-   오늘은 코랄 강조 + 굵게. 선택은 테두리와 밑줄 막대로도 표시한다.
-   상태를 색만으로 구분하지 않는다 (§4-6). */
-function WeekStrip({ days, today, selected, onSelect, byDate, todaySec }) {
+/* ── 주간 스트립 ──────────────────────────────────────────── */
+
+function WeekStrip({ days, today, selected, onSelect, byDate, todaySec, plans, completed, onOpenPlan }) {
   return (
     <section className="enter-up d1 flex-1 rounded-lg border border-hairline bg-surface p-7 shadow-soft">
       <div className="mb-5 flex items-center gap-2">
         <CalendarRange size={18} className="text-subtle" aria-hidden="true" />
         <h2 className="t-section">이번 주</h2>
         <span className="t-help ml-2">날짜를 누르면 아래 통계가 그날 기록으로 바뀝니다</span>
+        <button
+          type="button"
+          onClick={onOpenPlan}
+          className="ml-auto rounded-full border border-hairline px-3 py-1 t-caption transition-colors duration-300 hover:bg-[var(--hover-bg)]"
+        >
+          학습 계획
+        </button>
       </div>
 
       <div className="flex items-start justify-between gap-3">
@@ -257,8 +544,11 @@ function WeekStrip({ days, today, selected, onSelect, byDate, todaySec }) {
           const isToday = key === today
           const isFuture = key > today
           const isSelected = key === selected
-          const sec = isToday ? todaySec : byDate.get(key)?.total_study_sec || 0
-          const studied = sec > 0
+
+          const dayPlans = plans[key] || []
+          const dayCompleted = completed[key] || []
+          const hasPlan = dayPlans.length > 0
+          const allDone = hasPlan && dayPlans.every((_, idx) => dayCompleted.includes(idx))
 
           return (
             <div key={key} className="flex flex-1 flex-col items-center gap-2">
@@ -269,41 +559,34 @@ function WeekStrip({ days, today, selected, onSelect, byDate, todaySec }) {
                 disabled={isFuture}
                 aria-pressed={isSelected}
                 aria-current={isToday ? 'date' : undefined}
-                aria-label={[
-                  `${dayLabel(key)} ${weekday}요일`,
-                  isToday ? '오늘' : '',
-                  isFuture ? '아직 오지 않은 날' : studied ? `학습 ${fmtShort(sec)}` : '학습 기록 없음',
-                ]
-                  .filter(Boolean)
-                  .join(', ')}
                 onClick={() => onSelect(key)}
                 className={[
                   'flex h-[58px] w-[58px] items-center justify-center rounded-full border transition-all duration-300 ease-soft',
                   isFuture
                     ? 'cursor-not-allowed border-hairline bg-white text-muted opacity-55'
                     : 'hover:shadow-soft',
-                  isToday
-                    ? 'border-[var(--text-dark)] bg-coral font-bold text-ink'
-                    : isSelected
-                      ? 'border-[var(--text-strong)] bg-peach font-semibold text-ink'
-                      : !isFuture
-                        ? 'border-hairline bg-white text-subtle hover:bg-[var(--hover-bg)]'
-                        : '',
+                  allDone
+                    ? 'border-green-500 bg-green-100 font-bold text-ink'
+                    : isToday
+                      ? 'border-[var(--text-dark)] bg-coral font-bold text-ink'
+                      : isSelected
+                        ? 'border-[var(--text-strong)] bg-peach font-semibold text-ink'
+                        : !isFuture
+                          ? 'border-hairline bg-white text-subtle hover:bg-[var(--hover-bg)]'
+                          : '',
                 ].join(' ')}
               >
                 <span className="tnum text-[17px]">{d.getDate()}</span>
               </button>
 
-              {/* 학습 여부 점 — 채움/비움 모양으로도 구분된다 (§4-6) */}
-              <span
-                aria-hidden="true"
-                className={[
-                  'h-[7px] w-[7px] rounded-full',
-                  studied ? 'bg-chart-focus' : 'border border-hairline bg-transparent',
-                ].join(' ')}
-              />
+              {hasPlan ? (
+                <span className="t-caption text-center truncate max-w-[70px]" title={dayPlans.join(', ')}>
+                  {dayPlans.length}개 계획
+                </span>
+              ) : (
+                <span className="t-caption">—</span>
+              )}
 
-              {/* 선택 표시 — 색 외 신호 */}
               <span
                 aria-hidden="true"
                 className={[
@@ -311,7 +594,6 @@ function WeekStrip({ days, today, selected, onSelect, byDate, todaySec }) {
                   isSelected ? 'bg-[var(--text-strong)]' : 'bg-transparent',
                 ].join(' ')}
               />
-              <span className="t-caption">{isToday ? '오늘' : studied ? fmtShort(sec) : '—'}</span>
             </div>
           )
         })}
@@ -320,40 +602,71 @@ function WeekStrip({ days, today, selected, onSelect, byDate, todaySec }) {
   )
 }
 
-/* ── 할일 [TBD] (§6-1 · §13-1) ────────────────────────────
-   데이터 모델과 편집 UI가 미정이라 프로토타입에서는 정적 목록만 둔다. */
-function TodoCard() {
-  const items = ['알고리즘 문제 3개 풀기', '어제 정리한 노트 다시 읽기', '내일 퀴즈 범위 훑어보기']
+/* ── 할일 카드 (수정사항 2: 3개 초과 시 스크롤) ──────────────── */
+
+function TodoCard({ selected, today, selectedPlans, selectedCompleted, onToggle }) {
+  const isToday = selected === today
 
   return (
-    <section className="enter-up d2 w-full lg:w-[380px] rounded-lg border border-hairline bg-surface p-7 shadow-soft">
+    <section className="enter-up d2 flex w-full lg:w-[380px] flex-col rounded-lg border border-hairline bg-surface p-7 shadow-soft">
       <div className="mb-4 flex items-center gap-2">
         <ListTodo size={18} className="text-subtle" aria-hidden="true" />
-        <h2 className="t-section">오늘의 할일</h2>
-        <span className="t-caption ml-auto rounded-full bg-[var(--hover-bg)] px-2.5 py-1">TBD</span>
+        <h2 className="t-section">{isToday ? '오늘의 할일' : `${shortLabel(selected)}의 계획`}</h2>
       </div>
 
-      <ul className="flex flex-col gap-2.5">
-        {items.map((t) => (
-          <li key={t} className="flex items-center gap-2.5 rounded-sm bg-[var(--hover-bg)] px-4 py-3">
-            <Circle size={15} className="shrink-0 text-muted" aria-hidden="true" />
-            <span className="t-body">{t}</span>
-          </li>
-        ))}
-      </ul>
-
-      <p className="t-help mt-4 border-t border-hairline pt-4">
-        할일 편집은 준비 중이에요. 지금은 예시 목록만 보여줍니다.
-      </p>
+      {selectedPlans.length > 0 ? (
+        /* 수정사항 2: max-h로 3개까지만 보이고 초과 시 스크롤 */
+        <ul className="flex flex-col gap-2.5 overflow-y-auto" style={{ maxHeight: 168 }}>
+          {selectedPlans.map((item, idx) => {
+            const done = selectedCompleted.includes(idx)
+            return (
+              <li
+                key={idx}
+                className="flex items-center gap-2.5 rounded-sm bg-[var(--hover-bg)] px-4 py-3 shrink-0"
+              >
+                {isToday ? (
+                  <button
+                    type="button"
+                    onClick={() => onToggle(idx)}
+                    className="shrink-0"
+                    aria-label={done ? '완료 취소' : '완료 처리'}
+                  >
+                    {done ? (
+                      <CheckCircle2 size={18} className="text-green-500" />
+                    ) : (
+                      <Circle size={18} className="text-muted" />
+                    )}
+                  </button>
+                ) : (
+                  <span className="shrink-0">
+                    <Circle size={18} className="text-muted opacity-40" />
+                  </span>
+                )}
+                <span className={`t-body ${isToday && done ? 'line-through text-muted' : ''}`}>{item}</span>
+              </li>
+            )
+          })}
+        </ul>
+      ) : (
+        <p className="t-help">
+          {isToday
+            ? '아직 오늘의 학습 계획이 없어요. 이번 주 \u2018학습 계획\u2019 버튼에서 계획을 추가해보세요.'
+            : '이 날의 학습 계획이 없어요.'}
+        </p>
+      )}
     </section>
   )
 }
 
-/* ── 통계 (§6-1 · §8) ─────────────────────────────────────
-   오늘 학습 시간 · 이번 주 합계 · 연속 학습일 · 최근 7일 점수 추이 */
+/* ── 통계 (수정사항 3: 너비 2/3) ──────────────────────────── */
+
 function StatsCard({ selected, selectedIsToday, selectedSec, selectedScore, weekSec, streak, trend }) {
+  const [reviewPopup, setReviewPopup] = useState(null)
+
   return (
-    <section className="enter-up d3 flex-1 rounded-lg border border-hairline bg-surface p-7 shadow-soft">
+    <section
+      className="enter-up d3 rounded-lg border border-hairline bg-surface p-7 shadow-soft relative w-full lg:w-[70%]"
+    >
       <div className="mb-5 flex items-center gap-2">
         <Clock3 size={18} className="text-subtle" aria-hidden="true" />
         <h2 className="t-section">통계</h2>
@@ -375,17 +688,132 @@ function StatsCard({ selected, selectedIsToday, selectedSec, selectedScore, week
         />
       </div>
 
-      <h3 className="t-item mt-8 mb-1">최근 7일 점수 추이</h3>
-      <p className="t-help mb-2">선택한 날은 진하게 표시됩니다. 기록이 없는 날은 막대가 비어 있습니다.</p>
-      <TrendChart trend={trend} selected={selected} />
+      {/* "더 공부하기" 항목 */}
+      <h3 className="t-item mt-8 mb-1 flex items-center gap-2">
+        <BookOpen size={16} className="text-subtle" />더 공부하기
+      </h3>
+      <p className="t-help mb-3">지난 일주일의 학습 기록을 카드로 확인할 수 있어요.</p>
 
-      {/* 그래프를 볼 수 없는 경우를 위한 텍스트 대체 (§11) */}
-      <ul className="sr-only">
-        {trend.map((t) => (
-          <li key={t.key}>{`${dayLabel(t.key)} ${t.score != null ? `${t.score}점` : '기록 없음'}`}</li>
-        ))}
-      </ul>
+      <div className="grid grid-cols-4 gap-3">
+        {trend
+          .slice()
+          .reverse()
+          .slice(0, 7)
+          .map((t, idx) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setReviewPopup(t)}
+              className="rounded-md border border-hairline bg-[var(--hover-bg)] px-3 py-3 text-left transition-colors duration-200 hover:bg-white hover:shadow-soft"
+            >
+              <div className="t-caption">{dayLabel(t.key)}</div>
+              <div className="t-item mt-1">
+                {t.weekday}
+                {idx === 0 ? ' (오늘)' : ''}
+              </div>
+            </button>
+          ))}
+      </div>
+
+      {reviewPopup && <ReviewPopup item={reviewPopup} onClose={() => setReviewPopup(null)} />}
     </section>
+  )
+}
+
+/* ── 상점 카드 (캐릭터 미리보기 포함) ─────────────────────── */
+
+function ShopCard({ onGoCategory }) {
+  return (
+    <section
+      className="enter-up d4 flex flex-col rounded-lg border border-hairline bg-surface p-7 shadow-soft w-full lg:w-[30%]"
+    >
+      <div className="mb-4 flex items-center gap-2">
+        <ShoppingBag size={18} className="text-subtle" aria-hidden="true" />
+        <h2 className="t-section">상점</h2>
+      </div>
+
+      {/* 세 칸: 각 칸이 카테고리 하나. 실선이 카드 양끝에 닿지 않음 */}
+      <div className="flex flex-1 flex-col">
+        {SHOP_SECTIONS.map((section, idx) => (
+          <div key={section.key} className="flex flex-1 flex-col">
+            {idx > 0 && <div className="mx-4 border-t border-hairline" />}
+            <button
+              type="button"
+              disabled={section.disabled}
+              onClick={() => !section.disabled && onGoCategory(section.key)}
+              className={[
+                'flex flex-1 items-center px-3 py-2 rounded-md transition-colors',
+                section.disabled
+                  ? 'cursor-not-allowed opacity-55'
+                  : 'hover:bg-[var(--hover-bg)]',
+              ].join(' ')}
+            >
+              <div className="text-left min-w-0">
+                <div className="t-item truncate">{section.title}</div>
+                {section.subtitle && <div className="t-caption truncate">{section.subtitle}</div>}
+              </div>
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+/* ── 더 공부하기 팝업 ─────────────────────────────────────── */
+
+function ReviewPopup({ item, onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
+      <div
+        className="relative w-full max-w-[480px] rounded-lg border border-hairline bg-surface p-8 shadow-soft"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 rounded-full p-1 transition-colors duration-300 hover:bg-[var(--hover-bg)]"
+          aria-label="닫기"
+        >
+          <X size={20} />
+        </button>
+
+        <h2 className="t-section mb-2">
+          {dayLabel(item.key)} ({item.weekday}) 복습
+        </h2>
+
+        <div className="mt-4 rounded-sm border border-hairline bg-[var(--hover-bg)] px-5 py-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="t-item font-semibold">공부 종료 후 요약</h3>
+            <button
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white border border-hairline shadow-sm transition-colors hover:bg-[var(--hover-bg)]"
+              aria-label="PDF 다운로드"
+              title="PDF 다운로드"
+            >
+              <Download size={15} className="text-ink" />
+            </button>
+          </div>
+          {item.studySec > 0 ? (
+            <p className="t-body">이 날의 학습 요약 PDF를 다운로드할 수 있습니다.</p>
+          ) : (
+            <p className="t-help">이 날은 학습 기록이 없습니다.</p>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-sm border border-hairline bg-[var(--hover-bg)] px-5 py-4">
+          <h3 className="t-item font-semibold mb-2">심화 학습 포인트</h3>
+          {item.studySec > 0 ? (
+            <ul className="flex flex-col gap-1.5">
+              <li className="t-body">• 핵심 개념을 다시 정리해보세요.</li>
+              <li className="t-body">• 관련된 예제를 추가로 풀어보면 좋겠어요.</li>
+            </ul>
+          ) : (
+            <p className="t-help">학습 기록이 없어 심화 포인트를 제공할 수 없어요.</p>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -399,150 +827,5 @@ function Metric({ label, value, sub, icon }) {
       <div className="tnum mt-1 text-[28px] font-bold leading-9 text-strong">{value}</div>
       <div className="t-help mt-0.5">{sub}</div>
     </div>
-  )
-}
-
-/**
- * 인라인 SVG 막대 + 선 그래프.
- * 데이터 시각화 색은 UI 액션 색과 섞지 않는다 (§4-6) → --chart-focus / --chart-track 만 쓴다.
- */
-function TrendChart({ trend, selected }) {
-  const W = 660
-  const H = 190
-  const PAD_X = 10
-  const PAD_T = 26
-  const PAD_B = 34
-  const slot = (W - PAD_X * 2) / trend.length
-  const barW = 30
-  const plotH = H - PAD_T - PAD_B
-  const baseY = H - PAD_B
-
-  const pts = trend.map((t, i) => {
-    const cx = PAD_X + slot * i + slot / 2
-    const score = t.score ?? null
-    const h = score == null ? 0 : (Math.max(0, Math.min(100, score)) / 100) * plotH
-    return { ...t, cx, h, y: baseY - h }
-  })
-
-  const line = pts.filter((p) => p.score != null)
-
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="w-full"
-      role="img"
-      aria-label="최근 7일 집중 점수 추이 막대 그래프"
-      style={{ height: 190 }}
-    >
-      <title>최근 7일 집중 점수 추이</title>
-
-      {/* 기준선 */}
-      <line x1={PAD_X} y1={baseY} x2={W - PAD_X} y2={baseY} stroke="var(--chart-track)" strokeWidth="1.5" />
-
-      {pts.map((p) => {
-        const on = p.key === selected
-        return (
-          <g key={p.key}>
-            {/* 트랙 — 기록이 없어도 자리를 남긴다 */}
-            <rect
-              x={p.cx - barW / 2}
-              y={baseY - plotH}
-              width={barW}
-              height={plotH}
-              rx="8"
-              fill="var(--chart-track)"
-              opacity="0.45"
-            />
-            {p.score != null && (
-              <rect
-                x={p.cx - barW / 2}
-                y={p.y}
-                width={barW}
-                height={Math.max(3, p.h)}
-                rx="8"
-                fill="var(--chart-focus)"
-                opacity={on ? 1 : 0.42}
-              />
-            )}
-            {/* 값 라벨 — 색 없이도 읽히도록 (§4-6) */}
-            <text
-              x={p.cx}
-              y={p.score != null ? p.y - 9 : baseY - 9}
-              textAnchor="middle"
-              fontSize="12"
-              fontWeight={on ? 700 : 500}
-              fill={on ? 'var(--text-strong)' : 'var(--text-muted)'}
-            >
-              {p.score != null ? p.score : '—'}
-            </text>
-            {/* 요일 라벨 */}
-            <text
-              x={p.cx}
-              y={H - 12}
-              textAnchor="middle"
-              fontSize="12"
-              fontWeight={on ? 700 : 400}
-              fill={on ? 'var(--text-strong)' : 'var(--text-muted)'}
-            >
-              {p.weekday}
-            </text>
-          </g>
-        )
-      })}
-
-      {/* 추이 선 */}
-      {line.length > 1 && (
-        <polyline
-          points={line.map((p) => `${p.cx},${p.y}`).join(' ')}
-          fill="none"
-          stroke="var(--chart-focus)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      )}
-      {line.map((p) => (
-        <circle
-          key={`pt-${p.key}`}
-          cx={p.cx}
-          cy={p.y}
-          r={p.key === selected ? 5 : 3.5}
-          fill="var(--surface)"
-          stroke="var(--chart-focus)"
-          strokeWidth="2"
-        />
-      ))}
-    </svg>
-  )
-}
-
-/* ── 캐릭터 인사 (§6-1 [판단]) ────────────────────────────
-   평가자가 아니라 동료의 말투. 숫자를 앞세우지 않는다 (§1-3) */
-function GreetingCard({ seat, line, onStart }) {
-  if (!seat) return null
-
-  return (
-    <section className="enter-up d4 flex w-full lg:w-[380px] flex-col items-center rounded-lg border border-hairline bg-peach p-7 shadow-soft">
-      <div className="mb-1 flex items-center gap-1.5 self-start">
-        <Sparkles size={16} className="text-subtle" aria-hidden="true" />
-        <h2 className="t-section">{seat.name}</h2>
-      </div>
-      <p className="t-help mb-4 self-start">오늘 함께 공부할 스터디 메이트</p>
-
-      {/* 말풍선 */}
-      <div className="relative w-full rounded-lg border border-hairline bg-surface px-5 py-4">
-        <p className="t-body text-center">{line}</p>
-        <span
-          aria-hidden="true"
-          className="absolute -bottom-[7px] left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-b border-r border-hairline bg-surface"
-        />
-      </div>
-
-      <CharacterSprite imageKey={seat.imageKey} size={190} state="studying" className="mt-6" />
-
-      <Button variant="primary" className="mt-6 w-full" onClick={onStart}>
-        <Play size={17} /> 함께 스터디 시작
-      </Button>
-    </section>
   )
 }
