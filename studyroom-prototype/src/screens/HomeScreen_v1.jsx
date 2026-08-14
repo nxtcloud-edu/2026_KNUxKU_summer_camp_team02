@@ -240,7 +240,7 @@ export default function HomeScreen() {
         <header className="glass glass-spec enter-up mb-10 flex items-center justify-between rounded-full py-4 pl-8 pr-4">
           <div className="flex items-baseline gap-3">
             <span className="h-6 w-6 shrink-0 self-center rounded-full bg-coral" aria-hidden="true" />
-            <h1 className="t-section">AI 스터디룸</h1>
+            <h1 className="t-section"><span className="text-coral opacity-[.82] font-bold">Al</span>ongside</h1>
             <p className="t-help">
               {dayLabel(today)} {WEEKDAY[(parseKey(today).getDay() + 6) % 7]}요일 · 혼자 공부하지만 혼자가
               아닌 시간
@@ -314,7 +314,7 @@ export default function HomeScreen() {
 
       {/* PlanPopup을 최상위에서 렌더 — z-index 문제 근본 해결 */}
       {showPlanPopup && (
-        <PlanPopup onClose={() => setShowPlanPopup(false)} plans={plans} onUpdatePlans={updatePlans} />
+        <PlanPopup onClose={() => setShowPlanPopup(false)} plans={plans} completed={completed} onUpdatePlans={updatePlans} />
       )}
     </div>
   )
@@ -322,7 +322,7 @@ export default function HomeScreen() {
 
 /* ── 학습 계획 팝업 (수정사항 1: 하단 잘림 수정 — overflow visible, 패딩 확보) ── */
 
-function PlanPopup({ onClose, plans, onUpdatePlans }) {
+function PlanPopup({ onClose, plans, completed, onUpdatePlans }) {
   const now = new Date()
   const [viewYear, setViewYear] = useState(now.getFullYear())
   const [viewMonth, setViewMonth] = useState(now.getMonth())
@@ -423,6 +423,13 @@ function PlanPopup({ onClose, plans, onUpdatePlans }) {
                 const key = toDateKey(new Date(viewYear, viewMonth, day))
                 const hasPlan = (plans[key] || []).length > 0
                 const isSelected = selectedDate === day
+                const dateObj = new Date(viewYear, viewMonth, day)
+                const today = new Date()
+                today.setHours(0, 0, 0, 0)
+                const isPast = dateObj < today
+                const dayPlans = plans[key] || []
+                const dayCompleted = completed[key] || []
+                const allDone = dayPlans.length > 0 && dayPlans.every((_, idx) => dayCompleted.includes(idx))
 
                 return (
                   <button
@@ -430,7 +437,7 @@ function PlanPopup({ onClose, plans, onUpdatePlans }) {
                     type="button"
                     onClick={() => setSelectedDate(day)}
                     className={[
-                      'flex h-10 w-full items-center justify-center rounded-md text-sm transition-colors duration-200',
+                      'relative flex h-10 w-full items-center justify-center rounded-md text-sm transition-colors duration-200',
                       isSelected
                         ? 'bg-coral font-bold text-ink'
                         : hasPlan
@@ -439,6 +446,9 @@ function PlanPopup({ onClose, plans, onUpdatePlans }) {
                     ].join(' ')}
                   >
                     {day}
+                    {allDone && (
+                      <span className="absolute top-0.5 right-1 text-[10px] text-green-500 font-bold">✓</span>
+                    )}
                   </button>
                 )
               })}
@@ -446,7 +456,12 @@ function PlanPopup({ onClose, plans, onUpdatePlans }) {
           </div>
 
           {/* 계획 작성 패널 */}
-          {selectedDate && (
+          {selectedDate && (() => {
+            const selDateObj = new Date(viewYear, viewMonth, selectedDate)
+            const todayObj = new Date()
+            todayObj.setHours(0, 0, 0, 0)
+            const isSelectedPast = selDateObj < todayObj
+            return (
             <div className="flex flex-1 flex-col border-l border-hairline pl-6 min-h-0">
               <h3 className="t-item font-semibold mb-3">
                 {viewMonth + 1}월 {selectedDate}일 학습 계획
@@ -461,23 +476,26 @@ function PlanPopup({ onClose, plans, onUpdatePlans }) {
                         className="flex items-center gap-2 rounded-sm bg-[var(--hover-bg)] px-3 py-2"
                       >
                         <span className="t-body flex-1">{p}</span>
-                        <button
-                          type="button"
-                          onClick={() => removePlan(idx)}
-                          className="text-muted hover:text-danger transition-colors"
-                          aria-label="삭제"
-                        >
-                          <X size={14} />
-                        </button>
+                        {!isSelectedPast && (
+                          <button
+                            type="button"
+                            onClick={() => removePlan(idx)}
+                            className="text-muted hover:text-danger transition-colors"
+                            aria-label="삭제"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="t-help">아직 작성한 계획이 없어요.</p>
+                  <p className="t-help">{isSelectedPast ? '지난 날짜의 계획은 수정할 수 없어요.' : '아직 작성한 계획이 없어요.'}</p>
                 )}
               </div>
 
-              {/* 입력창 하단 고정 */}
+              {/* 입력창 하단 고정 — 지난 날짜에는 표시하지 않음 */}
+              {!isSelectedPast && (
               <div className="flex gap-2 items-center mt-3 pt-3 border-t border-hairline shrink-0">
                 <input
                   value={draft}
@@ -500,8 +518,10 @@ function PlanPopup({ onClose, plans, onUpdatePlans }) {
                   <Send size={13} className="text-ink" />
                 </button>
               </div>
+              )}
             </div>
-          )}
+            )
+          })()}
         </div>
       </div>
     </div>
@@ -639,7 +659,7 @@ function TodoCard({ selected, today, selectedPlans, selectedCompleted, onToggle 
       ) : (
         <p className="t-help">
           {isToday
-            ? '아직 오늘의 학습 계획이 없어요. 주간 스트립의 \u2018학습 계획\u2019 버튼에서 추가해보세요.'
+            ? '아직 오늘의 학습 계획이 없어요. 이번 주 \u2018학습 계획\u2019 버튼에서 계획을 추가해보세요.'
             : '이 날의 학습 계획이 없어요.'}
         </p>
       )}
