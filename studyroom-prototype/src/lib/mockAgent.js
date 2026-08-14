@@ -7,6 +7,8 @@
  */
 
 import { PRESETS, ANIMATION_STATES } from './presets'
+import { requestReply } from './agent/client'
+import { ownerSlot } from './agent/functions'
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
 
@@ -25,16 +27,21 @@ export function nextAnimationState(seat, current) {
   return ANIMATION_STATES.includes(next) ? next : 'studying'
 }
 
-/** 성격에 따라 상태를 바꾸는 주기(ms) */
+/**
+ * 자세를 바꾸는 주기(ms).
+ *
+ * 예전엔 "먼저 말 거는 정도" 축을 썼는데, 그 축은 페이스 케어와 지시가 겹쳐서 없앴다.
+ * 이건 발화가 아니라 **몸짓** 빈도라 말투로 정해도 어색하지 않다 —
+ * 장난스러운 쪽이 자주 움직이고 차분한 쪽이 덜 움직인다.
+ */
 export function stateInterval(seat) {
-  const base = { rare: 26000, when_needed: 20000, active: 14000 }[seat.proactivity] || 20000
+  const base = { T1: 26000, T2: 14000, T3: 20000, T4: 22000 }[seat.tone] || 20000
   return base + Math.random() * base * 0.6
 }
 
 /* ── 개입 판정 (§7-3) ─────────────────────────────────────── */
 
 const CAP = { quiet: 0, moderate: 1, lively: 2.2, auto: 1.4 }
-const WEIGHT = { rare: -1, when_needed: 0, active: 1 }
 
 /**
  * @returns {{allowed:boolean, reason?:string}}
@@ -67,95 +74,86 @@ function isQuietHour(dnd) {
   return from <= to ? cur >= from && cur < to : cur >= from || cur < to
 }
 
-/** 캐릭터별 가중치를 반영해 발화자를 고른다 */
-export function pickInterventionSpeaker(seats) {
+/**
+ * 이 기능을 맡은 캐릭터가 말한다.
+ *
+ * 예전에는 가중치 뽑기로 아무나 골랐다. 그러면 기능 배정이 화면에만 있는 장식이 된다 —
+ * "목표 추적은 테오가 맡는다"고 정해 놓고 정작 미나가 목표를 되묻는다.
+ *
+ * 맡은 캐릭터가 참여를 껐으면 다른 자리에 넘긴다. 기능이 조용히 사라지는 것보다는
+ * 다른 캐릭터가 대신 말하는 쪽이 낫다.
+ */
+export function pickInterventionSpeaker(seats, settings = null, funcId = null) {
   const active = seats.filter((s) => s.enabled)
   if (!active.length) return null
-  const pool = []
-  active.forEach((s) => {
-    const n = 3 + (WEIGHT[s.proactivity] ?? 0) * 2
-    for (let i = 0; i < Math.max(1, n); i++) pool.push(s)
-  })
-  return pick(pool)
+  if (funcId) {
+    const slot = ownerSlot(settings, funcId)
+    const owner = active.find((s) => s.slotNo === slot)
+    if (owner) return owner
+  }
+  return pick(active)
 }
 
-/* ── 개입 상황별 문구 ──────────────────────────────────────── */
+/*
+ * 개입 문구는 더 이상 여기 없다.
+ *
+ * 캐릭터별로 미리 써 둔 문장을 골라 쓰던 자리였다. 그래서 말투 설정이 개입 발화에는
+ * 전혀 먹지 않았고, 문구가 문서를 어겼다 — "어디 갔다 왔어! 기다렸잖아 ㅋㅋ" 는
+ * 페이스 케어의 '어디 갔었냐고 묻지 않는다'를 정면으로 어긴다.
+ * 이제 개입도 다른 발화와 같은 프롬프트 층을 지나간다 (agent/prompt.js 의 F4·F5).
+ * 설정 창 미리보기는 agent/tone.js 의 TONE_SAMPLE 을 쓴다.
+ */
 
-const LINES = {
-  idle: {
-    mina: ['잠깐 멈춰 있는 것 같은데, 어디서 막혔어요?', '지금까지 한 부분 한 번 정리해볼까요?'],
-    theo: ['오 잠깐 쉬는 중이야? 나도 물 마시고 올까 했는데!', '집중 끊겼으면 3분만 스트레칭하고 오자!'],
-    juno: ['음… 화면이 조용하네.', '막히면 아예 다른 각도로 보는 것도 방법이야.'],
-  },
-  away: {
-    mina: ['돌아왔네요. 어디까지 봤는지 짚어드릴까요?', '자리 비운 동안 흐름 안 끊기게 요약해둘게요.'],
-    theo: ['어디 갔다 왔어! 기다렸잖아 ㅋㅋ', '돌아온 김에 한 번 달려볼까?'],
-    juno: ['왔네.', '천천히 다시 시작하면 돼.'],
-  },
-  longStudy: {
-    mina: ['벌써 꽤 오래 하고 있어요. 물 한 잔 어때요?', '한 시간 반 넘었어요. 잠깐 눈 좀 쉬어요.'],
-    theo: ['우리 꽤 오래 공부했는데 잠깐 쉴래?', '집중력 떨어질 때 됐어. 10분만 쉬자!'],
-    juno: ['오래 앉아 있었네. 좀 일어나.', '이 정도면 한 번 끊어도 돼.'],
-  },
-  restOver: {
-    mina: ['슬슬 다시 시작해볼까요?', '쉬는 시간이 좀 길어졌어요.'],
-    theo: ['자자 이제 돌아오자! 나도 준비됐어', '휴식 끝! 가볍게 다시 시작해보자'],
-    juno: ['음, 슬슬…', '준비되면 시작하자. 안 급해.'],
-  },
-  stuck: {
-    mina: ['같은 부분을 계속 보고 있는 것 같아요. 제가 다르게 설명해볼까요?', '이 부분 단계별로 쪼개볼까요?'],
-    theo: ['그 부분 어려워? 나도 같이 봐줄게!', '혼자 붙잡고 있지 말고 물어봐!'],
-    juno: ['그거 그렇게 접근하면 오래 걸릴 텐데.', '다른 쪽에서 들어가보는 건 어때?'],
-  },
-  cheer: {
-    mina: ['지금 페이스 좋아요.', '차근차근 잘 가고 있어요.'],
-    theo: ['오늘 진짜 잘하고 있는데?!', '이대로만 가자!'],
-    juno: ['괜찮네.', '나쁘지 않아.'],
-  },
-}
+/**
+ * "@이름" 을 찾는 정규식.
+ *
+ * `\b` 를 쓰면 안 된다. `\b` 는 [A-Za-z0-9_] 기준이라 **한글 뒤에서는 경계가 성립하지 않는다.**
+ * "@미나 이거 뭐야" 가 /@미나\b/ 에 안 걸려서, 이름을 한글로 바꾸는 순간 @멘션이 통째로 죽었다.
+ *
+ * 대신 이름 뒤에 호격·접속 조사만 허용하고 그 밖의 글자는 막는다.
+ * "@미나야"·"@미나랑" 은 부르는 것이고 "@민아"·"@미나비" 는 다른 이름이다.
+ */
+const NAME_SUFFIX =
+  '(?:이야|이랑|한테|에게|하고|보고|더러|야|아|님|씨|랑|은|는|이|가|을|를|도|만|의|에|와|과)?'
 
-export function interventionLine(seat, kind) {
-  const bucket = LINES[kind] || LINES.cheer
-  return pick(bucket[seat.preset] || bucket.mina)
+export function mentionRe(name) {
+  return new RegExp(`@${escapeRe(name)}${NAME_SUFFIX}(?![가-힣A-Za-z0-9_])`, 'i')
 }
 
 /* ── 답변자 라우팅 (§10 규칙 11) ────────────────────────────
    우선순위: @멘션 > 답변 캐릭터 설정 > 자동 라우팅 */
 
-export function routeReply(text, seats, settings) {
+export function routeReply(text, seats, settings, funcId = null) {
   const active = seats.filter((s) => s.enabled)
   if (!active.length) return []
 
-  // 1) @멘션
-  const mentioned = active.filter((s) => new RegExp(`@${escapeRe(s.name)}\\b`, 'i').test(text))
+  /**
+   * 1) @멘션이 최우선.
+   *
+   * 부른 사람이 그 기능을 안 맡았어도 그 사람이 답한다 — 기능 블록만 빌려 쓴다.
+   * 이름을 불렀는데 다른 캐릭터가 답하면 신뢰가 깨진다.
+   */
+  const mentioned = active.filter((s) => mentionRe(s.name).test(text))
   if (mentioned.length) return mentioned.slice(0, maxRepliers(settings))
 
-  // 2) 주 담당 캐릭터
+  // 2) 이 기능을 맡은 캐릭터
+  if (funcId) {
+    const owner = active.find((s) => s.slotNo === ownerSlot(settings, funcId))
+    if (owner) return [owner]
+  }
+
+  // 3) 주 담당 캐릭터
   if (settings.replyPolicy === 'primary') {
     const primary = active.find((s) => s.slotNo === settings.primarySlotNo)
     if (primary) return [primary]
   }
 
-  // 3) 자동 라우팅 — Coordinator/Router Agent 자리 [1장 §17]
-  const scored = active.map((s) => ({ s, score: routeScore(text, s) }))
-  scored.sort((a, b) => b.score - a.score)
-  return scored.slice(0, maxRepliers(settings)).map((x) => x.s)
+  return [pick(active)]
 }
 
 function maxRepliers(settings) {
   if (settings.noSupplement) return 1
   return { one: 1, two: 2, many: 3 }[settings.multiReply] ?? 1
-}
-
-function routeScore(text, seat) {
-  let s = Math.random() * 2
-  const t = text.toLowerCase()
-  if (/왜|이유|원리|개념/.test(t) && seat.explainStyle === 'stepwise') s += 3
-  if (/예시|예를|사례/.test(t) && seat.explainStyle === 'example') s += 3
-  if (/간단|요약|짧게/.test(t) && seat.explainStyle === 'concise') s += 3
-  if (/쉽게|모르겠/.test(t) && seat.explainStyle === 'easy') s += 3
-  if (seat.traits.includes('활발함')) s += 0.6
-  return s
 }
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -174,11 +172,66 @@ const REST_REPLIES = {
 }
 
 /**
- * TODO(모델 API): 이 함수만 실제 LLM 호출로 교체하면 된다.
- *   const res = await fetch('/api/chat', { method:'POST', body: JSON.stringify({ seat, text, settings, history }) })
- *   return (await res.json()).text
+ * 모델 답변.
+ *
+ * 서버(/api/chat)를 부르고, 실패하면 아래 목업으로 떨어진다.
+ * 목업을 남겨두는 이유: 키가 없거나 한도에 걸려도 데모가 멈추면 안 되기 때문이다.
+ *
+ * @param {Array} [history]  [{role:'user'|'model', text}] 최근 대화
+ * @param {string} [summary] 압축해둔 앞부분
  */
-export async function generateReply({ seat, text, settings }) {
+export async function generateReply({
+  seat,
+  text,
+  settings,
+  history = [],
+  summary = '',
+  kind = 'reply',
+  images = [],
+  /**
+   * 올린 자료를 놓고 묻는 질문인가.
+   *
+   * 화면은 이 값을 넘기고 있었는데 여기서 받지 않아 **서버까지 가지 않았다.**
+   * 서버는 이 값으로 상위 모델(S1) 승급을 판단한다(chat.mjs 의 wantsPro).
+   * 그래서 자료를 읽는 것만 상위 모델로 가고, 정작 **그 자료에 대한 질문은
+   * 값싼 모델로 답하고 있었다.** 화면·서버 양쪽이 멀쩡해 보여서 눈에 띄지 않았다.
+   */
+  withDoc = false,
+  /** 어느 기능으로 답할 것인가. 라우터(agent/functions.js)가 정한다 */
+  funcId = 'F1',
+  /** 프롬프트의 [지금 상태] 블록에 들어갈 값 */
+  state = {},
+}) {
+  try {
+    const r = await requestReply({
+      seat,
+      settings,
+      turns: history,
+      message: text,
+      summary,
+      kind,
+      images,
+      withDoc,
+      funcId,
+      state,
+    })
+    if (r?.text) return { text: r.text, meta: r.meta }
+  } catch (e) {
+    console.warn('[agent] 서버 호출 실패 → 목업으로 대체', e.message)
+    lastError = e.message
+  }
+  return { text: await mockReply({ seat, text, settings }), meta: { mock: true } }
+}
+
+/** 마지막 실패 사유 — 화면에 한 번 알려주기 위해 보관한다 */
+let lastError = ''
+export const takeLastError = () => {
+  const e = lastError
+  lastError = ''
+  return e
+}
+
+async function mockReply({ seat, text, settings }) {
   await sleep(700 + Math.random() * 1300) // 타이핑 인디케이터가 보이도록
   const preset = PRESETS[seat.preset] || PRESETS.mina
   const n = LENGTH_HINT[settings.replyLength] ?? 2
@@ -205,7 +258,10 @@ export async function generateReply({ seat, text, settings }) {
     '노트에 한 줄로 적어두면 나중에 훨씬 빨라요.',
   ]
 
-  const parts = [pick(openers[preset.key]), bodies[seat.explainStyle] || bodies.stepwise]
+  const parts = [
+    pick(openers[preset.key]),
+    bodies[{ T1: 'stepwise', T2: 'example', T3: 'easy', T4: 'concise' }[seat.tone] || 'stepwise'],
+  ]
   for (let i = 2; i < n; i++) parts.push(pick(tails))
   return parts.join(' ')
 }

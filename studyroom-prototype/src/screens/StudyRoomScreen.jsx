@@ -19,14 +19,28 @@ import {
   stateInterval,
   canIntervene,
   pickInterventionSpeaker,
-  interventionLine,
   routeReply,
   generateReply,
-  makeQuiz,
-  judgeQuiz,
-  makeStudyPoint,
+  takeLastError,
 } from '../lib/mockAgent'
-import { sttSupported, ttsSupported, createRecognizer, speak, stopSpeaking } from '../lib/speech'
+import {
+  ttsSupported,
+  speakAndWait,
+  cancelAll as stopSpeaking,
+  isSpeaking,
+  ttsExcerpt,
+  recentSpoken,
+} from '../lib/ttsQueue'
+import { useListener, listenSupported } from '../lib/voice/useListener'
+import { screenUtterance, looksComplete, joinVoice, WHY_LABEL } from '../lib/voice/gate'
+import { requestSummary, requestReply } from '../lib/agent/client'
+import { useVision } from '../lib/vision/useVision'
+import { wakeChime } from '../lib/chime'
+import { planDocument, toPrompt, asInlineFile } from '../lib/docReader'
+import { rememberDocument, searchUserDocs, toUserDocContext } from '../lib/userDocs'
+import { routeFunction, resolveTiming } from '../lib/agent/functions'
+import { makeQuiz as generateQuiz } from '../lib/agent/quiz'
+import QuizPanel from '../components/QuizPanel'
 import { Button, IconBtn, Confirm, CharacterSprite } from '../components/ui'
 
 /* ── 지역 헬퍼 (새 의존 파일을 만들지 않는다) ─────────────────── */
@@ -35,10 +49,58 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const rid = () => Math.random().toString(36).slice(2, 10)
 const NAME_MAX = 12 // §7-2 이름 최대 12자
 const ENGINE_TICK_MS = 15000 // 개입 엔진 판정 주기
+/**
+ * 관찰자가 감지한 상황을 프롬프트가 읽는 한국어 라벨로.
+ *
+ * 페이스 케어 블록이 이 낱말을 그대로 보고 무슨 말을 할지 정한다.
+ * 영어 kind 를 그대로 넘기면 모델이 뜻을 추측해야 한다.
+ */
+const PACE_EVENT = {
+  away: '자리를 비웠다가 방금 돌아왔다',
+  idle: '한동안 아무 입력이 없다',
+  longStudy: '쉬지 않고 너무 오래 이어서 하고 있다',
+  restOver: '쉬는 시간이 예정보다 길어졌다',
+  drowsy: '고개가 자꾸 떨어진다. 졸고 있다',
+  phone: '휴대폰을 계속 보고 있다',
+}
+
 const QUIZ_AFTER_SEC = 20 * 60 // §7-5 세션 20분 경과 후
 const QUIZ_MAX = 3 // §7-5 세션당 최대 3회
 const REST_HINT_MS = 5 * 60 * 1000 // §6-3 휴식 힌트 유지 시간
 const REST_WORDS = /쉬|휴식|잠깐/ // §6-3 휴식 감지 키워드
+const MAX_HISTORY_TURNS = 40 // 서버가 예산으로 또 자르지만, 전송량도 줄인다
+const COMPACT_ABOVE_TURNS = 50 // 이보다 길어지면 앞부분을 요약으로 접는다
+/**
+ * 말끝이 애매할 때, 이만큼 더 기다렸다가 그래도 안 이어지면 보낸다.
+ *
+ * 문장이 끝난 말투면(looksComplete) 이 시간을 안 쓰고 바로 보낸다. 그래서 이 값은
+ * "…이랑", "…해서" 처럼 **이어질 것 같은 말**에만 붙는다.
+ *
+ * 3초였는데 실제로 써 보니 답답했다. 말이 끝났는데도 화면이 가만히 있으면
+ * 사용자는 인식이 안 된 줄 알고 다시 말한다. 그러면 앞말과 섞인다.
+ * 침묵 판정 1.2초가 앞에 이미 있으므로 총 대기는 2.7초다.
+ */
+const VOICE_IDLE_MS = 1500
+
+/** 시계가 멈춘 이유 — 색만으로는 알 수 없으니 글자로도 붙인다 */
+/**
+ * 시계가 멈춘 뒤 이만큼 지나야 빨갛게 만든다.
+ *
+ * **멈추는 건 즉시**다 — 집중 시간은 정확해야 하니까.
+ * 다만 1초짜리 흔들림에 화면이 빨개졌다 돌아오면 눈에 거슬린다.
+ * 측정과 표시를 갈라 두면 둘 다 만족한다.
+ */
+const PAUSE_SHOW_MS = 1200
+
+/** 시계가 멈춘 이유 — 색만으로는 알 수 없으니 글자로도 붙인다 */
+const PAUSE_LABEL = {
+  away: '자리 비움',
+  absent: '자리 비움',
+  phone: '휴대폰',
+  drowsy: '졸음',
+}
+/** 올린 자료를 가리키는 말 — 이럴 때만 본문을 같이 넘긴다 */
+const DOC_REF_WORDS = /파일|자료|문서|pdf|이거|저거|방금|올린|첨부|요약|정리해|내용/i
 
 /** 파일 크기 표기 */
 function fmtBytes(n = 0) {
@@ -156,7 +218,7 @@ function MateTile({ seat, state, tint, otherNames, onRename }) {
     <div className="flex min-h-0 flex-col overflow-hidden rounded-md border border-hairline bg-surface shadow-soft">
       <div className={`flex min-h-0 flex-1 items-center justify-center ${tint}`}>
         {/* 상태를 텍스트로 표시하지 않는다. 애니메이션만 바뀐다 (§6-3) */}
-        <CharacterSprite imageKey={seat.imageKey} state={state} size={148} />
+        <CharacterSprite imageKey={seat.imageKey} state={state} size={148} speakerId={seat.slotNo} />
       </div>
       <div className="border-t border-hairline px-4 py-2.5">
         {editing ? (
@@ -172,6 +234,8 @@ function MateTile({ seat, state, tint, otherNames, onRename }) {
                   if (error) setError('')
                 }}
                 onKeyDown={(e) => {
+                  // 조합 중 Enter 는 무시한다 — 이름이 잘린 채 확정된다
+                  if (e.nativeEvent?.isComposing || e.keyCode === 229) return
                   if (e.key === 'Enter') {
                     e.preventDefault()
                     commit()
@@ -289,11 +353,52 @@ export default function StudyRoomScreen() {
   const [snap, setSnap] = useState(null) // MetricsTracker 스냅샷 (§8)
   const [animStates, setAnimStates] = useState({ 1: 'studying', 2: 'reading', 3: 'studying' })
   const [messages, setMessages] = useState([])
+  // 모델에 넘길 대화 이력. messages와 별도로 두는 이유는 파일 메시지·시스템 알림을 빼기 위해서다
+  const historyRef = useRef([])
+  const summaryRef = useRef('') // 압축해둔 앞부분 (§ memory.mjs)
+  const compactingRef = useRef(false)
+  const lastMetaRef = useRef(null) // 마지막 호출 메타(키·지연·근거) — 개발 확인용
+  const mockNoticeRef = useRef(false) // 목업 안내는 한 번만
+  const floorRef = useRef(0) // 발언권. 0보다 크면 누군가 말하는 중이라 개입을 미룬다
+  /* 음성 입력 상태 — 언마운트 정리 effect 보다 위에 선언해야 한다 */
+  const draftSourceRef = useRef(null) // 입력창 내용의 출처: 'voice' | 'typed' | null
+  const lastSentRef = useRef(null) // 직전에 보낸 것 (중복 판정용)
+  /**
+   * 지금까지 음성으로 모아 둔 말.
+   * 조각이 올 때마다 **이어 붙인다.** 예전에는 조각이 앞의 것을 덮어써서,
+   * 잠깐 생각하고 이어 말하면 앞부분이 통째로 사라졌다.
+   */
+  const voiceBufRef = useRef('')
+  const voiceIdleRef = useRef(null) // 말끝이 애매할 때 기다리는 타이머
+  const docRef = useRef(null) // 마지막으로 올린 자료의 본문 — 이후 질문에 같이 넘긴다
+
+  /** 시연 프로필(?demo=1)이면 임계값이 확 줄어든다. 저장하지 않는다 */
+  const TIMING_P = useMemo(() => resolveTiming(window.location.search), [])
+
+  /**
+   * 직전 답변의 기능과 본문.
+   *
+   * 에스컬레이션("방금 그거 더 자세히") 판정에 쓴다. **세션 전역 1슬롯**이다 —
+   * 좌석별로 두면 "미나에게 물음 → 테오와 딴 얘기 → '더 자세히'"에서
+   * 죽은 맥락이 되살아난다.
+   */
+  const lastTurnRef = useRef(null)
+
+  /** 이번 세션 목표 원문. 목표 추적(F4)과 출제(F3)의 범위가 된다 */
+  const goalRef = useRef('')
+  /** 사용자가 답한 진도. 다음 확인 때 이 지점부터 묻는다 */
+  const goalProgressRef = useRef('')
+  /**
+   * 목표를 몇 번 물었나. `awaiting` 은 "방금 물었고 아직 답을 못 들었다"는 뜻이다.
+   * 답을 **기다리기만** 할 뿐, 다음 메시지를 가로채지 않는다 — 그게 퀴즈에서 났던 사고다.
+   */
+  const goalAskRef = useRef({ count: 0, lastAt: 0, awaiting: false })
+  const replyChainRef = useRef(Promise.resolve()) // 답변 루프를 한 줄로 세운다
   const [typingSlots, setTypingSlots] = useState([]) // 타이핑 인디케이터 (§6-3)
+  const [readingDoc, setReadingDoc] = useState(null) // 자료를 읽는 중이면 파일 이름
   const [draft, setDraft] = useState('')
   const [mention, setMention] = useState(null) // {q, start, end}
   const [mentionIdx, setMentionIdx] = useState(0)
-  const [listening, setListening] = useState(false)
   const [confirmEnd, setConfirmEnd] = useState(false)
 
   const trackerRef = useRef(null)
@@ -313,9 +418,14 @@ export default function StudyRoomScreen() {
   const restStartRef = useRef(null)
   const restTimerRef = useRef(null)
   const quizCountRef = useRef(0)
-  const pendingQuizRef = useRef(null) // {quiz, slotNo}
-  const recRef = useRef(null)
-  const sttBaseRef = useRef('')
+  /**
+   * 지금 떠 있는 문제. `null` 이면 창이 닫혀 있다.
+   *
+   * ref 가 아니라 state 다 — 화면이 이 값으로 그려진다.
+   * 예전 pendingQuizRef 는 "채팅으로 답을 기다리는 중"이라는 뜻이었고, 그게 사용자의
+   * 다음 질문을 삼키는 원인이었다.
+   */
+  const [quiz, setQuiz] = useState(null) // { q, seat }
   const fileRef = useRef(null)
   const inputRef = useRef(null)
   const listEndRef = useRef(null)
@@ -339,7 +449,7 @@ export default function StudyRoomScreen() {
 
     // 오늘 누적 = 이미 저장된 오늘치 − 이 세션 몫 (하단바에서 실시간으로 더한다, §8-1)
     const row = db.getSession(id)
-    setTodayBase(Math.max(0, db.todayTotalSec() - (row?.study_sec || 0)))
+    setTodayBase(Math.max(0, db.todayFocusSec() - (row?.focus_sec || 0)))
 
     const st = useStore.getState().settings
     const tracker = new MetricsTracker(id, {
@@ -359,8 +469,7 @@ export default function StudyRoomScreen() {
       if (!endedRef.current) tracker.stop()
       trackerRef.current = null
       clearTimeout(restTimerRef.current)
-      recRef.current?.abort()
-      recRef.current = null
+      clearTimeout(voiceIdleRef.current)
       stopSpeaking() // 화면을 떠날 때 읽어주기 중단
     }
   }, [])
@@ -381,6 +490,10 @@ export default function StudyRoomScreen() {
   const pushMsg = useCallback((m) => {
     const row = { id: rid(), at: Date.now(), ...m }
     setMessages((prev) => [...prev, row])
+    // 파일 메시지는 모델 이력에 넣지 않는다 (본문이 파일명뿐이라 맥락에 도움이 안 된다)
+    if (m.kind !== 'file' && m.body) {
+      historyRef.current.push({ role: m.senderType === 'me' ? 'user' : 'model', text: m.body })
+    }
     if (sidRef.current) {
       // §9-2 message(sender_type: me|mate, kind: text|file)
       db.addMessage(sidRef.current, {
@@ -393,25 +506,135 @@ export default function StudyRoomScreen() {
     return row
   }, [])
 
-  /** ① 타이핑 인디케이터 → ② 생성 → ③ 말풍선 (§6-3) */
+  /**
+   * 대화가 길어지면 앞부분을 요약으로 접는다.
+   *
+   * 답변을 만든 **직후**에 백그라운드로 돈다. 사용자 입력 직후에 하면 그 지연이 그대로 체감된다.
+   * 그리고 원문은 지우지 않는다 — db.message 에 그대로 남는다. 압축은 프롬프트 조립 문제다.
+   */
+  const compactIfNeeded = useCallback(async () => {
+    if (compactingRef.current) return
+    if (historyRef.current.length <= COMPACT_ABOVE_TURNS) return
+    compactingRef.current = true
+    try {
+      const r = await requestSummary({
+        turns: historyRef.current,
+        previousSummary: summaryRef.current,
+      })
+      if (r?.changed && r.summary) {
+        summaryRef.current = r.summary
+        // 요약에 들어간 앞부분은 이력에서 뺀다. 최근 것만 원문으로 남긴다
+        historyRef.current = historyRef.current.slice(-25)
+      }
+    } catch (e) {
+      console.warn('[agent] 압축 실패 — 다음 턴에 다시 시도합니다', e.message)
+    } finally {
+      compactingRef.current = false
+    }
+  }, [])
+
+  /**
+   * ① 타이핑 인디케이터 → ② 생성 → ③ 말풍선 → ④ 읽어주기 (§6-3)
+   *
+   * **한 번에 한 명만 말한다.** 예전에는 읽어주기를 던져만 두고 곧바로 다음 캐릭터로 넘어가서,
+   * 화면에는 셋이 동시에 말하는데 소리는 수십 초 뒤처졌다. 이제 재생이 끝나야 반환한다.
+   * 답변자 셋이면 순서대로 말하고, 그동안 개입 엔진은 끼어들지 않는다(floorRef).
+   */
   const mateSay = useCallback(
     async (seat, produce, kind = 'text') => {
       if (!aliveRef.current) return
+      floorRef.current += 1
       setTypingSlots((t) => (t.includes(seat.slotNo) ? t : [...t, seat.slotNo]))
       try {
-        const body = await produce()
+        const out = await produce()
+        const body = typeof out === 'string' ? out : out?.text
         if (!aliveRef.current || !body) return
+        if (out?.meta && !out.meta.mock) lastMetaRef.current = out.meta
+        // 목업으로 떨어졌으면 반드시 알린다.
+        // 조용히 가짜 답을 내보내면 "모델이 이상하다"로 오해하게 된다 — 실제로 그랬다
+        if (out?.meta?.mock && !mockNoticeRef.current) {
+          mockNoticeRef.current = true
+          const why = takeLastError()
+          toast(`서버에 연결하지 못해 임시 답변으로 대신하고 있어요.${why ? ` (${why})` : ''}`, 'danger')
+        }
         pushMsg({ senderType: 'mate', seat: seat.slotNo, body, kind })
+        setTypingSlots((t) => t.filter((x) => x !== seat.slotNo))
         const st = useStore.getState().settings
-        if (st.voice.tts && ttsSupported) speak(body, PRESETS[seat.preset]?.voice)
+        // 재생이 실제로 끝날 때까지 기다린다 — 이 동안 발언권을 쥐고 있다
+        if (st.voice.tts && ttsSupported)
+          await speakAndWait(ttsExcerpt(body), PRESETS[seat.preset]?.voice, seat.slotNo)
       } catch {
         if (aliveRef.current) toast('답변을 만들지 못했어요. 다시 물어봐 주세요.', 'danger')
       } finally {
+        floorRef.current = Math.max(0, floorRef.current - 1)
         setTypingSlots((t) => t.filter((x) => x !== seat.slotNo))
       }
     },
     [pushMsg, toast],
   )
+
+  /* ── 카메라 판정 (자리 비움 · 휴대폰 · 졸음) ──────────────────
+     판정은 전부 이 기기 안에서 돈다. 영상은 어디로도 나가지 않는다.
+     총 시간은 계속 세고, 여기서 걸린 구간은 **집중 시간에서만** 빠진다. */
+  const visionOn = settings.privacyFlags.visionDetect && device.cameraOn && !!stream
+
+  useEffect(() => {
+    trackerRef.current?.setVisionActive(visionOn)
+  }, [visionOn])
+
+  const onVisionSignal = useCallback((sig) => {
+    trackerRef.current?.setVisionSignal(sig)
+  }, [])
+
+  /** 졸음·휴대폰이 확인되면 캐릭터가 말을 건다. 졸음은 소리로도 깨운다 */
+  const onVisionAlert = useCallback(
+    (kind) => {
+      if (!aliveRef.current) return
+      const st = useStore.getState().settings
+      // 조는 사람은 말풍선으로 못 깨운다. 눈을 감고 있으니까
+      if (kind === 'drowsy' && st.privacyFlags.wakeOnDrowsy) wakeChime()
+      // 누가 말하는 중이면 겹치지 않게 미룬다
+      if (floorRef.current > 0 || isSpeaking()) return
+      const speaker = pickInterventionSpeaker(useStore.getState().seats, st, 'F5')
+      if (!speaker) return
+      db.logEvent(sidRef.current, 'intervention', { kind, slot_no: speaker.slotNo, source: 'vision' })
+      // 졸음·휴대폰도 "먼저 말 걸기"라 페이스 케어와 같은 기능이다.
+      // 하드코딩 문장을 쓰면 말투 설정이 여기서만 안 먹는다
+      mateSay(speaker, async () => {
+        await sleep(300)
+        const r = await generateReply({
+          seat: speaker,
+          funcId: 'F5',
+          kind: 'intervention',
+          text: `[상황] ${PACE_EVENT[kind] || kind}`,
+          state: { event: PACE_EVENT[kind] || kind },
+          settings: st,
+          history: [],
+          summary: '',
+        })
+        return r?.text || ''
+      })
+    },
+    [mateSay],
+  )
+
+  const vision = useVision({
+    stream,
+    enabled: visionOn,
+    onSignal: onVisionSignal,
+    onAlert: onVisionAlert,
+    // 느려서 판정이 굼떠지면 알린다. 조용히 두면 "인식을 못 한다"로만 보인다
+    onDegrade: (info) => {
+      // 회복은 조용히 넘어간다. 좋아진 걸 굳이 알릴 필요는 없다
+      if (info?.kind === 'recover' || info?.kind === 'phoneRecover') return
+      toast(
+        info?.kind === 'off'
+          ? '이 기기에서 집중 감지가 버거워서 껐어요.'
+          : `집중 감지가 느려서 주기를 ${info?.intervalMs ?? ''}ms로 늘렸어요.`,
+        'danger',
+      )
+    },
+  })
 
   /* ── 자율 행동 (§7-3 3순위) ──────────────────────────────
      ambient random은 animationState만 바꾸고 발화하지 않는다 (§10 규칙 12) */
@@ -440,6 +663,29 @@ export default function StudyRoomScreen() {
     }, REST_HINT_MS)
   }, [])
 
+  /**
+   * 문제를 만들어 창을 띄운다.
+   *
+   * 만들지 못하면 **조용히 넘어간다.** "문제를 못 만들었어요" 같은 말풍선은
+   * 아무에게도 도움이 안 되고, 실패를 사용자에게 떠넘기는 꼴이다.
+   */
+  const openQuiz = useCallback(async (speaker) => {
+    const st = useStore.getState().settings
+    const sid = sidRef.current
+    const q = await generateQuiz({
+      seat: speaker,
+      settings: st,
+      goalText: goalRef.current || '',
+      // 목표를 안 적었으면 방금 나눈 얘기에서 낸다
+      recentTopics: docRef.current?.name ? [docRef.current.name] : [],
+      history: historyRef.current.slice(-6),
+    })
+    if (!q || !aliveRef.current) return
+    quizCountRef.current += 1
+    db.logEvent(sid, 'quiz', { question: q.question, slot_no: speaker.slotNo })
+    setQuiz({ q, seat: speaker })
+  }, [])
+
   /* ── 개입 엔진 (§7-3) + 기습 질문 (§7-5) ────────────────── */
   useEffect(() => {
     const markIntervention = (now) => {
@@ -452,6 +698,8 @@ export default function StudyRoomScreen() {
       const tracker = trackerRef.current
       const sid = sidRef.current
       if (!tracker || !sid || !aliveRef.current) return
+      // 누가 말하는 중이면 이번 판정은 건너뛴다. 개입은 미루는 게 맞지 겹치면 안 된다 (§7-3 1순위)
+      if (floorRef.current > 0 || isSpeaking()) return
 
       const st = useStore.getState().settings
       const allSeats = useStore.getState().seats
@@ -461,7 +709,16 @@ export default function StudyRoomScreen() {
       const s = tracker.snapshot()
 
       // 상황 판정 — settings.triggers가 꺼진 상황은 건너뛴다 (§7-3, §10 규칙 6)
-      let kind = 'cheer'
+      /**
+       * 무슨 일이 있어야 말을 건다.
+       *
+       * 예전에는 `cheer` 가 기본값이라 **아무 상황도 해당 안 되면 그냥 칭찬을 던졌다.**
+       * 파일을 올리자마자 "오늘 진짜 잘하고 있는데?!" 가 튀어나온 게 그것이다.
+       * 이유 없는 말 걸기는 존재감이 아니라 소음이다.
+       *
+       * 이제 아래 상황 중 하나여야 말한다. 아무것도 아니면 조용히 있는다.
+       */
+      let kind = null
       if (pendingAwayRef.current && st.triggers.windowAway && st.privacyFlags.awayDetect) {
         kind = 'away'
       } else if (
@@ -482,7 +739,31 @@ export default function StudyRoomScreen() {
         (now - tracker.lastInputAt) / 1000 >= st.thresholds.idleMin * 60
       ) {
         kind = 'idle'
+      } else if (
+        /**
+         * 목표 확인 (F4).
+         *
+         * 목표를 안 적었으면 **아예 발동하지 않는다.** 문서가 못 박은 규칙이고,
+         * 없는 목표를 지어내 되물으면 그게 제일 이상하다.
+         * 세션당 2회까지. 답을 안 해도 재촉하지 않는다.
+         */
+        goalRef.current &&
+        goalAskRef.current.count < TIMING_P.goalMaxAsk &&
+        s.studySec >= TIMING_P.goalAskMin * 60 &&
+        now - goalAskRef.current.lastAt >= TIMING_P.goalAskMin * 60 * 1000
+      ) {
+        kind = 'goal'
       }
+
+      /**
+       * 칭찬(cheer)을 없앴다.
+       *
+       * "오늘 진짜 잘하고 있는데?!" 는 평가다. 말투 문서의 "사용자를 평가하지 않는다"와
+       * 페이스 케어의 "학습 태도 언급 금지"에 동시에 걸린다. 무엇보다 사유 없이
+       * 튀어나오는 칭찬이 제일 어색했다.
+       */
+
+      if (!kind) return // 말할 이유가 없으면 조용히 있는다
 
       // 1순위 방해 방지 · 전역 개입 빈도 상한 (§7-3, §10 규칙 10)
       const ctx = {
@@ -495,7 +776,8 @@ export default function StudyRoomScreen() {
       }
       if (!canIntervene(st, ctx).allowed) return
 
-      const speaker = pickInterventionSpeaker(allSeats)
+      // 이 기능을 맡은 캐릭터가 말한다. 배정이 화면에만 있는 장식이 되지 않게
+      const speaker = pickInterventionSpeaker(allSeats, st, kind === 'goal' ? 'F4' : 'F5')
       if (!speaker) return
 
       // 기습 질문 — 세션 20분 경과 후 개입 상한 안에서 최대 3회 (§7-5)
@@ -503,28 +785,18 @@ export default function StudyRoomScreen() {
         st.memoryFlags.makeQuiz &&
         st.interventionStyles.ask &&
         quizCountRef.current < QUIZ_MAX &&
-        !pendingQuizRef.current &&
+        !quiz && // 창이 이미 떠 있으면 새로 내지 않는다
         s.studySec >= QUIZ_AFTER_SEC
       if (quizReady && Math.random() < 0.5) {
-        const quiz = makeQuiz()
-        pendingQuizRef.current = { quiz, slotNo: speaker.slotNo }
-        quizCountRef.current += 1
         markIntervention(now)
-        db.logEvent(sid, 'quiz', { question: quiz.q, slot_no: speaker.slotNo })
-        mateSay(
-          speaker,
-          async () => {
-            await sleep(700 + Math.random() * 700)
-            return quiz.q
-          },
-          'quiz',
-        )
+        // 문제를 **창으로** 띄운다. 채팅으로 내면 그다음 메시지가 무엇이든 답안이 된다
+        openQuiz(pickInterventionSpeaker(allSeats, st, 'F3') || speaker)
         return
       }
 
       // 개입 방식이 꺼져 있으면 발화하지 않는다 (§6-5 interventionStyles)
       const styleOn = {
-        cheer: st.interventionStyles.cheer,
+        goal: st.interventionStyles.ask,
         longStudy: st.interventionStyles.rest,
         restOver: st.interventionStyles.rest,
         idle: st.interventionStyles.bubble,
@@ -535,12 +807,48 @@ export default function StudyRoomScreen() {
       if (kind === 'away') pendingAwayRef.current = false
       if (kind === 'longStudy') longStudyFiredRef.current = true
       if (kind === 'restOver') restStartRef.current = null
+      if (kind === 'goal') {
+        goalAskRef.current = { count: goalAskRef.current.count + 1, lastAt: now, awaiting: true }
+      }
 
       markIntervention(now)
       db.logEvent(sid, 'intervention', { kind, slot_no: speaker.slotNo })
+      /**
+       * 여기가 하드코딩 문자열이었다.
+       *
+       * 캐릭터별로 미리 써 둔 문장을 골라 썼기 때문에 **말투 설정이 전혀 먹지 않았고**,
+       * 문구 자체가 문서를 어겼다 — "어디 갔다 왔어! 기다렸잖아 ㅋㅋ" 는
+       * 페이스 케어의 '어디 갔었냐고 묻지 않는다'를 정면으로 어긴다.
+       * 이제 다른 발화와 같은 프롬프트 층(공통·기능·말투·상태)을 지나간다.
+       */
+      const speakOne = () => {
+        const isGoal = kind === 'goal'
+        return generateReply({
+          seat: speaker,
+          funcId: isGoal ? 'F4' : 'F5',
+          kind: 'intervention',
+          // 관찰자 턴에도 사용자 메시지가 비면 안 된다. 빈 배열은 모델이 거절한다
+          text: isGoal ? '[상황] 목표를 확인할 때가 됐다.' : `[상황] ${PACE_EVENT[kind]}`,
+          state: isGoal
+            ? {
+                goalText: goalRef.current,
+                progressText: goalProgressRef.current,
+                elapsedMin: Math.round(s.studySec / 60),
+              }
+            : {
+                event: PACE_EVENT[kind],
+                awayMin: kind === 'away' ? Math.round((s.awaySec || 0) / 60) : null,
+                streakMin: Math.round((s.bestStreakSec || 0) / 60),
+              },
+          settings: st,
+          history: [],
+          summary: '',
+        })
+      }
       mateSay(speaker, async () => {
-        await sleep(600 + Math.random() * 800)
-        return interventionLine(speaker, kind)
+        await sleep(400 + Math.random() * 500)
+        const r = await speakOne()
+        return r?.text || ''
       })
     }
 
@@ -558,42 +866,130 @@ export default function StudyRoomScreen() {
       setMention(null)
       pushMsg({ senderType: 'me', body: text, kind: 'text' })
 
+      /**
+       * 목표를 물었고 아직 답을 못 들었다면, 이번 말을 진도로 적어 둔다.
+       *
+       * **가로채지 않는다.** 적어만 두고 그대로 흘려보낸다. 퀴즈에서 났던 사고가
+       * 정확히 이것이었다 — 답을 기다리는 상태에서 다음 메시지를 통째로 삼켜서,
+       * 사용자가 물어본 것이 사라졌다. 기록과 응답은 별개다.
+       */
+      if (goalAskRef.current.awaiting) {
+        goalAskRef.current.awaiting = false
+        goalProgressRef.current = text.slice(0, 120)
+        db.setProgress(sidRef.current, text)
+      }
+
       // 휴식 감지 (§6-3) — restingHint가 그 구간의 이탈을 "휴식"으로 분류한다 (§8-2)
       if (REST_WORDS.test(text)) startRest()
       else restStartRef.current = null
 
-      // 기습 질문 채점 — 바로 다음 사용자 메시지를 채점한다 (§7-5)
-      const pending = pendingQuizRef.current
-      if (pending) {
-        pendingQuizRef.current = null
-        const correct = judgeQuiz(pending.quiz, text)
-        db.addQuizResult(sidRef.current, {
-          question: pending.quiz.q,
-          user_answer: text,
-          is_correct: correct,
-        })
-        const seat = useStore.getState().seats.find((x) => x.slotNo === pending.slotNo)
-        if (seat) {
-          await mateSay(seat, async () => {
-            await sleep(600 + Math.random() * 600)
-            return correct
-              ? '맞아요. 그 부분은 확실히 잡은 것 같네요.'
-              : '음, 조금 달라요. 그 부분은 이따 한 번 더 짚고 갈게요.'
-          })
-        }
-        return
-      }
+      /**
+       * 예전에는 여기서 기습 질문을 채점했다.
+       *
+       * 대기 중인 문제가 있으면 사용자의 **다음 메시지가 무엇이든** 답안으로 처리하고
+       * 곧바로 반환했다. "이 자료 요약해줘"라고 물어도 "음, 조금 달라요"가 돌아오고
+       * 원래 질문은 사라졌다. 이제 문제는 창에서 눌러서 답하므로(QuizPanel)
+       * 답이 이 경로를 지나가지 않는다. 채점 분기 자체가 필요 없어졌다.
+       */
 
       const st = useStore.getState().settings
       const allSeats = useStore.getState().seats
-      const repliers = routeReply(text, allSeats, st) // §10 규칙 11 @멘션 > 답변 캐릭터 > 자동
-      for (const seat of repliers) {
-        // 답변자마다 순차로: 타이핑 인디케이터 → 생성 → 말풍선
-        await mateSay(seat, () => generateReply({ seat, text, settings: st }))
-      }
+
+      /**
+       * 두 축을 차례로 정한다. **기능이 먼저다** — 화자 선택이 "이 기능을 누가 맡았나"를
+       * 봐야 하기 때문이다. 예전에는 한 함수가 둘을 같이 정해서, "정리해줘"에 답할 사람을
+       * 고르는 규칙과 "정리 형식으로 답하라"는 규칙이 한 덩어리로 엉켜 있었다.
+       */
+      const { funcId, rule } = routeFunction(text, {
+        lastFunc: lastTurnRef.current?.funcId,
+        lastAt: lastTurnRef.current?.at,
+        now: Date.now(),
+      })
+      if (import.meta.env.DEV) console.debug('[route]', funcId, rule, text.slice(0, 30))
+
+      // @멘션 > 기능 소유자 > 주 담당 > 아무나 (§10 규칙 11)
+      const repliers = routeReply(text, allSeats, st, funcId)
+
+      // 답변이 끝나기 전에 사용자가 또 보내면 루프 두 개가 겹친다.
+      // 줄을 세워서 앞 대화가 끝난 뒤에 다음 답변이 시작되게 한다
+      replyChainRef.current = replyChainRef.current
+        .then(async () => {
+          // 올린 자료를 가리키는 질문이면 본문을 같이 넘긴다.
+          // 매번 넘기면 토큰이 낭비되고, 안 넘기면 "저 파일 요약해줘"에 엉뚱한 답이 나온다
+          const wantsDoc = docRef.current && DOC_REF_WORDS.test(text)
+          const docImages = wantsDoc ? docRef.current.images || [] : []
+
+          /**
+           * 이번 세션에 올린 자료가 아니면 **지난 세션에 올린 자료**를 찾는다.
+           * 계정 칸에 남아 있으므로 "저번에 올린 그 자료" 를 다시 올리지 않아도 된다.
+           * 점수가 문턱을 못 넘으면 아무것도 넣지 않는다 — 관계없는 조각은 답을 흐린다.
+           */
+          const pastHits = wantsDoc ? [] : searchUserDocs(text)
+          const pastContext = toUserDocContext(pastHits)
+
+          const payload =
+            wantsDoc && docRef.current.prompt
+              ? `${docRef.current.prompt}\n\n${text}`
+              : pastContext
+                ? `${pastContext}\n\n${text}`
+                : text
+
+          // 문제를 달라고 했으면 말풍선이 아니라 창으로 낸다
+          if (funcId === 'F3') {
+            const asker = repliers[0] || useStore.getState().seats.find((x) => x.enabled)
+            if (asker) await openQuiz(asker)
+            lastTurnRef.current = { funcId, at: Date.now(), text: '' }
+            return
+          }
+
+          for (const seat of repliers) {
+            if (!aliveRef.current) return
+            // 답변자마다 순차로: 타이핑 인디케이터 → 생성 → 말풍선 → 읽어주기
+            await mateSay(seat, () =>
+              generateReply({
+                seat,
+                text: payload,
+                images: docImages,
+                withDoc: wantsDoc, // 자료를 놓고 묻는 질문은 상위 모델로
+                funcId,
+                state: {
+                  goalText: goalRef.current || '',
+                  // 심화 해설은 직전 답을 알아야 같은 말을 되풀이하지 않는다
+                  lastAnswer: funcId === 'F6' ? lastTurnRef.current?.text || '' : '',
+                },
+                settings: st,
+                // 방금 넣은 사용자 발화는 서버가 message로 따로 받으므로 뺀다
+                history: historyRef.current.slice(0, -1).slice(-MAX_HISTORY_TURNS),
+                summary: summaryRef.current,
+              }),
+            )
+          }
+
+          // 다음 턴의 에스컬레이션 판정에 쓴다. **세션 전역 1슬롯**이다 —
+          // 좌석별로 두면 "미나에게 물음 → 테오와 딴 얘기 → '더 자세히'"에서
+          // 죽은 맥락이 되살아난다
+          lastTurnRef.current = {
+            funcId,
+            at: Date.now(),
+            text: (historyRef.current[historyRef.current.length - 1]?.text || '').slice(0, 600),
+          }
+          // 답변을 낸 뒤에 백그라운드로 접는다. 입력 직후에 하면 그 지연이 그대로 체감된다
+          compactIfNeeded()
+        })
+        .catch((e) => console.warn('[reply] 답변 루프 실패', e))
+      await replyChainRef.current
     },
-    [mateSay, pushMsg, startRest],
+    [mateSay, pushMsg, startRest, compactIfNeeded],
   )
+
+  /** 눌러서 답했을 때 */
+  const onQuizAnswered = useCallback(({ index, correct, quiz: q }) => {
+    db.addQuizResult(sidRef.current, {
+      question: q.question,
+      user_answer: q.choices[index],
+      is_correct: correct,
+    })
+  }, [])
 
   /* ── 문서 업로드 (§6-3, §7-5) ──────────────────────────── */
 
@@ -619,55 +1015,159 @@ export default function StudyRoomScreen() {
         topic_source: 'document',
       })
 
-      // Document Reader Agent → 심화 학습 포인트 1~2개 (§7-4, §7-5)
-      const points = []
-      const want = 1 + Math.round(Math.random())
-      for (let i = 0; i < want * 3 && points.length < want; i++) {
-        const p = makeStudyPoint()
-        if (!points.includes(p)) points.push(p)
+      const plan = await planDocument(file)
+
+      if (plan.mode === 'no') {
+        // 못 읽으면 못 읽었다고 말한다. 지어내지 않는다
+        const s2 = pickInterventionSpeaker(useStore.getState().seats)
+        if (s2) {
+          await mateSay(s2, async () => {
+            await sleep(500)
+            return `“${topic}” 열어봤는데 ${plan.reason}. 중요한 부분만 붙여넣어 주면 같이 볼게.`
+          })
+        }
+        return
       }
-      points.forEach((p) => db.addStudyPoint(sid, p, file.name))
+
+      let body = plan.text
+
+      // PDF 는 모델이 직접 읽는다. 우리가 글자를 뽑지 않는다 (docReader 주석 참고).
+      // 한 번 글로 옮겨 두면 이후 질문은 값싼 글자 호출로 끝난다.
+      if (plan.mode === 'model') {
+        // 20초쯤 걸린다. 토스트는 사라지므로 채팅에 계속 남는 표시를 둔다.
+        // 그동안 발언권을 쥐고 있어야 개입 엔진이 끼어들지 않는다 —
+        // 자료를 기다리는데 "오늘 잘하고 있는데?!" 가 튀어나오면 안 된다
+        setReadingDoc(file.name)
+        floorRef.current += 1
+        try {
+          const got = await requestReply({
+            mode: 'extract',
+            settings: {},
+            turns: [],
+            images: [await asInlineFile(file)],
+            message: `"${file.name}" 자료의 내용을 빠짐없이 글로 옮겨 적어줘.`,
+          })
+          if (!got?.text) throw new Error('빈 응답')
+          body = got.text
+        } catch (e) {
+          console.warn('[doc] 자료 읽기 실패', e)
+          toast(`자료를 읽지 못했어요. (${String(e?.message || e).slice(0, 60)})`, 'danger')
+          return
+        } finally {
+          setReadingDoc(null)
+          floorRef.current = Math.max(0, floorRef.current - 1)
+        }
+      }
+
+      docRef.current = { name: file.name, prompt: toPrompt(file.name, body) }
+      db.addStudyPoint(sid, `${file.name} 읽음 (${body.length.toLocaleString()}자)`, file.name)
+      // 이 계정의 자료 칸에 남긴다. 다음 세션에서 물어도 찾을 수 있게 (lib/userDocs.js)
+      rememberDocument(file.name, body, sid)
 
       const speaker = pickInterventionSpeaker(useStore.getState().seats)
-      if (speaker && points.length) {
-        await mateSay(speaker, async () => {
-          await sleep(900 + Math.random() * 700)
-          return `“${topic}” 훑어봤어요. 더 깊이 볼 만한 건 ${points.map((p) => `「${p}」`).join(', ')} 예요.`
-        })
+      if (speaker) {
+        await mateSay(speaker, () =>
+          generateReply({
+            seat: speaker,
+            text: `${docRef.current.prompt}\n\n위 자료를 방금 훑어본 사람처럼, 무엇에 대한 자료인지 두세 문장으로 말해줘. 없는 내용을 지어내지 않는다.`,
+            withDoc: true,
+            settings: { ...useStore.getState().settings, replyLength: 'brief' },
+            history: [],
+            summary: '',
+          }),
+        )
       }
     },
     [mateSay, pushMsg],
   )
 
-  /* ── 음성 입력 (Web Speech API) ─────────────────────────── */
+  /* ── 상시 받아쓰기 ────────────────────────────────────────
+     마이크를 계속 열어 두고, 받아적은 걸 **채팅 입력창에 그대로 쓴다.**
+     무엇이 들렸는지 눈에 보여야 사용자가 믿고 쓸 수 있다.
 
-  const toggleListen = useCallback(() => {
-    if (listening) {
-      recRef.current?.stop()
-      return
-    }
-    sttBaseRef.current = draftRef.current
-    const rec = createRecognizer({
-      onPartial: (t) => setDraft(`${sttBaseRef.current}${sttBaseRef.current ? ' ' : ''}${t}`),
-      onFinal: (t) => setDraft(`${sttBaseRef.current}${sttBaseRef.current ? ' ' : ''}${t}`),
-      onEnd: () => {
-        setListening(false)
-        recRef.current = null
-      },
-      onError: () => {
-        setListening(false)
-        recRef.current = null
-        toast('음성을 인식하지 못했어요.', 'danger')
-      },
-    })
-    if (!rec) {
-      toast('이 브라우저는 음성 입력을 지원하지 않아요.', 'danger')
-      return
-    }
-    recRef.current = rec
-    rec.start()
-    setListening(true)
-  }, [listening, toast])
+     말이 끝나면(침묵 1.2초) 자동으로 보낸다. 단 **음성으로 적힌 것만** 그렇다 —
+     손으로 타이핑하던 걸 마음대로 보내면 안 되니까. */
+
+  /** 받아적는 중 — 아직 확정 전이라 보내지 않고 보여주기만 한다 */
+
+  /** 모아 둔 걸 실제로 보낸다 */
+  const flushVoice = useCallback(() => {
+    clearTimeout(voiceIdleRef.current)
+    voiceIdleRef.current = null
+    const text = voiceBufRef.current.trim()
+    voiceBufRef.current = ''
+    if (!text) return
+    draftSourceRef.current = null
+    setDraft('')
+    lastSentRef.current = { text, at: Date.now() }
+    send(text)
+  }, [send])
+
+  /** 말이 더 안 이어지면 그때 보낸다 */
+  const armVoiceIdle = useCallback(() => {
+    clearTimeout(voiceIdleRef.current)
+    voiceIdleRef.current = setTimeout(flushVoice, VOICE_IDLE_MS)
+  }, [flushVoice])
+
+  const onVoicePartial = useCallback((text) => {
+    // 손으로 뭔가 쓰고 있으면 건드리지 않는다
+    if (draftSourceRef.current === 'typed' && draftRef.current.trim()) return
+    draftSourceRef.current = 'voice'
+    // 모아 둔 것 + 지금 듣고 있는 것
+    setDraft(joinVoice(voiceBufRef.current, text))
+  }, [])
+
+  /** 한 조각이 끝났다. 문장이 끝난 것과는 다르다 */
+  const onVoiceUtterance = useCallback(
+    (text) => {
+      if (!aliveRef.current) return
+      if (draftSourceRef.current === 'typed' && draftRef.current.trim()) return
+
+      const verdict = screenUtterance(text, {
+        recentTts: recentSpoken(),
+        lastSent: lastSentRef.current,
+      })
+
+      if (!verdict.ok) {
+        // 잡음이었을 뿐이다. **모아 둔 건 건드리지 않는다** —
+        // 사용자가 방금까지 본 자기 말을 지워버리면 안 된다
+        console.debug('[voice] 이 조각은 버림:', WHY_LABEL[verdict.why] || verdict.why, '—', text)
+        setDraft(voiceBufRef.current)
+        if (voiceBufRef.current) armVoiceIdle()
+        return
+      }
+
+      voiceBufRef.current = joinVoice(voiceBufRef.current, verdict.text)
+      setDraft(voiceBufRef.current)
+
+      // 말끝을 보고 정한다. "…이랑" 처럼 이어질 말이면 더 기다린다
+      if (looksComplete(verdict.text)) flushVoice()
+      else armVoiceIdle()
+    },
+    [armVoiceIdle, flushVoice],
+  )
+
+  /**
+   * 받아쓰기가 도는 조건.
+   *
+   * **하단바 마이크가 유일한 스위치다.** 예전에는 채팅창에도 마이크 버튼이 있어서
+   * 하단바를 꺼도 받아쓰기가 계속됐다 — 인식기는 우리 stream 이 아니라 자기 마이크를
+   * 따로 열기 때문에, 트랙을 꺼도 아무 소용이 없었다.
+   * 마이크를 껐다고 믿는 동안 계속 받아적히는 건 있어서는 안 되는 일이다.
+   */
+  const voiceOn = device.micOn && settings.voice.stt && listenSupported
+
+  const listener = useListener({
+    enabled: voiceOn,
+    onPartial: onVoicePartial,
+    onUtterance: onVoiceUtterance,
+    onState: (s) => {
+      if (s.error === 'permission') {
+        setDevice({ micOn: false }) // 실제로 못 듣고 있으므로 표시도 꺼진 상태로 맞춘다
+        toast('마이크 권한이 꺼져 있어요. 주소창 왼쪽 자물쇠에서 허용해 주세요.', 'danger')
+      }
+    },
+  })
 
   /* ── 기기 토글 · 종료 ───────────────────────────────────── */
 
@@ -678,12 +1178,24 @@ export default function StudyRoomScreen() {
       t.enabled = on
     })
   }
+  /**
+   * 마이크 스위치. 이 하나가 받아쓰기까지 좌우한다 (voiceOn 참고).
+   *
+   * 트랙만 끄면 안 된다 — 인식기는 우리 stream 을 쓰지 않고 자기 마이크를 따로 연다.
+   * 실제로 멈추는 건 voiceOn 이 false 가 되어 useListener 가 인식기를 정리하는 것이다.
+   */
   const toggleMic = () => {
     const on = !device.micOn
     setDevice({ micOn: on })
     stream?.getAudioTracks?.().forEach((t) => {
       t.enabled = on
     })
+    if (!on) {
+      clearTimeout(voiceIdleRef.current)
+      voiceIdleRef.current = null
+      voiceBufRef.current = ''
+      setDraft((d) => (draftSourceRef.current === 'voice' ? '' : d))
+    }
   }
 
   /** 세션 마감 (§9-3 공부 종료) */
@@ -715,7 +1227,6 @@ export default function StudyRoomScreen() {
     setSessionId(null)
 
     stopSpeaking()
-    recRef.current?.abort()
     // 스트림의 모든 track을 정지한다 (카메라 표시등이 남지 않도록)
     stream?.getTracks?.().forEach((t) => t.stop())
     setStream(null)
@@ -726,7 +1237,7 @@ export default function StudyRoomScreen() {
   /* ── 채팅 스크롤 ───────────────────────────────────────── */
   useEffect(() => {
     listEndRef.current?.scrollIntoView({ block: 'end' })
-  }, [messages, typingSlots])
+  }, [messages, typingSlots, readingDoc])
 
   /* ── @멘션 자동완성 ─────────────────────────────────────── */
 
@@ -752,6 +1263,11 @@ export default function StudyRoomScreen() {
   const onDraftChange = (e) => {
     const v = e.target.value
     setDraft(v)
+    // 손으로 고치는 순간 사용자가 주도권을 가져간다 — 이후로는 자동 전송하지 않는다
+    draftSourceRef.current = v.trim() ? 'typed' : null
+    clearTimeout(voiceIdleRef.current)
+    voiceIdleRef.current = null
+    voiceBufRef.current = ''
     lastKeyRef.current = Date.now()
     const found = findMention(v, e.target.selectionStart ?? v.length)
     setMention(found)
@@ -760,6 +1276,10 @@ export default function StudyRoomScreen() {
 
   const onInputKeyDown = (e) => {
     lastKeyRef.current = Date.now()
+    // 한글·일본어·중국어는 글자를 조합하는 중에도 keydown 이 온다.
+    // 그때 Enter 를 처리하면 조합 중이던 글자가 전송 뒤에 입력창으로 되돌아와,
+    // 다음 Enter 에 그 한 글자가 따로 전송된다. ("밥줘" 다음에 "쥐" 가 날아가던 버그)
+    if (e.nativeEvent?.isComposing || e.keyCode === 229) return
     if (mention && mentionList.length) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -791,14 +1311,33 @@ export default function StudyRoomScreen() {
   /* ── 렌더 ──────────────────────────────────────────────── */
 
   const tints = { 1: 'bg-sage', 2: 'bg-lavender', 3: 'bg-peach' }
-  const todaySec = todayBase + (snap?.studySec || 0)
+  /**
+   * 화면의 시계는 **집중 시간**을 센다.
+   *
+   * 총 시간을 보여주면 자리를 비워도, 폰을 봐도 숫자가 계속 올라간다.
+   * 그건 "화면 앞에 있던 시간"이지 공부한 시간이 아니다.
+   * 집중이 끊기면 숫자가 멈추고 빨갛게 바뀌어, 왜 안 오르는지가 바로 보인다.
+   */
+  const todaySec = todayBase + (snap?.focusSec ?? snap?.studySec ?? 0)
+  const pausedBy = snap?.pausedBy || null
+
+  // 멈춤은 즉시 반영되고(위 todaySec), 빨간 표시만 조금 늦게 켜진다
+  const [pausedShown, setPausedShown] = useState(null)
+  useEffect(() => {
+    if (!pausedBy) {
+      setPausedShown(null)
+      return
+    }
+    const t = setTimeout(() => setPausedShown(pausedBy), PAUSE_SHOW_MS)
+    return () => clearTimeout(t)
+  }, [pausedBy])
   const seatName = (no) => seats.find((s) => s.slotNo === no)?.name || `${no}번`
 
   return (
-    <div className="flex h-full min-w-[1280px] flex-col bg-warm">
-      <main className="flex min-h-0 flex-1">
+    <div className="flex h-full min-w-0 flex-col bg-warm">
+      <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* ── 좌 72% 참가자 ── */}
-        <section aria-label="참가자" className="min-w-0 p-6" style={{ width: '72%' }}>
+        <section aria-label="참가자" className="min-w-0 flex-1 p-4 lg:p-6 max-h-[60vh] lg:max-h-none">
           <div className="grid h-full grid-cols-2 grid-rows-2 gap-4">
             <SelfTile
               stream={stream}
@@ -831,8 +1370,7 @@ export default function StudyRoomScreen() {
         {/* ── 우 28% 채팅 — 항상 열려 있고 닫기 버튼이 없다 (§6-3) ── */}
         <aside
           aria-label="채팅"
-          className="flex min-h-0 flex-col border-l border-hairline bg-surface"
-          style={{ width: '28%', minWidth: 380 }}
+          className="flex min-h-[40vh] lg:min-h-0 flex-col border-l border-hairline bg-surface w-full lg:w-[28%] lg:min-w-[320px]"
         >
           <header className="flex items-baseline gap-2 border-b border-hairline px-5 py-4">
             <h2 className="t-section">채팅</h2>
@@ -896,6 +1434,26 @@ export default function StudyRoomScreen() {
                   )}
                 </li>
               ))}
+
+              {/* 자료 읽는 중 — 20초쯤 걸리므로 끝날 때까지 남아 있어야 한다 */}
+              {readingDoc && (
+                <li className="flex gap-2" aria-live="polite">
+                  <span className="mt-0.5 shrink-0 flex h-[26px] w-[26px] items-center justify-center">
+                    <FileText size={16} className="text-subtle" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="t-caption">자료</div>
+                    <div className="mt-0.5 inline-flex max-w-full items-center gap-2 rounded-sm border border-hairline bg-white px-4 py-3">
+                      <span className="t-body truncate">“{readingDoc}” 읽는 중이에요</span>
+                      <span className="inline-flex shrink-0 items-center gap-1">
+                        <span className="dot h-1.5 w-1.5 rounded-full bg-[var(--text-muted)]" />
+                        <span className="dot h-1.5 w-1.5 rounded-full bg-[var(--text-muted)]" />
+                        <span className="dot h-1.5 w-1.5 rounded-full bg-[var(--text-muted)]" />
+                      </span>
+                    </div>
+                  </div>
+                </li>
+              )}
 
               {/* 타이핑 인디케이터 — 로딩 스피너 금지 (§6-3) */}
               {typingSlots.map((no) => (
@@ -984,41 +1542,52 @@ export default function StudyRoomScreen() {
                     ? `mention-opt-${(mentionList[mentionIdx] || mentionList[0]).slotNo}`
                     : undefined
                 }
-                placeholder={noMates ? '참여 중인 메이트가 없어요' : '메시지를 입력하세요 (@로 부르기)'}
+                placeholder={
+                  noMates
+                    ? '참여 중인 메이트가 없어요'
+                    : voiceOn
+                      ? '말하면 여기에 적혀요 (직접 써도 돼요)'
+                      : '메시지를 입력하세요 (@로 부르기)'
+                }
                 className="min-w-0 flex-1 rounded-full border border-hairline bg-white px-4 py-2.5 t-body transition-colors duration-300 focus:border-coral"
               />
-
-              {/* 음성 입력 — 듣는 중에는 코랄로 강조하고 글자로도 알린다 (§11) */}
-              {settings.voice.stt && sttSupported && (
-                <IconBtn
-                  label={listening ? '음성 입력 멈추기 (듣는 중)' : '음성으로 입력하기'}
-                  aria-pressed={listening}
-                  onClick={toggleListen}
-                  className={listening ? 'bg-coral text-ink border border-[var(--text-dark)]' : ''}
-                >
-                  {listening ? <MicOff size={17} /> : <Mic size={17} />}
-                </IconBtn>
-              )}
 
               <IconBtn label="보내기" active onClick={() => send(draft)} disabled={!draft.trim()}>
                 <Send size={17} />
               </IconBtn>
             </div>
-            {listening && <p className="t-caption mt-2">듣는 중이에요. 말이 끝나면 자동으로 멈춰요.</p>}
+            {voiceOn && (
+              <p className="t-caption mt-2">
+                {listener.mutedByTts
+                  ? '메이트가 말하는 동안에는 잠시 듣지 않아요.'
+                  : '듣고 있어요. 말이 끝나면 그대로 보내요.'}
+              </p>
+            )}
           </div>
         </aside>
       </main>
 
       {/* ── 하단 컨트롤 바 (§6-3) ── */}
-      <footer className="glass glass-spec z-30 mx-4 mb-4 flex h-[76px] shrink-0 items-center rounded-full px-8">
+      <footer className="glass glass-spec z-30 mx-2 sm:mx-4 mb-4 flex h-[76px] shrink-0 items-center rounded-full px-4 sm:px-8">
         {/* 좌 — 오늘 누적 학습 시간 (§8-1). "Today"는 기조의 손글씨 액센트 (§4-2) */}
-        <div className="flex w-[280px] items-baseline gap-2.5">
+        <div className="flex w-auto sm:w-[280px] items-baseline gap-2.5">
           <span className="font-hand text-[26px] leading-none text-subtle" aria-hidden="true">
             Today
           </span>
-          <span className="t-section tnum" aria-label={`오늘 누적 학습 시간 ${fmtHMS(todaySec)}`}>
+          <span
+            className={['t-section tnum transition-colors duration-300', pausedBy ? 'text-danger' : ''].join(
+              ' ',
+            )}
+            aria-label={`오늘 집중한 시간 ${fmtHMS(todaySec)}${pausedShown ? ` — ${PAUSE_LABEL[pausedShown]}라 멈춰 있어요` : ''}`}
+          >
             {fmtHMS(todaySec)}
           </span>
+          {/* 색만으로 알리지 않는다 (§4-5, §11). 왜 멈췄는지 글자로도 말한다 */}
+          {pausedShown && (
+            <span className="t-caption shrink-0 text-danger" aria-hidden="true">
+              {PAUSE_LABEL[pausedShown]}
+            </span>
+          )}
         </div>
 
         {/* 중앙 — 공부 종료 */}
@@ -1030,7 +1599,7 @@ export default function StudyRoomScreen() {
         </div>
 
         {/* 우 — 카메라 → 마이크 → 설정 순서 고정 */}
-        <div className="flex w-[280px] items-center justify-end gap-2">
+        <div className="flex w-auto sm:w-[280px] items-center justify-end gap-2">
           <IconBtn
             label={device.cameraOn ? '카메라 끄기' : '카메라 켜기'}
             aria-pressed={device.cameraOn}
@@ -1039,8 +1608,9 @@ export default function StudyRoomScreen() {
           >
             {device.cameraOn ? <Video size={17} /> : <VideoOff size={17} />}
           </IconBtn>
+          {/* 받아쓰기의 유일한 스위치. 채팅창에 또 두면 어느 쪽이 진짜인지 알 수 없다 */}
           <IconBtn
-            label={device.micOn ? '마이크 끄기' : '마이크 켜기'}
+            label={device.micOn ? '마이크 끄기 (받아쓰는 중)' : '마이크 켜기 (말하면 받아써요)'}
             aria-pressed={device.micOn}
             onClick={toggleMic}
             active={device.micOn}

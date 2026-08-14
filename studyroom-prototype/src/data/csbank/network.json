@@ -1,0 +1,711 @@
+[
+  {
+    "id": "net-001",
+    "domain": "network",
+    "topic": "서브네팅",
+    "kind": "derivation",
+    "difficulty": "easy",
+    "question": "203.0.113.77/26의 네트워크 주소, 브로드캐스트 주소, 사용 가능한 호스트 수를 구하는 절차는?",
+    "answer": "/26은 마스크 255.255.255.192이고 호스트 비트가 6개다. 마지막 옥텟 77을 192와 AND하면 64이므로 네트워크는 203.0.113.64다. 호스트 비트를 전부 1로 채우면 64+63=127, 즉 브로드캐스트는 203.0.113.127이다. 블록 크기는 256-192=64이므로 서브넷 경계는 0, 64, 128, 192에서만 시작한다. 전체 주소 64개 중 네트워크와 브로드캐스트를 빼 62개가 호스트용이고 사용 범위는 .65~.126이다. 흔한 실수는 77을 그대로 네트워크 주소로 쓰거나 블록 크기를 마스크 값 192로 착각하는 것이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import ipaddress\nn = ipaddress.ip_network(\"203.0.113.77/26\", strict=False)\n# 비트 연산으로 독립 계산\nip = int(ipaddress.IPv4Address(\"203.0.113.77\"))\nmask = (0xFFFFFFFF << (32-26)) & 0xFFFFFFFF\nnet = ip & mask\nbcast = net | (~mask & 0xFFFFFFFF)\nok = [\n    str(ipaddress.IPv4Address(net)) == \"203.0.113.64\",\n    str(ipaddress.IPv4Address(bcast)) == \"203.0.113.127\",\n    str(n.network_address) == \"203.0.113.64\",\n    str(n.broadcast_address) == \"203.0.113.127\",\n    n.num_addresses - 2 == 62,\n    len(list(n.hosts())) == 62,\n    str(list(n.hosts())[0]) == \"203.0.113.65\",\n    str(list(n.hosts())[-1]) == \"203.0.113.126\",\n    256 - 192 == 64,\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "203.0.113.77/26의 브로드캐스트 주소는?",
+      "accept": [
+        "203.0.113.127",
+        ".127",
+        "127"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-002",
+    "domain": "network",
+    "topic": "서브네팅",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "호스트 수에서 왜 2를 빼는가, 그리고 /31과 /32에서도 빼야 하는가?",
+    "answer": "2를 빼는 이유는 호스트 비트가 전부 0인 주소가 네트워크 식별자, 전부 1인 주소가 브로드캐스트로 예약되기 때문이다. 그래서 /24는 254개, /26은 62개, /30은 2개다. 그러나 이 규칙을 기계적으로 적용하면 /31은 0개, /32는 -1개라는 말이 안 되는 값이 나온다. RFC 3021은 라우터 간 점대점 링크에서 /31의 두 주소를 모두 호스트로 쓰도록 허용하고, /32는 루프백이나 단일 호스트 경로로 주소 1개를 그대로 쓴다. 즉 -2 규칙은 브로드캐스트가 의미를 갖는 /30 이하 프리픽스에만 유효하다.",
+    "verify": {
+      "lang": "python",
+      "code": "import ipaddress\ndef usable(p):\n    n = ipaddress.ip_network(p)\n    if n.prefixlen == 32: return 1\n    if n.prefixlen == 31: return 2   # RFC 3021\n    return n.num_addresses - 2\nok = [\n    usable(\"10.0.0.0/24\") == 254,\n    usable(\"10.0.0.0/26\") == 62,\n    usable(\"10.0.0.0/30\") == 2,\n    usable(\"10.0.0.0/31\") == 2,\n    usable(\"10.0.0.1/32\") == 1,\n    # 기계적 -2 규칙이 /31,/32에서 깨지는 것을 보인다\n    ipaddress.ip_network(\"10.0.0.0/31\").num_addresses - 2 == 0,\n    ipaddress.ip_network(\"10.0.0.1/32\").num_addresses - 2 == -1,\n    # python ipaddress도 /31은 주소 2개를 호스트로 취급한다\n    len(list(ipaddress.ip_network(\"10.0.0.0/31\").hosts())) == 2,\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "/31 서브넷에서 쓸 수 있는 호스트 주소는 몇 개야?",
+      "accept": [
+        "2개",
+        "두 개",
+        "RFC 3021",
+        "3021"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-003",
+    "domain": "network",
+    "topic": "서브네팅",
+    "kind": "counterexample",
+    "difficulty": "medium",
+    "question": "192.168.1.100과 192.168.1.130은 같은 네트워크에 있는가?",
+    "answer": "앞 세 옥텟이 같으니 같은 네트워크라고 답하면 틀린다. 판단 기준은 주소가 아니라 마스크다. /24라면 두 주소 모두 192.168.1.0에 속해 같은 네트워크지만, /25라면 블록 크기가 128이므로 경계가 0과 128이고 100은 192.168.1.0/25, 130은 192.168.1.128/25에 속해 서로 다른 네트워크다. 이 경우 두 호스트는 직접 통신하지 못하고 라우터를 거쳐야 하며, 게이트웨이 설정이 잘못되면 핑이 나가지 않는다. 같은 서브넷 판정은 항상 두 주소에 동일 마스크를 AND해 비교한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import ipaddress\ndef same_subnet(a, b, plen):\n    m = (0xFFFFFFFF << (32-plen)) & 0xFFFFFFFF\n    return (int(ipaddress.IPv4Address(a)) & m) == (int(ipaddress.IPv4Address(b)) & m)\na, b = \"192.168.1.100\", \"192.168.1.130\"\nok = [\n    same_subnet(a, b, 24) is True,\n    same_subnet(a, b, 25) is False,\n    str(ipaddress.ip_network(a + \"/25\", strict=False).network_address) == \"192.168.1.0\",\n    str(ipaddress.ip_network(b + \"/25\", strict=False).network_address) == \"192.168.1.128\",\n    # /26이면 .64/26 과 .128/26 으로 역시 다르다\n    same_subnet(a, b, 26) is False,\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "192.168.1.100과 192.168.1.130이 /25에서 같은 서브넷이야?",
+      "accept": [
+        "아니",
+        "다르",
+        "아님",
+        "no",
+        "128"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-004",
+    "domain": "network",
+    "topic": "서브네팅",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "192.168.10.0/24를 호스트 100대, 50대, 20대, 10대짜리 네 부서로 VLSM 분할하면?",
+    "answer": "VLSM은 요구량이 큰 것부터 배정해야 조각이 생기지 않는다. 100대는 2^7-2=126이 필요해 /25, 50대는 62를 주는 /26, 20대는 30을 주는 /27, 10대는 14를 주는 /28이다. 큰 것부터 붙이면 192.168.10.0/25, 192.168.10.128/26, 192.168.10.192/27, 192.168.10.224/28이 되고 192.168.10.240/28이 여유로 남는다. 작은 것부터 배정하면 /25가 들어갈 정렬된 128 경계가 사라져 실패한다. 각 서브넷의 시작 주소는 자기 블록 크기의 배수여야 한다는 정렬 조건이 핵심이다.",
+    "verify": {
+      "lang": "python",
+      "code": "import ipaddress, math\nneed = [100, 50, 20, 10]\nplens = []\nfor h in need:\n    p = 32\n    while (2**(32-p) - 2) < h:\n        p -= 1\n    plens.append(p)\nassert plens == [25, 26, 27, 28], plens\npool = ipaddress.ip_network(\"192.168.10.0/24\")\ncur = int(pool.network_address)\nalloc = []\nfor p in plens:                       # 큰 블록부터 순서대로\n    size = 2 ** (32 - p)\n    assert cur % size == 0            # 정렬 조건\n    alloc.append(ipaddress.ip_network((ipaddress.IPv4Address(cur), p)))\n    cur += size\nnames = [str(n) for n in alloc]\n# 겹침 검사\noverlap = any(alloc[i].overlaps(alloc[j]) for i in range(4) for j in range(i+1, 4))\nok = [\n    names == [\"192.168.10.0/25\", \"192.168.10.128/26\",\n              \"192.168.10.192/27\", \"192.168.10.224/28\"],\n    [n.num_addresses - 2 for n in alloc] == [126, 62, 30, 14],\n    all(n.num_addresses - 2 >= h for n, h in zip(alloc, need)),\n    not overlap,\n    all(n.subnet_of(pool) for n in alloc),\n    cur == int(ipaddress.IPv4Address(\"192.168.10.240\")),   # 남는 여유 블록\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "VLSM으로 나눌 때 큰 서브넷과 작은 서브넷 중 뭘 먼저 배정해?",
+      "accept": [
+        "큰 것",
+        "큰 서브넷",
+        "large",
+        "많은"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-005",
+    "domain": "network",
+    "topic": "CIDR 집약",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "연속된 /24 네 개는 언제나 하나의 /22로 집약되는가?",
+    "answer": "아니다. 집약은 개수가 아니라 정렬 조건이 결정한다. /22로 묶으려면 시작 네트워크가 4의 배수 경계여야 한다. 192.168.0.0~192.168.3.0의 네 개는 시작이 0이므로 192.168.0.0/22로 정확히 묶인다. 반면 192.168.1.0~192.168.4.0의 네 개는 시작이 1이라 어떤 단일 프리픽스로도 정확히 표현되지 않고, 최소 집합은 192.168.1.0/24, 192.168.2.0/23, 192.168.4.0/24 세 개가 된다. 억지로 192.168.0.0/22로 광고하면 포함하지 않은 192.168.0.0/24를 끌어들이고 192.168.4.0/24는 빠지는 과대·과소 광고가 동시에 발생한다.",
+    "verify": {
+      "lang": "python",
+      "code": "import ipaddress\ngood = [ipaddress.ip_network(f\"192.168.{i}.0/24\") for i in range(0, 4)]\nbad  = [ipaddress.ip_network(f\"192.168.{i}.0/24\") for i in range(1, 5)]\ng = list(ipaddress.collapse_addresses(good))\nb = list(ipaddress.collapse_addresses(bad))\nsup = ipaddress.ip_network(\"192.168.0.0/22\")\nok = [\n    [str(x) for x in g] == [\"192.168.0.0/22\"],\n    [str(x) for x in b] == [\"192.168.1.0/24\", \"192.168.2.0/23\", \"192.168.4.0/24\"],\n    len(b) == 3,\n    # 잘못된 /22 광고는 광고 안 해야 할 대역을 포함하고\n    ipaddress.ip_network(\"192.168.0.0/24\").subnet_of(sup),\n    # 광고해야 할 대역은 빠뜨린다\n    not ipaddress.ip_network(\"192.168.4.0/24\").subnet_of(sup),\n    int(good[0].network_address) % (2**(32-22)) == 0,   # 정렬 O\n    int(bad[0].network_address) % (2**(32-22)) != 0,    # 정렬 X\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "연속된 /24 네 개를 /22로 묶으려면 무슨 조건이 필요해?",
+      "accept": [
+        "정렬",
+        "경계",
+        "배수",
+        "align",
+        "4의 배수"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-006",
+    "domain": "network",
+    "topic": "사설 IP",
+    "kind": "misconception",
+    "difficulty": "easy",
+    "question": "172.20.1.1과 172.32.1.1 중 사설 주소는 무엇인가?",
+    "answer": "사설 대역은 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16이다. 172로 시작하면 전부 사설이라고 외우면 틀린다. /12는 172.16.0.0부터 172.31.255.255까지만 덮으므로 172.20.1.1은 사설이지만 172.32.1.1은 공인 주소다. 마스크 255.240.0.0은 두 번째 옥텟의 상위 4비트만 고정하므로 16~31 범위가 나온다. 172.16/16 하나만 사설이라고 아는 것도 반대 방향의 오해다. 추가로 169.254.0.0/16은 링크로컬, 100.64.0.0/10은 통신사 대규모 NAT용으로 사설과는 구분된다.",
+    "verify": {
+      "lang": "python",
+      "code": "import ipaddress\npriv = [ipaddress.ip_network(x) for x in (\"10.0.0.0/8\",\"172.16.0.0/12\",\"192.168.0.0/16\")]\ndef is_priv(a):\n    ip = ipaddress.ip_address(a)\n    return any(ip in n for n in priv)\nn12 = ipaddress.ip_network(\"172.16.0.0/12\")\nok = [\n    is_priv(\"172.20.1.1\") is True,\n    is_priv(\"172.32.1.1\") is False,\n    is_priv(\"172.31.255.255\") is True,\n    is_priv(\"192.168.0.1\") is True,\n    is_priv(\"169.254.10.1\") is False,\n    str(n12.netmask) == \"255.240.0.0\",\n    str(n12.broadcast_address) == \"172.31.255.255\",\n    n12.num_addresses == 16 * 65536,\n    ipaddress.ip_address(\"169.254.10.1\").is_link_local is True,\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "172.32.1.1은 사설 IP야?",
+      "accept": [
+        "아니",
+        "공인",
+        "public",
+        "아님",
+        "31"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-007",
+    "domain": "network",
+    "topic": "TCP 연결 수립",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "3-way handshake에서 마지막 ACK를 빼고 2번만 주고받으면 무엇이 깨지는가?",
+    "answer": "핸드셰이크의 목적은 양방향 초기 시퀀스 번호(ISN)의 상호 합의다. 2-way면 서버의 ISN이 클라이언트에게 전달됐다는 사실을 서버가 확인하지 못하고, 동시에 지연됐던 과거 연결의 중복 SYN이 도착했을 때 서버가 그것을 유효한 새 연결로 오인해 자원을 열어두게 된다. 세 번째 ACK는 클라이언트가 서버의 ISN을 실제로 받았음을 증명하는 유일한 신호이며, 이 응답이 없으면 서버는 그 SYN이 살아 있는 클라이언트에서 온 것인지 재생된 옛 패킷인지 구분할 수 없다. 즉 3번은 신뢰성이 아니라 양방향 확인의 최소 횟수다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "프로토콜 설계 논증(양방향 ISN 합의의 최소 메시지 수)이라 단일 스크립트의 True/False로 환원되지 않는다. RFC 793의 연결 수립 상태 기계와 old duplicate SYN 시나리오에 근거한 서술이다.",
+    "quiz": {
+      "q": "3-way handshake의 세 번째 ACK가 없으면 서버는 뭘 확인 못 해?",
+      "accept": [
+        "ISN",
+        "시퀀스",
+        "초기 시퀀스",
+        "수신",
+        "확인"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-008",
+    "domain": "network",
+    "topic": "TIME_WAIT",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "TIME_WAIT를 2MSL이나 유지하는 이유는 무엇이고 그냥 없애면 안 되는가?",
+    "answer": "TIME_WAIT는 낭비가 아니라 두 가지 역할을 한다. 첫째, 마지막 ACK가 유실되면 상대가 FIN을 재전송하는데, 소켓이 이미 사라졌다면 RST로 응답해 상대의 정상 종료를 깨뜨린다. 둘째, 같은 4-튜플로 즉시 새 연결을 열면 네트워크에 떠돌던 이전 연결의 지연 세그먼트가 새 연결에 섞여 들어올 수 있다. 2MSL은 자기가 보낸 마지막 ACK가 도달하고, 그에 대한 상대의 재전송이 돌아오기까지의 왕복 최대 시간이다. TIME_WAIT는 능동적으로 먼저 닫은 쪽에만 생기므로, 서버에 대량으로 쌓인다면 서버가 먼저 끊고 있다는 신호다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "타이머 정책의 근거(최대 세그먼트 수명 가정)에 대한 설명이라 실행 검산 대상이 아니다. RFC 793 3.5절과 마지막 ACK 유실 시나리오에 근거한다.",
+    "quiz": {
+      "q": "TIME_WAIT는 연결을 먼저 닫은 쪽과 나중에 닫은 쪽 중 어디에 생겨?",
+      "accept": [
+        "먼저",
+        "능동",
+        "active",
+        "close 한 쪽",
+        "먼저 닫은"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-009",
+    "domain": "network",
+    "topic": "혼잡 제어",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "초기 cwnd 1 MSS, ssthresh 8 MSS일 때 RTT 라운드별 cwnd는 어떻게 변하는가?",
+    "answer": "슬로우 스타트는 이름과 달리 지수 증가다. 매 RTT마다 cwnd가 두 배가 되어 1, 2, 4, 8로 커지고 ssthresh인 8에 도달하면 혼잡 회피로 전환해 라운드당 1 MSS씩 선형 증가한다. 따라서 5번째 라운드부터는 9, 10, 11, 12, 13, 14가 되고 10번째 라운드의 cwnd는 14 MSS다. 10라운드 동안 보낸 총 세그먼트는 1+2+4+8+9+10+11+12+13+14로 84개다. 느리다는 표현은 증가 속도가 아니라 링크 용량 전체가 아닌 1 MSS에서 출발한다는 뜻이다.",
+    "verify": {
+      "lang": "python",
+      "code": "cwnd, ssthresh = 1, 8\nhist, total = [], 0\nfor r in range(10):\n    hist.append(cwnd); total += cwnd\n    cwnd = cwnd * 2 if cwnd < ssthresh else cwnd + 1\nok = [\n    hist == [1, 2, 4, 8, 9, 10, 11, 12, 13, 14],\n    hist[9] == 14,\n    total == 84,\n    hist[:4] == [2**i for i in range(4)],            # 지수 구간\n    all(hist[i+1]-hist[i] == 1 for i in range(4, 9)) # 선형 구간\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "슬로우 스타트에서 cwnd는 RTT마다 어떻게 늘어나?",
+      "accept": [
+        "두 배",
+        "2배",
+        "지수",
+        "double",
+        "exponential"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-010",
+    "domain": "network",
+    "topic": "혼잡 제어",
+    "kind": "comparison",
+    "difficulty": "hard",
+    "question": "cwnd가 16일 때 3중복 ACK로 손실을 감지하면 Tahoe와 Reno는 이후 어떻게 달라지는가?",
+    "answer": "둘 다 ssthresh를 절반인 8로 낮추지만 그다음이 다르다. Tahoe는 손실 종류를 구분하지 않고 cwnd를 1로 떨어뜨린 뒤 슬로우 스타트를 다시 시작한다. Reno는 3중복 ACK가 도착했다는 것 자체가 뒤 패킷들이 도착하고 있다는 증거로 보고 cwnd를 8로만 줄인 뒤 곧바로 혼잡 회피로 들어간다. 손실 이후 5라운드를 비교하면 Tahoe는 1, 2, 4, 8, 9로 9 MSS인데 Reno는 8, 9, 10, 11, 12로 12 MSS다. 단 타임아웃으로 감지한 경우에는 Reno도 cwnd를 1로 되돌린다.",
+    "verify": {
+      "lang": "python",
+      "code": "def rounds(cwnd0, ssthresh, n):\n    c, out = cwnd0, []\n    for _ in range(n):\n        out.append(c)\n        c = c * 2 if c < ssthresh else c + 1\n    return out\nss = 16 // 2\ntahoe = rounds(1, ss, 5)\nreno  = rounds(ss, ss, 5)\nok = [\n    ss == 8,\n    tahoe == [1, 2, 4, 8, 9],\n    reno == [8, 9, 10, 11, 12],\n    tahoe[-1] == 9 and reno[-1] == 12,\n    sum(reno) > sum(tahoe),\n    rounds(1, ss, 5) == tahoe,   # 타임아웃이면 Reno도 Tahoe와 동일 경로\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "3중복 ACK를 받았을 때 Reno는 cwnd를 얼마로 줄여?",
+      "accept": [
+        "절반",
+        "반으로",
+        "8로",
+        "half",
+        "ssthresh"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-011",
+    "domain": "network",
+    "topic": "빠른 재전송",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "빠른 재전송의 기준은 왜 하필 중복 ACK 3개인가?",
+    "answer": "중복 ACK는 손실뿐 아니라 단순한 순서 뒤바뀜으로도 생긴다. IP는 순서를 보장하지 않으므로 경로 변경이나 병렬 처리로 패킷 하나가 한두 칸 늦게 도착하는 일이 흔하고, 이때도 수신자는 중복 ACK를 보낸다. 임계값이 1이면 이런 경미한 재배열마다 불필요한 재전송과 cwnd 감소가 일어나고, 임계값이 너무 크면 실제 손실 복구가 타임아웃 수준으로 늦어진다. 3은 관측된 재배열 깊이 대부분이 2 이하라는 경험적 근거에서 나온 타협값이며 신뢰성 보장이 아니라 오탐과 지연 사이의 균형점이다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "3이라는 값은 수학적 유도가 아니라 실제 인터넷의 패킷 재배열 분포에 대한 경험적 타협이므로 스크립트로 참·거짓을 판정할 수 없다. RFC 5681의 dupACK 임계값 설명에 근거한다.",
+    "quiz": {
+      "q": "빠른 재전송에서 중복 ACK 3개를 기준으로 삼는 이유는?",
+      "accept": [
+        "재배열",
+        "순서",
+        "reorder",
+        "오탐",
+        "뒤바뀜"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-012",
+    "domain": "network",
+    "topic": "대역폭지연곱",
+    "kind": "derivation",
+    "difficulty": "hard",
+    "question": "1 Gbps, RTT 80 ms 경로에서 윈도우 스케일 없이 TCP 최대 처리율은 얼마인가?",
+    "answer": "대역폭지연곱은 1e9 x 0.08 / 8 = 10,000,000바이트, 즉 10 MB다. 이만큼의 데이터가 동시에 경로 위에 떠 있어야 링크를 채울 수 있다. 그런데 윈도우 스케일 옵션이 없으면 수신 윈도우 필드는 16비트라 최대 65,535바이트다. 처리율 상한은 윈도우/RTT이므로 65535 x 8 / 0.08 = 약 6.55 Mbps로, 1 Gbps 링크의 0.66%밖에 쓰지 못한다. 링크가 느린 게 아니라 창이 작은 것이며, 이 경우 대역폭을 10배로 늘려도 처리율은 그대로다. 해결책은 RFC 1323 윈도우 스케일이다.",
+    "verify": {
+      "lang": "python",
+      "code": "bw, rtt = 1e9, 0.080\nbdp_bytes = bw * rtt / 8\nwin = 65535\nthr = win * 8 / rtt\nok = [\n    bdp_bytes == 10_000_000,\n    abs(thr - 6_553_500.0) < 1,\n    thr / bw < 0.007,\n    # 대역폭을 10배 늘려도 창이 그대로면 처리율은 그대로다\n    win * 8 / rtt == thr,\n    # 링크를 채우려면 창이 BDP 이상이어야 한다\n    win < bdp_bytes,\n    round(bdp_bytes / win, 1) == 152.6,\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "대역폭지연곱보다 송신 윈도우가 작으면 무슨 일이 생겨?",
+      "accept": [
+        "링크",
+        "채우",
+        "처리율",
+        "상한",
+        "못 채",
+        "윈도우"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-013",
+    "domain": "network",
+    "topic": "대역폭과 지연",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "대역폭을 100 Mbps에서 10 Gbps로 100배 올리면 1 MB 전송이 100배 빨라지는가?",
+    "answer": "아니다. 전송 완료 시간은 직렬화 시간과 전파 지연의 합이다. 1 MB를 100 Mbps로 밀어내는 직렬화 시간은 0.08초이고 편도 전파 지연이 100 ms라면 총 0.18초다. 10 Gbps로 올리면 직렬화는 0.0008초로 줄지만 전파 지연 0.1초는 그대로라 총 0.1008초, 즉 1.79배 빨라질 뿐이다. 대역폭은 초당 몇 비트를 밀어 넣느냐이고 지연은 첫 비트가 도착하는 데 걸리는 시간이라 서로 대체되지 않는다. 작은 요청이 많은 워크로드는 대역폭을 늘려도 거의 개선되지 않고 RTT 횟수를 줄여야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "size_bits = 1_000_000 * 8\nprop = 0.100\ndef t(bw): return size_bits / bw + prop\nt1, t2 = t(100e6), t(10e9)\nok = [\n    abs(t1 - 0.180) < 1e-9,\n    abs(t2 - 0.1008) < 1e-9,\n    abs(t1 / t2 - 1.7857) < 1e-3,\n    t1 / t2 < 2,                    # 100배 대역폭 -> 2배 미만 개선\n    t2 > prop,                      # 전파 지연은 절대 못 줄인다\n    # 대역폭을 무한대로 해도 0.1초 아래로 못 내려간다\n    abs(t(1e18) - prop) < 1e-6,\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "대역폭을 100배 늘리면 전송 시간도 100배 줄어?",
+      "accept": [
+        "아니",
+        "전파",
+        "지연",
+        "propagation",
+        "안 줄",
+        "그대로"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-014",
+    "domain": "network",
+    "topic": "TCP 체크섬",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "TCP 체크섬이 통과했으면 데이터가 손상되지 않았다고 말할 수 있는가?",
+    "answer": "없다. TCP 체크섬은 16비트 1의 보수 합이라 검출력이 매우 약하다. 두 16비트 워드의 위치를 서로 바꾸면 합이 그대로라 체크섬이 동일하고, 한 워드를 +1 하고 다른 워드를 -1 하는 상쇄 오류도 잡지 못한다. 확률적으로도 임의 오류의 약 65536분의 1은 그냥 통과한다. 실제로 메모리나 NIC, 라우터 버퍼에서 발생한 손상이 체크섬을 통과해 애플리케이션까지 도달한 사례가 보고되어 있다. TCP가 보장하는 것은 순서와 재전송을 통한 전달이지 데이터 무결성의 강한 보증이 아니며, 그것이 필요하면 애플리케이션 레벨 해시를 써야 한다.",
+    "verify": {
+      "lang": "python",
+      "code": "def cksum(words):\n    s = 0\n    for w in words:\n        s += w\n        s = (s & 0xFFFF) + (s >> 16)     # end-around carry\n    return (~s) & 0xFFFF\na = [0x1234, 0x5678, 0x9ABC, 0xDEF0]\nswap = [0x5678, 0x1234, 0x9ABC, 0xDEF0]      # 워드 순서만 교환\ncomp = [0x1235, 0x5677, 0x9ABC, 0xDEF0]      # +1 / -1 상쇄 오류\nok = [\n    cksum(a) == cksum(swap),\n    a != swap,\n    cksum(a) == cksum(comp),\n    a != comp,\n    # 단일 비트 오류는 잡힌다 (약하다는 것이지 무용하다는 뜻은 아니다)\n    cksum(a) != cksum([0x1235, 0x5678, 0x9ABC, 0xDEF0]),\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "TCP 체크섬을 통과하면 데이터가 안 깨졌다고 확신할 수 있어?",
+      "accept": [
+        "아니",
+        "수 없",
+        "없다",
+        "약하",
+        "상쇄",
+        "통과",
+        "못한"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-015",
+    "domain": "network",
+    "topic": "인터넷 체크섬",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "인터넷 체크섬의 1의 보수 합에서 캐리를 어떻게 처리하는가?",
+    "answer": "16비트씩 더하다 17번째 비트로 넘친 캐리는 버리지 않고 하위로 되돌려 더한다. 이것이 순환 캐리(end-around carry)다. 예를 들어 0xF000과 0x2000을 더하면 0x11000이고, 상위 캐리 1을 하위 0x1000에 더해 0x1001이 되며 최종 체크섬은 1의 보수인 0xEFFE다. 캐리를 그냥 잘라 0x1000으로 두면 틀린다. 검증 측은 체크섬 필드까지 포함해 전부 더했을 때 0xFFFF가 나와야 하고, 이 성질 덕분에 수신자는 별도 비교 없이 합만 보고 판정한다.",
+    "verify": {
+      "lang": "python",
+      "code": "def add16(a, b):\n    s = a + b\n    return (s & 0xFFFF) + (s >> 16)\ndef cksum(words):\n    s = 0\n    for w in words: s = add16(s, w)\n    return (~s) & 0xFFFF\nstep = 0xF000 + 0x2000\nok = [\n    step == 0x11000,\n    add16(0xF000, 0x2000) == 0x1001,        # 캐리를 되돌려 더한 결과\n    (step & 0xFFFF) == 0x1000,              # 캐리를 버리면 나오는 틀린 값\n    cksum([0xF000, 0x2000]) == 0xEFFE,\n    # 수신 측 검증: 체크섬 포함 전체 합이 0xFFFF\n    (lambda w: __import__(\"functools\").reduce(add16, w + [cksum(w)]))([0xF000, 0x2000]) == 0xFFFF,\n    cksum([0x0001, 0xF203, 0xF4F5, 0xF6F7]) == 0x220D,   # RFC 1071 예제\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "인터넷 체크섬에서 16비트를 넘친 캐리는 어떻게 해?",
+      "accept": [
+        "더한",
+        "더해",
+        "순환",
+        "end-around",
+        "되돌",
+        "하위",
+        "again"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-016",
+    "domain": "network",
+    "topic": "CRC",
+    "kind": "counterexample",
+    "difficulty": "hard",
+    "question": "CRC-32는 서로 다른 두 메시지가 같은 값을 갖지 않도록 보장하는가?",
+    "answer": "보장하지 않는다. CRC-32는 32비트 값이므로 길이가 4바이트를 넘는 순간 비둘기집 원리로 충돌이 반드시 존재한다. 게다가 CRC는 GF(2) 위의 선형 연산이라 충돌을 우연이 아니라 계산으로 만들 수 있다. 같은 길이 메시지에 대해 CRC(a) xor CRC(b) xor CRC(c) = CRC(a xor b xor c)가 성립하고, 이 선형성을 이용하면 원하는 메시지에 특정 차이 패턴을 xor해 CRC가 같은 다른 메시지를 즉시 만들 수 있다. CRC는 무작위 전송 오류 검출용이지 위변조 방지용이 아니며, 그 용도에는 HMAC 같은 암호학적 도구가 필요하다.",
+    "verify": {
+      "lang": "python",
+      "code": "import binascii\nn = 8\nc0 = binascii.crc32(bytes(n))\ndef f(d):                     # 선형 부분만 남긴 사상\n    return binascii.crc32(d) ^ c0\n# 선형성 확인\na = b\"ABCDEFGH\"; b = b\"12345678\"; c = b\"zyxwvuts\"\nxr = bytes(x ^ y ^ z for x, y, z in zip(a, b, c))\nlin = (binascii.crc32(a) ^ binascii.crc32(b) ^ binascii.crc32(c)) == binascii.crc32(xr)\n\n# 커널 원소(=CRC를 바꾸지 않는 비영 차이 패턴)를 가우스 소거로 찾는다\npivot, found = {}, None\nfor i in range(8 * n):\n    d = bytearray(n); d[i // 8] |= 1 << (7 - (i % 8))\n    v, x = f(bytes(d)), 1 << i\n    for hb in sorted(pivot, reverse=True):\n        if (v >> hb) & 1:\n            pv, px = pivot[hb]; v ^= pv; x ^= px\n    if v == 0:\n        found = x; break\n    pivot[v.bit_length() - 1] = (v, x)\n\ndelta = bytearray(n)\nfor i in range(8 * n):\n    if (found >> i) & 1:\n        delta[i // 8] |= 1 << (7 - (i % 8))\nm1 = b\"PAY 100$\"\nm2 = bytes(p ^ q for p, q in zip(m1, delta))\nok = [\n    lin,\n    found is not None and any(delta),\n    m1 != m2,\n    binascii.crc32(m1) == binascii.crc32(m2),\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "CRC-32로 데이터 위변조를 막을 수 있어?",
+      "accept": [
+        "아니",
+        "수 없",
+        "없다",
+        "선형",
+        "충돌",
+        "못한",
+        "해시"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-017",
+    "domain": "network",
+    "topic": "MTU와 MSS",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "이더넷 MTU가 1500이면 MSS도 1500인가?",
+    "answer": "아니다. MTU는 IP 헤더를 포함한 IP 패킷 전체의 상한이고 MSS는 TCP 페이로드만의 상한이다. IPv4 20바이트와 TCP 20바이트를 빼면 MSS는 1460이다. IPv6는 헤더가 40바이트라 1440이 되고, 타임스탬프 같은 옵션 12바이트가 붙으면 실제 실을 수 있는 데이터는 1448로 더 줄어든다. PPPoE 링크의 MTU 1492에서는 MSS가 1452다. 이 차이를 무시하면 VPN이나 터널 구간에서 큰 패킷만 조용히 막히는 현상이 생기고, 경로 MTU 탐색이 ICMP 차단으로 실패하면 블랙홀이 된다.",
+    "verify": {
+      "lang": "python",
+      "code": "import math\ndef mss(mtu, ipv=4, tcpopt=0):\n    ip_hdr = 20 if ipv == 4 else 40\n    return mtu - ip_hdr - 20 - tcpopt\nok = [\n    mss(1500) == 1460,\n    mss(1500, ipv=6) == 1440,\n    mss(1500, tcpopt=12) == 1448,          # 타임스탬프 옵션 포함\n    mss(1492) == 1452,                     # PPPoE\n    mss(1500) != 1500,\n    math.ceil(1_000_000 / 1460) == 685,    # 1MB 전송에 필요한 세그먼트 수\n    # 프레임 전체는 이더넷 헤더 14 + FCS 4 가 더 붙는다\n    1500 + 14 + 4 == 1518,\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "이더넷 MTU 1500에서 IPv4 TCP의 MSS는 얼마야?",
+      "accept": [
+        "1460",
+        "460"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-018",
+    "domain": "network",
+    "topic": "Nagle 알고리즘",
+    "kind": "tradeoff",
+    "difficulty": "hard",
+    "question": "Nagle 알고리즘과 지연 ACK가 같이 켜져 있으면 왜 지연이 생기는가?",
+    "answer": "둘 다 개별적으로는 합리적인데 조합하면 서로를 기다린다. Nagle은 미확인 데이터가 있으면 MSS에 못 미치는 작은 조각을 ACK가 올 때까지 보내지 않는다. 지연 ACK는 응답에 실어 보내려고 ACK를 최대 40~200 ms 지연시킨다. 애플리케이션이 write를 두 번 나눠 호출하면 첫 조각은 나가지만 두 번째 작은 조각은 Nagle이 붙잡고, 수신 측은 데이터가 다 왔다고 보지 않아 응답을 못 만들며 ACK도 지연 타이머까지 미룬다. 결과는 왕복당 수십 ms 정체다. 해법은 TCP_NODELAY가 아니라 우선 한 번의 write로 메시지를 온전히 보내는 것이다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "운영체제 타이머 상수와 스택 구현에 의존하는 상호작용이라 순수 파이썬 스크립트로 결정론적 True를 만들 수 없다. RFC 896(Nagle)과 RFC 1122의 지연 ACK 규정, 그리고 널리 재현된 write-write-read 안티패턴에 근거한다.",
+    "quiz": {
+      "q": "Nagle과 지연 ACK가 겹치면 뭐가 문제야?",
+      "accept": [
+        "기다",
+        "지연",
+        "정체",
+        "40",
+        "200",
+        "stall",
+        "서로"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-019",
+    "domain": "network",
+    "topic": "UDP와 TCP",
+    "kind": "tradeoff",
+    "difficulty": "medium",
+    "question": "실시간 음성이나 게임에서 UDP를 쓰는 이유가 단지 빠르기 때문인가?",
+    "answer": "속도 자체보다 재전송의 의미가 없다는 점이 핵심이다. 200 ms 전의 음성 프레임은 복구해서 늦게 도착해도 이미 재생 시점이 지나 쓸모가 없고, 오히려 재전송을 기다리느라 그 뒤의 최신 프레임까지 막히는 것이 더 나쁘다. TCP의 순서 보장은 이 경우 손해로 작용한다. UDP는 잃은 것을 버리고 다음 것을 즉시 올려 지연 상한을 지킨다. 대신 신뢰성, 순서, 혼잡 제어를 애플리케이션이 직접 구현해야 하며, 혼잡 제어 없이 UDP를 쏟아부으면 네트워크를 붕괴시킬 수 있다. 그래서 실무의 UDP 기반 프로토콜은 대부분 자체 속도 제어를 갖는다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "설계 판단 기준에 대한 서술이라 스크립트로 참·거짓 판정이 불가능하다. 재생 마감 시각을 넘긴 프레임의 무용성이라는 실시간 시스템의 전제에 근거한다.",
+    "quiz": {
+      "q": "실시간 음성에서 TCP 대신 UDP를 쓰는 이유는?",
+      "accept": [
+        "재전송",
+        "지연",
+        "늦어",
+        "늦게",
+        "쓸모",
+        "순서",
+        "의미"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-020",
+    "domain": "network",
+    "topic": "QUIC",
+    "kind": "comparison",
+    "difficulty": "hard",
+    "question": "QUIC이 없앤 HOL 블로킹은 정확히 어느 계층의 문제인가?",
+    "answer": "전송 계층의 바이트 스트림 순서 보장이 만드는 문제다. 하나의 TCP 연결에 여러 스트림을 다중화하면 패킷 하나가 유실됐을 때 그 뒤에 도착한 모든 바이트가 커널 버퍼에 갇힌다. 잃어버린 조각과 무관한 다른 스트림의 데이터까지 재전송이 도착할 때까지 애플리케이션으로 올라가지 못한다. QUIC은 스트림별로 독립된 순서 공간을 두어 손실이 발생한 스트림만 대기하고 나머지는 즉시 전달한다. 세 스트림 중 하나만 손실됐을 때 TCP는 셋 다 재전송 시각까지 밀리지만 QUIC은 손실된 하나만 밀린다.",
+    "verify": {
+      "lang": "python",
+      "code": "# 9개 패킷, 도착 시각 1~9ms, 스트림 A/B/C 라운드로빈. 2번 패킷 유실, 재전송 30ms 도착.\npkts = [(i, \"ABC\"[(i - 1) % 3], i) for i in range(1, 10)]\nlost, retx = 2, 30\ndef tcp_done():\n    done = {}\n    for idx, st, t in pkts:\n        # 순서 보장: 유실된 2번 이후 모든 바이트는 재전송 도착까지 대기\n        dt = t if idx < lost else max(t, retx)\n        done[st] = max(done.get(st, 0), dt)\n    return done\ndef quic_done():\n    done = {}\n    for idx, st, t in pkts:\n        blocked = (st == \"ABC\"[(lost - 1) % 3])   # 손실이 난 스트림만 대기\n        dt = max(t, retx) if blocked else t\n        done[st] = max(done.get(st, 0), dt)\n    return done\nT, Q = tcp_done(), quic_done()\nok = [\n    T == {\"A\": 30, \"B\": 30, \"C\": 30},\n    Q == {\"A\": 7, \"B\": 30, \"C\": 9},\n    sum(T.values()) == 90 and sum(Q.values()) == 46,\n    T[\"A\"] > Q[\"A\"] and T[\"C\"] > Q[\"C\"],\n    T[\"B\"] == Q[\"B\"],            # 실제 손실을 겪은 스트림은 QUIC도 못 피한다\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "QUIC이 TCP의 어떤 문제를 없앴어?",
+      "accept": [
+        "HOL",
+        "head",
+        "블로킹",
+        "헤드",
+        "대기",
+        "스트림"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-021",
+    "domain": "network",
+    "topic": "HTTP/2",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "HTTP/2의 멀티플렉싱이 HOL 블로킹을 완전히 없앴는가?",
+    "answer": "아니다. HTTP/2는 HTTP/1.1의 응답 순서 강제라는 애플리케이션 계층 HOL만 없앴고 TCP 계층 HOL은 그대로 남는다. 오히려 여러 요청을 하나의 TCP 연결에 몰아넣기 때문에 패킷 하나가 유실되면 그 연결에 실린 모든 스트림이 함께 멈춘다. 6개 병렬 연결을 쓰던 HTTP/1.1은 같은 상황에서 한 연결에 실린 객체만 지연되고 나머지 다섯은 계속 진행한다. 즉 손실률이 높은 네트워크에서는 HTTP/2가 오히려 불리해질 수 있다. 이 잔존 문제를 없애려고 UDP 위에 스트림별 순서 공간을 둔 것이 HTTP/3과 QUIC이다.",
+    "verify": {
+      "lang": "python",
+      "code": "# 객체 6개, 각각 정상 완료 10ms. 패킷 손실 1회로 재전송이 40ms에 도착.\nN, base, retx = 6, 10, 40\n# HTTP/1.1: 연결 6개, 손실은 0번 연결에서만 발생\nh11 = [max(base, retx) if i == 0 else base for i in range(N)]\n# HTTP/2: 단일 연결, TCP 순서 보장 때문에 전 스트림이 함께 막힌다\nh2  = [max(base, retx) for _ in range(N)]\n# HTTP/3(QUIC): 단일 연결이지만 스트림별 독립 순서\nh3  = [max(base, retx) if i == 0 else base for i in range(N)]\nok = [\n    sum(1 for t in h11 if t == retx) == 1,\n    sum(1 for t in h2 if t == retx) == 6,\n    sum(1 for t in h3 if t == retx) == 1,\n    max(h11) == max(h2) == 40,          # 최악 객체는 같지만\n    sum(h11) < sum(h2),                 # 전체 지연 총합은 HTTP/2가 더 크다\n    sum(h3) == sum(h11),\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "HTTP/2 멀티플렉싱으로도 남는 HOL 블로킹은 어느 계층이야?",
+      "accept": [
+        "TCP",
+        "전송",
+        "transport",
+        "4계층",
+        "L4",
+        "커널"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-022",
+    "domain": "network",
+    "topic": "HTTP/1.1 파이프라이닝",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "HTTP/1.1 파이프라이닝은 왜 실제로 쓰이지 못했는가?",
+    "answer": "요청은 한꺼번에 보낼 수 있지만 응답은 반드시 요청과 같은 순서로 돌아와야 한다는 규정 때문이다. 첫 요청이 오래 걸리는 동적 페이지면 뒤의 가벼운 이미지 응답들이 이미 준비돼 있어도 먼저 나갈 수 없다. 이것이 애플리케이션 계층 HOL 블로킹이다. 게다가 중간 프록시들이 파이프라인된 요청을 잘못 처리해 응답을 뒤섞거나 끊는 사례가 많아 브라우저들이 기본으로 끄게 됐다. 결국 병렬 TCP 연결 6개를 여는 우회책이 표준 관행이 됐고, 순서 제약 자체를 없앤 것이 HTTP/2의 스트림 식별자 방식이다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "브라우저 구현 이력과 중간 장비 호환성이라는 역사적 사실이라 스크립트 검산 대상이 아니다. RFC 7230의 응답 순서 규정과 주요 브라우저가 파이프라이닝을 기본 비활성화한 사실에 근거한다.",
+    "quiz": {
+      "q": "HTTP/1.1 파이프라이닝이 실패한 핵심 이유는?",
+      "accept": [
+        "순서",
+        "HOL",
+        "응답 순서",
+        "블로킹",
+        "프록시"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-023",
+    "domain": "network",
+    "topic": "DNS",
+    "kind": "misconception",
+    "difficulty": "medium",
+    "question": "재귀 질의와 반복 질의는 각각 누가 수행하는가?",
+    "answer": "클라이언트 스텁 리졸버는 로컬 리졸버에게 재귀 질의를 한 번 던지고 최종 답만 기다린다. 실제 순회는 로컬 리졸버가 한다. 루트에게 물으면 루트는 답을 대신 찾아주지 않고 com 네임서버를 알려주고, com은 다시 example.com 네임서버를 알려준다. 이렇게 참조를 받아 다음 서버에 다시 묻는 방식이 반복 질의이며 권한 서버는 원칙적으로 재귀를 수행하지 않는다. 루트 서버가 모든 도메인을 알고 있어서 답을 준다고 생각하면 틀린다. 루트가 아는 것은 최상위 도메인의 위임 정보뿐이다.",
+    "verify": null,
+    "verified": false,
+    "verify_note": "역할 분담에 대한 서술이라 계산 검산이 불가능하다. RFC 1034의 재귀·반복 해석 모델과 권한 서버의 기본 비재귀 동작에 근거한다.",
+    "quiz": {
+      "q": "루트 네임서버는 재귀 질의를 대신 처리해줘?",
+      "accept": [
+        "아니",
+        "안 해",
+        "안 한다",
+        "반복",
+        "참조",
+        "referral",
+        "위임"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-024",
+    "domain": "network",
+    "topic": "DNS TTL",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "TTL 86400인 레코드를 서버 이전 1시간 전에 300으로 낮추면 전환이 매끄러운가?",
+    "answer": "아니다. TTL을 낮춘 시점에 이미 캐시된 항목은 자기가 받은 값인 86400초 동안 그대로 유지된다. 리졸버가 낮추기 직전에 캐시했다면 그 캐시는 최대 86400초 뒤에야 만료되고, 이전 시각이 낮추기 1시간 후라면 이전 이후에도 86400-3600 = 82800초, 즉 23시간 동안 옛 IP로 트래픽이 갈 수 있다. TTL 축소는 기존 TTL 길이 이상 앞서 해야 효과가 있다. 이 때문에 실무에서는 이전 최소 하루 전에 TTL을 낮추고, 전환 후에도 옛 서버를 한동안 살려 두거나 리다이렉트를 걸어 둔다.",
+    "verify": {
+      "lang": "python",
+      "code": "def worst_stale(old_ttl, new_ttl, lead):\n    \"\"\"lead = TTL 낮춘 시각과 실제 이전 시각의 간격. 반환 = 이전 후 옛 IP 잔존 최대 시간.\"\"\"\n    if lead >= old_ttl:          # 옛 TTL 캐시가 전부 만료된 뒤 이전\n        return new_ttl\n    return max(old_ttl - lead, new_ttl)\n\n# 실제 캐시 시각을 훑어 최악값을 독립 계산 (t=0 이 TTL 낮춘 시각)\ndef brute(old_ttl, new_ttl, lead):\n    worst = 0\n    for t in range(-old_ttl, lead + 1):\n        expire = t + (old_ttl if t < 0 else new_ttl)\n        if expire > lead:\n            worst = max(worst, expire - lead)\n    return worst\n\nok = [\n    worst_stale(86400, 300, 3600) == 82800,\n    82800 / 3600 == 23.0,\n    # 완전 탐색은 1초 단위 격자라 상한에 1초 못 미치는 값을 낸다\n    brute(86400, 300, 3600) == 82799,\n    worst_stale(86400, 300, 3600) - brute(86400, 300, 3600) == 1,\n    worst_stale(86400, 300, 86400) == 300,        # 옛 TTL 만큼 앞서 낮추면 해결\n    brute(86400, 300, 86400) == 300,              # 이 경우는 정확히 일치\n    worst_stale(86400, 300, 0) == 86400,          # 동시에 낮추면 최악 하루\n    worst_stale(86400, 300, 3600) > 300,          # TTL을 낮췄는데도 소용없다\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "이전 1시간 전에 TTL을 86400에서 300으로 낮추면 옛 IP가 얼마나 더 살아있어?",
+      "accept": [
+        "82800",
+        "23",
+        "23시간",
+        "하루"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-025",
+    "domain": "network",
+    "topic": "시퀀스 번호",
+    "kind": "derivation",
+    "difficulty": "medium",
+    "question": "SYN과 FIN은 시퀀스 번호를 소비하는가, 순수 ACK은 어떤가?",
+    "answer": "SYN과 FIN은 데이터가 없어도 각각 시퀀스 번호를 1씩 소비한다. 그래야 상대가 그것을 받았다고 확실히 확인할 수 있다. 클라이언트 ISN이 1000이면 SYN의 seq는 1000이고 서버의 SYN-ACK은 ack=1001을 담는다. 이후 클라이언트가 seq 1001부터 500바이트를 보내면 서버의 ack는 1501이 되고, 클라이언트가 FIN을 보내면 그 seq는 1501, 서버의 ack는 1502다. 반면 데이터 없는 순수 ACK은 시퀀스 번호를 소비하지 않아 여러 번 보내도 seq가 그대로다. 이 차이를 놓치면 패킷 캡처 분석에서 번호가 1씩 어긋난다.",
+    "verify": {
+      "lang": "python",
+      "code": "seq, isn_s = 1000, 5000\nlog = []\n# 1) SYN\nlog.append((\"SYN\", seq, None)); seq += 1\n# 2) SYN-ACK (서버)\nsrv_ack = seq\nlog.append((\"SYN-ACK\", isn_s, srv_ack)); isn_s += 1\n# 3) 순수 ACK (seq 소비 없음)\nlog.append((\"ACK\", seq, isn_s))\nfirst_ack_seq = seq\nlog.append((\"ACK\", seq, isn_s))          # 한 번 더 보내도 seq 동일\n# 4) 데이터 500바이트\nlog.append((\"DATA\", seq, isn_s)); data_start = seq; seq += 500\n# 5) FIN\nfin_seq = seq; seq += 1\nok = [\n    log[0][1] == 1000,\n    srv_ack == 1001,                     # SYN 이 1 소비\n    data_start == 1001,\n    seq - 1 == 1501 and fin_seq == 1501, # FIN 도 1 소비\n    seq == 1502,                         # 서버가 FIN 에 보낼 ack\n    first_ack_seq == 1001 and log[2][1] == log[3][1],   # 순수 ACK 은 소비 없음\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "FIN은 시퀀스 번호를 소비해?",
+      "accept": [
+        "소비",
+        "1을",
+        "1만큼",
+        "yes",
+        "한다"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  },
+  {
+    "id": "net-026",
+    "domain": "network",
+    "topic": "재전송 타임아웃",
+    "kind": "misconception",
+    "difficulty": "hard",
+    "question": "RTO를 평균 RTT의 두 배로 잡으면 되는가?",
+    "answer": "안 된다. 평균만 쓰면 RTT 변동이 큰 경로에서 정상 패킷을 손실로 오판해 불필요한 재전송과 창 축소를 반복한다. RFC 6298은 지수 가중 이동 평균 SRTT와 변동량 RTTVAR를 함께 유지하고 RTO = SRTT + 4 x RTTVAR로 계산한다. 첫 측정에서는 SRTT = R, RTTVAR = R/2로 시작하고 이후 RTTVAR는 계수 1/4, SRTT는 계수 1/8로 갱신한다. 계산값이 1초 미만이면 1초로 올림하며, 타임아웃이 나면 RTO를 두 배로 늘리는 지수 백오프를 적용한다. 변동 항이 없으면 지터가 큰 무선 구간에서 성능이 무너진다.",
+    "verify": {
+      "lang": "python",
+      "code": "def rfc6298(samples):\n    srtt = rttvar = None\n    for r in samples:\n        if srtt is None:\n            srtt, rttvar = r, r / 2\n        else:\n            rttvar = 0.75 * rttvar + 0.25 * abs(srtt - r)\n            srtt = 0.875 * srtt + 0.125 * r\n        rto = srtt + 4 * rttvar\n    return srtt, rttvar, max(rto, 1.0), rto      # 1초 하한 적용/미적용\nstable = [0.100] * 5\ns1, v1, rto1, raw1 = rfc6298(stable)\njitter = [0.100, 0.300, 0.100, 0.300, 0.100]\ns2, v2, rto2, raw2 = rfc6298(jitter)\nok = [\n    abs(s1 - 0.100) < 1e-9,\n    abs(v1 - 0.100 * 0.5 * 0.75**4) < 1e-9,\n    rto1 == 1.0 and raw1 < 1.0,                  # RFC 6298 의 1초 하한\n    raw2 > raw1,                                 # 지터가 크면 RTO 가 커진다\n    abs(s2 - 0.138623046875) < 1e-9,\n    raw2 > 2 * s2,                               # \"평균의 2배\" 규칙보다 크다\n    # 지수 백오프\n    [1.0 * 2**k for k in range(4)] == [1.0, 2.0, 4.0, 8.0],\n]\nprint(all(ok))",
+      "expect": "True"
+    },
+    "verified": true,
+    "verify_note": "python3 실행으로 True 확인",
+    "quiz": {
+      "q": "RTO 계산에서 SRTT 말고 꼭 필요한 항은?",
+      "accept": [
+        "RTTVAR",
+        "변동",
+        "분산",
+        "편차",
+        "variance",
+        "지터"
+      ]
+    },
+    "source_model": "claude-opus-5",
+    "created_at": "2026-08-13"
+  }
+]

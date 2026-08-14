@@ -5,6 +5,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { Check, X, Minus, Plus, ChevronDown, AlertTriangle } from 'lucide-react'
 import { characterImage, characterImagePng } from '../../lib/presets'
+import {
+  ANIM_TIMING,
+  PERSONA_FRAMES,
+  STATE_TO_BASE,
+  allFramesOf,
+  personaOf,
+  resolveBase,
+} from '../../lib/personaFrames'
+import { onSpeakerChange } from '../../lib/ttsQueue'
 
 /* ── 레이아웃 ─────────────────────────────────────────────── */
 
@@ -293,9 +302,12 @@ export function MinuteField({ value, onChange, label, min = 1, max = 240 }) {
 
 /* ── 버튼 ─────────────────────────────────────────────────── */
 
-export function Button({ variant = 'secondary', children, className = '', ...rest }) {
+export function Button({ variant = 'secondary', shape = 'pill', children, className = '', ...rest }) {
   const base =
-    'inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 t-item transition-all duration-300 ease-soft disabled:opacity-45 disabled:cursor-not-allowed'
+    'inline-flex items-center justify-center gap-2 px-6 py-3 t-item transition-all duration-300 ease-soft disabled:opacity-45 disabled:cursor-not-allowed'
+  // shape='rounded'는 랜딩 CTA처럼 카드 radius에 맞춰야 하는 자리용 — 기본은 기존 화면 전부가 쓰는 pill 그대로.
+  // md(16px)를 쓴다: 이 버튼 높이(~46px)에서 lg(24px)는 height/2에 근접해 시각적으로 pill과 구분이 안 된다.
+  const shapes = { pill: 'rounded-full', rounded: 'rounded-md' }
   const styles = {
     /* 주요 액션 — 기조의 hero CTA가 `bg-[#FFB7B2] text-stone-900 hover:-translate-y-1`이다.
        코랄 위에 진한 글자를 얹으면 9.1:1이라 접근성도 문제없다.
@@ -309,7 +321,10 @@ export function Button({ variant = 'secondary', children, className = '', ...res
     danger: 'bg-[var(--danger)] text-white hover:brightness-110 hover:-translate-y-0.5 shadow-soft',
   }
   return (
-    <button className={`${base} ${styles[variant] || styles.secondary} ${className}`} {...rest}>
+    <button
+      className={`${base} ${shapes[shape] || shapes.pill} ${styles[variant] || styles.secondary} ${className}`}
+      {...rest}
+    >
       {children}
     </button>
   )
@@ -342,7 +357,18 @@ export function IconBtn({ children, label, active, tone = 'default', className =
 /* ── 오버레이 ─────────────────────────────────────────────── */
 
 /** ESC · 바깥 클릭 · 닫기 버튼으로 닫히고, 포커스가 뒤로 새지 않는다 (§6-5, §11) */
-export function Dialog({ open, onClose, title, children, footer, width = 1100, height = 760, labelledBy }) {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  width = 1100,
+  height = 760,
+  minWidth = 900,
+  plain = false,
+  labelledBy,
+}) {
   const ref = useRef(null)
   const prevFocus = useRef(null)
 
@@ -383,12 +409,14 @@ export function Dialog({ open, onClose, title, children, footer, width = 1100, h
         style={{
           width: `min(88vw, ${width}px)`,
           height: `min(86vh, ${height}px)`,
-          minWidth: 900,
+          minWidth,
           // 유리(좌측 메뉴·하단 바)가 읽히려면 뒤에 색이 있어야 한다 (§4-3)
-          background:
-            'radial-gradient(680px 300px at 6% 4%, rgba(239,237,244,.9), transparent 60%),' +
-            'radial-gradient(620px 280px at 96% 96%, rgba(255,240,237,.9), transparent 58%),' +
-            'var(--bg-warm)',
+          // plain: 로그인 모달처럼 유리 컨트롤이 없는 작은 대화상자는 장식용 그라데이션이 필요 없다
+          background: plain
+            ? 'var(--surface)'
+            : 'radial-gradient(680px 300px at 6% 4%, rgba(239,237,244,.9), transparent 60%),' +
+              'radial-gradient(620px 280px at 96% 96%, rgba(255,240,237,.9), transparent 58%),' +
+              'var(--bg-warm)',
         }}
       >
         {children}
@@ -506,36 +534,223 @@ export function Toasts({ items }) {
 
 /* ── 캐릭터 스프라이트 ────────────────────────────────────── */
 
-/** PNG가 있으면 PNG, 없으면 SVG로 폴백 (public/characters/README.md) */
-export function CharacterSprite({ imageKey, size = 120, state, className = '', style }) {
-  const [src, setSrc] = useState(characterImagePng(imageKey))
-  const onErr = useCallback(() => setSrc(characterImage(imageKey)), [imageKey])
-  useEffect(() => setSrc(characterImagePng(imageKey)), [imageKey])
+const CSS_ANIM = {
+  studying: 'anim-idle',
+  writing: 'anim-write',
+  reading: 'anim-idle',
+  drinking: 'anim-drink',
+  stretching: 'anim-stretch',
+  resting: 'anim-rest',
+  distracted: 'anim-distract',
+  typing: 'anim-type',
+  away: '',
+  cameraOff: '',
+}
 
-  const anim =
-    {
-      studying: 'anim-idle',
-      writing: 'anim-write',
-      reading: 'anim-idle',
-      drinking: 'anim-drink',
-      stretching: 'anim-stretch',
-      resting: 'anim-rest',
-      distracted: 'anim-distract',
-      typing: 'anim-type',
-      away: '',
-      cameraOff: '',
-    }[state] || 'anim-idle'
+// 프리로드된 URL 집합 (한 번 로드하면 브라우저 캐시에 남는다)
+const _preloaded = new Set()
+function preload(urls) {
+  for (const u of urls) {
+    if (_preloaded.has(u)) continue
+    _preloaded.add(u)
+    const img = new Image()
+    img.src = u
+  }
+}
+
+/**
+ * 페르소나 프레임 애니메이션 훅.
+ *
+ * 우선순위: reaction(일회성) > talking(overlay) > base loop.
+ * `personaId`가 null이면 아무 것도 하지 않고 null을 반환한다(정적 폴백).
+ */
+function initialFrameFor(personaId, state) {
+  if (!personaId) return null
+  const persona = PERSONA_FRAMES[personaId]
+  if (!persona) return null
+  const baseName = resolveBase(personaId, STATE_TO_BASE[state] || ANIM_TIMING.defaultBase)
+  const base = baseName ? persona.base[baseName] : null
+  if (!base) return null
+  if (base.loop) return base.loop[0]
+  return base.open
+}
+
+function usePersonaFrame({ personaId, state, talking, reaction }) {
+  const [frame, setFrame] = useState(() => initialFrameFor(personaId, state))
+
+  useEffect(() => {
+    if (!personaId) {
+      setFrame(null)
+      return
+    }
+    const persona = PERSONA_FRAMES[personaId]
+    if (!persona) {
+      setFrame(null)
+      return
+    }
+    preload(allFramesOf(personaId))
+
+    const timers = new Set()
+    const setT = (fn, ms) => {
+      const id = setTimeout(() => {
+        timers.delete(id)
+        fn()
+      }, ms)
+      timers.add(id)
+      return id
+    }
+    const setI = (fn, ms) => {
+      const id = setInterval(fn, ms)
+      timers.add(id)
+      return id
+    }
+    const clearAll = () => {
+      for (const id of timers) {
+        clearTimeout(id)
+        clearInterval(id)
+      }
+      timers.clear()
+    }
+
+    // 1) reaction: 시퀀스 재생 후 종료 (자동 복귀는 부모가 reaction=null로 되돌리면 된다)
+    if (reaction && persona.reactions?.[reaction]) {
+      const seq = persona.reactions[reaction]
+      let i = 0
+      const step = () => {
+        if (i >= seq.length) return
+        setFrame(seq[i].src)
+        const ms = seq[i].ms
+        i += 1
+        setT(step, ms)
+      }
+      step()
+      return clearAll
+    }
+
+    // 2) talking overlay: 두 프레임을 talkingFrameMs로 교차
+    if (talking && persona.talking?.length >= 2) {
+      let i = 0
+      setFrame(persona.talking[0])
+      setI(() => {
+        i = (i + 1) % persona.talking.length
+        setFrame(persona.talking[i])
+      }, ANIM_TIMING.talkingFrameMs)
+      return clearAll
+    }
+
+    // 3) base loop
+    const baseName = resolveBase(personaId, STATE_TO_BASE[state] || ANIM_TIMING.defaultBase)
+    const base = baseName ? persona.base[baseName] : null
+    if (!base) {
+      setFrame(null)
+      return clearAll
+    }
+
+    // 3-a) 다중 프레임 loop (listening / dozing)
+    if (base.loop) {
+      let i = 0
+      setFrame(base.loop[0])
+      if (base.loop.length > 1) {
+        setI(() => {
+          i = (i + 1) % base.loop.length
+          setFrame(base.loop[i])
+        }, base.frameMs || 500)
+      }
+      return clearAll
+    }
+
+    // 3-b) open ↔ blink
+    setFrame(base.open)
+    const scheduleBlink = () => {
+      const { blinkIntervalMinMs: lo, blinkIntervalMaxMs: hi, blinkHoldMs } = ANIM_TIMING
+      const wait = lo + Math.random() * (hi - lo)
+      setT(() => {
+        if (base.blink) setFrame(base.blink)
+        setT(() => {
+          setFrame(base.open)
+          scheduleBlink()
+        }, blinkHoldMs)
+      }, wait)
+    }
+    scheduleBlink()
+
+    return clearAll
+  }, [personaId, state, talking, reaction])
+
+  return frame
+}
+
+/**
+ * 캐릭터 스프라이트.
+ *
+ * 페르소나 매핑이 있으면(bear/tiger/duck 등) 프레임 애니메이션이 자기완결적으로 재생된다
+ * (studying 자세 + 3~6s 랜덤 눈 깜빡임이 기본). 매핑이 없으면 기존처럼 PNG→SVG 폴백.
+ *
+ * 선택적 상태 훅:
+ *   - `talking`(bool): true면 말하기 두 프레임을 200ms로 교차한다.
+ *   - `reaction`(string): 'surprised' | 'idea' | 'thinking' 등, 페르소나가 가진 리액션 이름.
+ *     시퀀스 재생 후에는 자동으로 종료되므로 부모가 setTimeout으로 null로 되돌리면 된다.
+ *
+ * 기존 사용처는 시그니처 변경 없이 그대로 동작한다.
+ */
+export function CharacterSprite({
+  imageKey,
+  size = 120,
+  state,
+  className = '',
+  style,
+  talking = false,
+  reaction = null,
+  speakerId = null,
+}) {
+  const personaId = personaOf(imageKey)
+
+  // TTS 재생 중인 화자와 이 스프라이트의 speakerId가 일치하면 talking을 유지한다
+  // (typing 인디케이터 → 답변 표시 → TTS 재생 구간 동안 끊김 없이 입이 움직인다)
+  const [ttsSpeaking, setTtsSpeaking] = useState(false)
+  useEffect(() => {
+    if (speakerId === null || speakerId === undefined) {
+      setTtsSpeaking(false)
+      return
+    }
+    return onSpeakerChange((sid) => setTtsSpeaking(sid !== null && sid === speakerId))
+  }, [speakerId])
+
+  // 기존 프로토타입의 typingSlots는 응답을 준비 중인 상태를 나타낸다 → talking overlay로 매핑
+  const effectiveTalking = talking || state === 'typing' || ttsSpeaking
+  const personaFrame = usePersonaFrame({ personaId, state, talking: effectiveTalking, reaction })
+
+  // 페르소나 매핑이 없으면 기존 PNG→SVG 폴백 유지
+  const [fallbackSrc, setFallbackSrc] = useState(characterImagePng(imageKey))
+  const onErr = useCallback(() => setFallbackSrc(characterImage(imageKey)), [imageKey])
+  useEffect(() => {
+    if (!personaId) setFallbackSrc(characterImagePng(imageKey))
+  }, [imageKey, personaId])
+
+  const src = personaFrame || fallbackSrc
+  // 페르소나 PNG(512×512)는 여백이 있어 같은 size로도 SVG보다 작아 보인다.
+  // hero 사이즈에서만 시각적으로 스케일업 — layout box(size×size)는 그대로 유지.
+  // 프레임 스왑이 이미 움직임을 제공하므로 CSS wiggle은 페르소나에서 생략(transform 충돌 방지).
+  const isPersona = !!personaId
+  const scale = isPersona && size >= 100 ? 1.35 : 1
+  const anim = isPersona ? '' : CSS_ANIM[state] ?? 'anim-idle'
 
   return (
     <img
       src={src}
-      onError={onErr}
+      onError={personaId ? undefined : onErr}
       alt=""
       width={size}
       height={size}
       draggable={false}
       className={`select-none ${anim} ${className}`}
-      style={{ width: size, height: size, objectFit: 'contain', ...style }}
+      style={{
+        width: size,
+        height: size,
+        objectFit: 'contain',
+        ...(scale !== 1 && { transform: `scale(${scale})`, transformOrigin: 'center' }),
+        ...style,
+      }}
     />
   )
 }

@@ -1,35 +1,45 @@
 /**
  * 엔딩 페이지 — 통합 설계서 §6-4 (지표 §8-1 / 폴백 §8-3 / 점수 §8-4)
  *
- * 1단계 요약  : 좌측 하단 캐릭터 + 말풍선(4블록 + CTA)
- * 2단계 세부  : 화면 전체가 위로 슬라이드 (스크롤 아님) · 8개 항목 [결정 7 전부 채택]
+ * "공부 내용 요약" 모달은 **이번 세션의 실제 대화·자료**로 만든다 (lib/review.js).
+ *   - 메인 화면(캐릭터 인사 · 이번 학습시간 · 지난 기록 비교)은 이전 버전과 동일하다.
+ *   - 모달 왼쪽: 분야별 그룹(conceptGroups) → 개념 토글 → Markdown Viewer
+ *   - 모달 오른쪽: 심화 학습 포인트(deepeningPoints) · T/F 퀴즈(trueFalseQuizzes) · 내용 요약(summaryText)
  *
- * 모션 존 A(§4-3) — 홈·엔딩만 배경 블롭과 진입 애니메이션을 허용한다.
+ *   §처음엔 고정된 표본을 보여줬다. 사용자가 뭘 공부했든 늘 같은 개념이 떴고, 그걸 본 사람은
+ *   실제로 공부한 것으로 읽는다. 이제 기록에서 만들고, 만들 게 없으면 없다고 말한다.
+ *   Markdown Viewer도 새 라이브러리를 추가하지 않고 최소 문법(###, 문단, 목록, 인라인 코드, 코드블록,
+ *   공식처럼 보이는 한 줄)만 직접 파싱해서 보여준다.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useState, useEffect } from 'react'
 import {
-  ChevronDown,
-  ChevronUp,
   Settings,
   Timer,
   DoorOpen,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Flame,
-  Users,
-  Trophy,
-  HelpCircle,
   Lightbulb,
   Info,
+  Calendar,
+  Users,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Flame,
+  BookOpen,
+  FileText,
+  HelpCircle,
+  Search,
 } from 'lucide-react'
 
-import { useStore } from '../store/useStore'
-import { db, todayKey, daysAgoKey, weekStart } from '../store/db'
+import { useStore, activeSeats } from '../store/useStore'
+import { db, daysAgoKey } from '../store/db'
+import { ensureReview } from '../lib/review'
 import { PRESETS } from '../lib/presets'
 import { computeScore, commentTone, fmtHuman, fmtShort } from '../lib/metrics'
-import { Button, CharacterSprite } from '../components/ui'
+import { Button, IconBtn, Dialog, CharacterSprite } from '../components/ui'
 
 /* ── 스터디 메이트의 한마디 (§6-4 ④) ────────────────────────
    §1-3 "평가자가 아니라 동료" — 점수가 낮아도 질책하지 않는다. */
@@ -56,9 +66,339 @@ const MATE_LINES = {
   },
 }
 
+const WEEKDAY = ['월', '화', '수', '목', '금', '토', '일']
+
+/*
+ * 여기 하드코딩된 표본이 있었다 — 조건부 확률·베이즈 정리·Attention…
+ *
+ * 사용자가 뭘 공부했든 늘 같은 개념이 떴다. 시연에서는 그럴듯해 보이지만,
+ * 그 목록을 본 사람은 **실제로 공부한 것**으로 읽는다. 없는 걸 있다고 보여주는 셈이었다.
+ * 이제 실제 대화·자료에서 만든다 (lib/review.js). 만들 게 없으면 없다고 말한다.
+ */
+
+/** conceptGroups를 평평하게 펼친다 — 분야 라벨을 함께 들고 있는다 */
+const flattenConcepts = (groups = []) =>
+  (groups || []).flatMap((group) =>
+    group.concepts.map((concept) => ({
+      key: `${group.domain}::${concept.title}`,
+      title: concept.title,
+      markdown: concept.markdown,
+      groupLabel: group.label,
+    })),
+  )
+
+/* ── Markdown Viewer (최소 지원) ─────────────────────────────
+   지원: ### 제목 · 문단 · - 목록 · 1. 번호 목록 · 인라인 코드 · 코드블록 ·
+         공식처럼 보이는 한 줄(문단 전체가 `...`로만 되어 있으면 공식 박스로) · 빈 줄 기준 문단 분리 */
+function parseMarkdownBlocks(md) {
+  const lines = (md || '').replace(/\r\n/g, '\n').split('\n')
+  const blocks = []
+  let i = 0
+
+  const isFence = (l) => l.trim().startsWith('```')
+  const isHeading = (l) => /^###\s+/.test(l)
+  const isBullet = (l) => /^[-*]\s+/.test(l)
+  const isNumbered = (l) => /^\d+\.\s+/.test(l)
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    if (line.trim() === '') {
+      i++
+      continue
+    }
+
+    if (isFence(line)) {
+      const codeLines = []
+      i++
+      while (i < lines.length && !isFence(lines[i])) {
+        codeLines.push(lines[i])
+        i++
+      }
+      i++ // 닫는 펜스 건너뛰기
+      blocks.push({ type: 'code', content: codeLines.join('\n') })
+      continue
+    }
+
+    if (isHeading(line)) {
+      blocks.push({ type: 'h3', content: line.replace(/^###\s+/, '') })
+      i++
+      continue
+    }
+
+    if (isBullet(line)) {
+      const items = []
+      while (i < lines.length && isBullet(lines[i])) {
+        items.push(lines[i].replace(/^[-*]\s+/, ''))
+        i++
+      }
+      blocks.push({ type: 'ul', items })
+      continue
+    }
+
+    if (isNumbered(line)) {
+      const items = []
+      while (i < lines.length && isNumbered(lines[i])) {
+        items.push(lines[i].replace(/^\d+\.\s+/, ''))
+        i++
+      }
+      blocks.push({ type: 'ol', items })
+      continue
+    }
+
+    // 문단 — 빈 줄이나 다음 블록 시작 전까지 이어붙인다
+    const paraLines = []
+    while (
+      i < lines.length &&
+      lines[i].trim() !== '' &&
+      !isFence(lines[i]) &&
+      !isHeading(lines[i]) &&
+      !isBullet(lines[i]) &&
+      !isNumbered(lines[i])
+    ) {
+      paraLines.push(lines[i].trim())
+      i++
+    }
+    const joined = paraLines.join(' ')
+    if (/^`[^`]+`$/.test(joined)) {
+      blocks.push({ type: 'formula', content: joined.slice(1, -1) })
+    } else {
+      blocks.push({ type: 'p', content: joined })
+    }
+  }
+
+  return blocks
+}
+
+/** 인라인 `코드` 표기를 <code>로 바꿔서 렌더링한다 */
+/**
+ * 인라인 마크다운 — 코드와 굵게.
+ *
+ * 굵게가 빠져 있었다. 표본 데이터에는 `**` 가 없어서 드러나지 않았는데, 실제 모델이
+ * 쓰기 시작하니 별표가 글자로 그대로 보였다. 파서를 새로 들이지 않고 두 규칙만 처리한다.
+ */
+function renderInline(text) {
+  // 코드가 먼저다 — 코드 안의 별표는 굵게가 아니라 글자다
+  return String(text)
+    .split(/`([^`]+)`/g)
+    .flatMap((part, i) => {
+      if (i % 2 === 1) {
+        return [
+          <code
+            key={`c${i}`}
+            className="rounded-sm bg-[var(--hover-bg)] border border-hairline px-1.5 py-0.5 t-caption tnum"
+          >
+            {part}
+          </code>,
+        ]
+      }
+      return part.split(/\*\*([^*]+)\*\*/g).map((seg, j) =>
+        j % 2 === 1 ? (
+          <strong key={`b${i}-${j}`} className="font-semibold">
+            {seg}
+          </strong>
+        ) : (
+          seg
+        ),
+      )
+    })
+}
+
+function MarkdownViewer({ markdown }) {
+  const blocks = useMemo(() => parseMarkdownBlocks(markdown), [markdown])
+  return (
+    <div className="space-y-2.5">
+      {blocks.map((b, i) => {
+        if (b.type === 'h3') {
+          return (
+            <h4 key={i} className={`t-item font-semibold ${i === 0 ? '' : 'pt-1.5'}`}>
+              {b.content}
+            </h4>
+          )
+        }
+        if (b.type === 'ul') {
+          return (
+            <ul key={i} className="list-disc pl-5 space-y-1">
+              {b.items.map((it, j) => (
+                <li key={j} className="t-body break-words">
+                  {renderInline(it)}
+                </li>
+              ))}
+            </ul>
+          )
+        }
+        if (b.type === 'ol') {
+          return (
+            <ol key={i} className="list-decimal pl-5 space-y-1">
+              {b.items.map((it, j) => (
+                <li key={j} className="t-body break-words">
+                  {renderInline(it)}
+                </li>
+              ))}
+            </ol>
+          )
+        }
+        if (b.type === 'code') {
+          return (
+            <pre key={i} className="rounded-sm bg-surface-dark px-3.5 py-3 overflow-x-auto">
+              <code className="t-caption tnum text-[var(--bg-warm)] whitespace-pre">{b.content}</code>
+            </pre>
+          )
+        }
+        if (b.type === 'formula') {
+          return (
+            <p
+              key={i}
+              className="rounded-sm bg-lavender border border-hairline px-3 py-2 t-body tnum break-words"
+            >
+              {b.content}
+            </p>
+          )
+        }
+        return (
+          <p key={i} className="t-body break-words" style={{ lineHeight: 1.7 }}>
+            {renderInline(b.content)}
+          </p>
+        )
+      })}
+    </div>
+  )
+}
+
+/* ── T/F 퀴즈 캐러셀 — 한 번에 한 문제씩, 화살표/도트로 옆으로 넘긴다 ──── */
+function TrueFalseQuizCarousel({ quizzes = [] }) {
+  const [index, setIndex] = useState(0)
+  const [answers, setAnswers] = useState({}) // index -> boolean
+
+  const total = quizzes.length
+  const q = quizzes[index]
+
+  /**
+   * 문제가 없으면 아무것도 그리지 않는다.
+   *
+   * 예전에는 표본이 늘 3~4문항이라 빈 배열이 올 일이 없었다. 이제 실제 대화에서 만드니
+   * 얘기가 짧으면 0문항이 나올 수 있고, 그때 q.answer 를 읽다 **화면 전체가 하얘졌다.**
+   */
+  if (!q) return null
+  const selected = answers[index]
+  const answered = selected !== undefined
+  const isCorrect = answered && selected === q.answer
+
+  const go = (dir) => setIndex((i) => (i + dir + total) % total)
+
+  return (
+    <div className="rounded-md border border-hairline bg-white/70 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <span className="t-caption text-muted">
+          {index + 1} / {total}
+        </span>
+        <div className="flex items-center gap-1.5">
+          <IconBtn label="이전 퀴즈" tone="plain" onClick={() => go(-1)} disabled={total <= 1}>
+            <ChevronLeft size={16} aria-hidden="true" />
+          </IconBtn>
+          <IconBtn label="다음 퀴즈" tone="plain" onClick={() => go(1)} disabled={total <= 1}>
+            <ChevronRight size={16} aria-hidden="true" />
+          </IconBtn>
+        </div>
+      </div>
+
+      <div key={index} className="fade-in">
+        <p className="t-body break-words min-h-[48px]">{q.statement}</p>
+        <div className="mt-3 flex gap-2">
+          {[true, false].map((v) => {
+            const isSel = selected === v
+            const isRight = q.answer === v
+            return (
+              <button
+                key={String(v)}
+                type="button"
+                onClick={() => setAnswers((a) => ({ ...a, [index]: v }))}
+                disabled={answered}
+                className={[
+                  'flex-1 rounded-full border px-4 py-1.5 t-item transition-colors duration-300',
+                  answered && isRight
+                    ? 'bg-sage border-[var(--text-dark)] font-semibold'
+                    : answered && isSel
+                      ? 'bg-peach border-[var(--danger)]'
+                      : 'bg-white border-hairline hover:bg-[var(--hover-bg)]',
+                ].join(' ')}
+              >
+                {v ? 'True' : 'False'}
+              </button>
+            )
+          })}
+        </div>
+        {answered && (
+          <p className="t-help mt-2.5 fade-in">
+            <span className={isCorrect ? 'font-semibold' : 'font-semibold text-[var(--danger)]'}>
+              {isCorrect ? '정답이에요.' : '다시 확인해봐요.'}
+            </span>{' '}
+            {q.explanation}
+          </p>
+        )}
+      </div>
+
+      {/* 도트 인디케이터 — 원하는 문제로 바로 이동 */}
+      <div className="mt-4 flex justify-center gap-1.5">
+        {quizzes.map((_, i) => (
+          <button
+            key={i}
+            type="button"
+            aria-label={`퀴즈 ${i + 1}번으로 이동`}
+            onClick={() => setIndex(i)}
+            className={[
+              'h-1.5 rounded-full transition-all duration-300',
+              i === index ? 'w-5 bg-[var(--text-strong)]' : 'w-1.5 bg-[var(--disabled)]',
+            ].join(' ')}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** 개념 아코디언 한 줄 — 안 누르면 개념명만, 누르면 Markdown Viewer가 펼쳐진다 */
+function ConceptToggle({ title, markdown, open, onToggle }) {
+  return (
+    <div className="rounded-md border border-hairline bg-white/70 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[var(--hover-bg)] transition-colors duration-300"
+      >
+        <span
+          className={[
+            'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-colors duration-300',
+            open
+              ? 'bg-[var(--text-strong)] border-[var(--text-strong)] text-[var(--bg-warm)]'
+              : 'border-hairline text-subtle',
+          ].join(' ')}
+        >
+          {open ? <ChevronUp size={15} aria-hidden="true" /> : <ChevronDown size={15} aria-hidden="true" />}
+        </span>
+        <span className="t-item min-w-0 truncate">{title}</span>
+      </button>
+      {open && (
+        <div className="border-t border-hairline px-4 py-4 fade-in max-h-[320px] overflow-y-auto scroll-soft">
+          <MarkdownViewer markdown={markdown} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ── 지역 헬퍼 (§규칙 3: 새 의존 파일을 만들지 않는다) ────── */
 
-/** ① 주제의 원천 — 세 갈래 분기 (§6-4 [판단]) */
+function parseKey(key) {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
+/** 최근 7일(오래된 → 최신) 키 */
+const recent7Keys = () => Array.from({ length: 7 }, (_, i) => daysAgoKey(6 - i))
+
+/** ① 주제의 원천 — 세 갈래 분기 (§6-4 [판단]) — 기존 로직 그대로 */
 function resolveTopic(session, messages) {
   const topics = Array.isArray(session.topics)
     ? session.topics.filter(Boolean)
@@ -66,14 +406,12 @@ function resolveTopic(session, messages) {
       ? [session.topic]
       : []
 
-  // 업로드 O · 추출 성공 → 최대 2개 + "외 N건"
   if (topics.length) {
     const head = topics.slice(0, 2).join(' · ')
     const rest = topics.length - 2
     return { kind: 'topic', title: rest > 0 ? `${head} 외 ${rest}건` : head }
   }
 
-  // 업로드 O · 추출 실패 → 파일명 그대로 (데모 단계 기본값)
   const files = messages.filter((m) => m.kind === 'file' && m.body).map((m) => m.body)
   if (files.length || session.topic_source === 'document') {
     const head = files.slice(0, 2).join(' · ') || '업로드한 자료'
@@ -81,11 +419,10 @@ function resolveTopic(session, messages) {
     return { kind: 'file', title: rest > 0 ? `${head} 외 ${rest}건` : head }
   }
 
-  // 업로드 X
   return { kind: 'none', title: '오늘의 공부' }
 }
 
-/** [판단] 표시 캐릭터 — 이번 세션에서 가장 많이 상호작용한 메이트, 동률이면 1번 자리 */
+/** [판단] 표시 캐릭터 — 이번 세션에서 가장 많이 상호작용한 메이트 — 기존 로직 그대로 */
 function pickMate(seats, messages) {
   const count = new Map()
   messages.forEach((m) => {
@@ -106,60 +443,103 @@ function pickMate(seats, messages) {
   return seats.find((s) => s.enabled) || seats[0]
 }
 
-/** 이번 주(월요일 00:00 시작) 집중 시간 합계 (§8-4) */
-function myWeeklyFocusSec() {
-  const from = todayKey(weekStart())
-  return db
-    .getDailyStats()
-    .filter((r) => r.date >= from)
-    .reduce((a, r) => a + (r.total_focus_sec || 0), 0)
+/** 이탈 횟수를 시각적으로 나눈 흐름 구간 — 정확한 타임라인이 아니라 비율 기반 근사치 */
+function buildFlowSegments(focusSec, awaySec, awayCount) {
+  if (!awayCount || awaySec <= 0) return [{ type: 'focus', pct: 100 }]
+  const gaps = awayCount + 1
+  const focusPer = focusSec / gaps
+  const awayPer = awaySec / awayCount
+  const raw = []
+  for (let i = 0; i < awayCount; i++) {
+    raw.push({ type: 'focus', sec: focusPer })
+    raw.push({ type: 'away', sec: awayPer })
+  }
+  raw.push({ type: 'focus', sec: focusPer })
+  const total = raw.reduce((a, s) => a + s.sec, 0) || 1
+  return raw.map((s) => ({ ...s, pct: (s.sec / total) * 100 }))
 }
 
-/* ── 2단계 카드 (§6-4 2단계) ────────────────────────────── */
+/** 다운로드용 평문 요약 — 모달의 "내용 요약" 텍스트 그대로 내려받는다 */
+function buildSummaryDownloadText({ startedLabel, topic, summaryText }) {
+  return [`오늘의 공부 요약`, `날짜: ${startedLabel}`, `주제: ${topic.title}`, '', summaryText].join('\n')
+}
 
-function StatCard({ icon, label, period, badge, children, note, className = '', delay = '' }) {
+/* ── 작은 부품들 ──────────────────────────────────────────── */
+
+function SummaryCard({ icon, label, value, unit, hint, muted, delay = '' }) {
   return (
-    <div className={`glass-read enter-up ${delay} rounded-md p-5 ${className}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2 text-subtle">
-          <span aria-hidden="true">{icon}</span>
-          <span className="t-item">{label}</span>
-        </div>
-        {badge && (
-          <span className="shrink-0 rounded-full bg-lavender border border-hairline px-2.5 py-1 t-caption">
-            {badge}
-          </span>
-        )}
+    <div className={`glass-read enter-up ${delay} rounded-md p-5 min-w-0`}>
+      <div className="flex items-center gap-2 text-subtle">
+        <span aria-hidden="true">{icon}</span>
+        <span className="t-item truncate">{label}</span>
       </div>
-      {period && <div className="t-caption mt-1 text-muted">{period}</div>}
-      <div className="mt-3">{children}</div>
-      {note && <div className="t-help mt-3 pt-3 border-t border-hairline">{note}</div>}
-    </div>
-  )
-}
-
-/** 큰 수치 한 줄 — 값 대신 안내 문구가 들어갈 때는 크기를 줄인다 */
-function Metric({ value, unit, muted }) {
-  return (
-    <div className={muted ? 't-section text-muted' : 't-metric tnum'}>
-      {value}
-      {unit && <span className="t-section ml-1 font-semibold">{unit}</span>}
-    </div>
-  )
-}
-
-/** 막대 하나 — 트랙 --chart-track / 채움 --chart-focus (§6-4 비교 바 색상 재정의) */
-function Bar({ pct, strong }) {
-  return (
-    <div className="h-2.5 w-full rounded-full bg-chart-track overflow-hidden">
       <div
-        className="h-full rounded-full bg-chart-focus"
-        style={{
-          width: `${Math.max(0, Math.min(100, pct))}%`,
-          opacity: strong ? 1 : 0.55,
-          transition: 'width 900ms var(--ease-soft)',
-        }}
-      />
+        className={muted ? 't-section text-muted mt-2' : 'mt-2 tnum font-semibold'}
+        style={muted ? undefined : { fontSize: 34, letterSpacing: '-0.02em', color: 'var(--text-strong)' }}
+      >
+        {value}
+        {unit && !muted && <span className="t-body ml-1 font-semibold text-subtle">{unit}</span>}
+      </div>
+      {hint && <p className="t-help mt-2 truncate">{hint}</p>}
+    </div>
+  )
+}
+
+/** 흐름 바 — 집중(초록) / 이탈(코랄) 구간을 이어붙인 막대 */
+function FlowBar({ segments, on }) {
+  return (
+    <div className="flex h-3 w-full overflow-hidden rounded-full bg-chart-track">
+      {segments.map((s, i) => (
+        <div
+          key={i}
+          className="h-full"
+          style={{
+            width: `${on ? s.pct : 0}%`,
+            background: s.type === 'away' ? 'var(--accent-coral)' : 'var(--chart-focus)',
+            transition: `width 900ms var(--ease-soft) ${i * 40}ms`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** 지난 기록 비교용 작은 박스 */
+function MiniStat({ icon, label, value, note }) {
+  return (
+    <div className="rounded-md border border-hairline bg-white/70 px-4 py-3.5 min-w-0">
+      <div className="flex items-center gap-2 text-subtle">
+        <span aria-hidden="true">{icon}</span>
+        <span className="t-caption">{label}</span>
+      </div>
+      <div className="t-section tnum mt-1">{value}</div>
+      {note && <p className="t-help mt-0.5 truncate">{note}</p>}
+    </div>
+  )
+}
+
+/** 최근 7일 집중시간 막대 그래프 — 홈 화면 추이 그래프와 같은 톤 */
+function WeekBars({ days }) {
+  const max = Math.max(1, ...days.map((d) => d.focusSec))
+  return (
+    <div className="flex items-end gap-2.5 h-20">
+      {days.map((d) => (
+        <div key={d.key} className="flex flex-1 flex-col items-center gap-1.5">
+          <div className="flex h-14 w-full items-end">
+            <div
+              className="w-full rounded-t-sm bg-chart-focus"
+              style={{
+                height: d.focusSec ? `${Math.max(6, (d.focusSec / max) * 100)}%` : '2px',
+                opacity: d.isToday ? 1 : 0.55,
+                transition: 'height 700ms var(--ease-soft)',
+              }}
+            />
+          </div>
+          <span className={`t-caption ${d.isToday ? 'font-semibold text-strong' : 'text-muted'}`}>
+            {d.weekday}
+          </span>
+        </div>
+      ))}
     </div>
   )
 }
@@ -167,26 +547,44 @@ function Bar({ pct, strong }) {
 /* ── 본체 ────────────────────────────────────────────────── */
 
 export default function EndingScreen() {
-  // 셀렉터는 필드 단위로 하나씩 구독한다
   const go = useStore((s) => s.go)
   const seats = useStore((s) => s.seats)
   const lastSessionId = useStore((s) => s.lastSessionId)
   const openSettings = useStore((s) => s.openSettings)
 
-  const [stage, setStage] = useState(1)
-  const [nearBottom, setNearBottom] = useState(false)
-  const [arrowFocused, setArrowFocused] = useState(false)
-  const [barOn, setBarOn] = useState(false) // 진입 후 비교 바를 늘린다 (존 A)
+  const [barOn, setBarOn] = useState(false) // 진입 후 진행 막대를 채운다 (존 A)
   const [countdown, setCountdown] = useState(5)
+  const [summaryOpen, setSummaryOpen] = useState(false) // "공부 내용 요약" 오버레이
+  const [openConceptKey, setOpenConceptKey] = useState(null) // 처음엔 입력창만 보이고, 검색 결과가 열리면서 채워진다
+  /**
+   * 오늘 공부한 것 정리. 실제 기록에서 만든다 (lib/review.js).
+   * 만들 게 없으면 표본을 대신 보여주지 않고 없다고 말한다.
+   */
+  const [review, setReview] = useState(null)
+  const [reviewState, setReviewState] = useState('idle') // idle · loading · ok · empty · error
+  const [reviewWhy, setReviewWhy] = useState('')
 
-  const downRef = useRef(null)
-  const upRef = useRef(null)
-  const stage1Ref = useRef(null)
-  const stage2Ref = useRef(null)
-  const scrollRef = useRef(null)
-  const mounted = useRef(false)
+  /**
+   * 요약을 가져온다. 세션당 한 번 만들고 그 뒤로는 저장된 걸 준다 —
+   * 볼 때마다 내용이 달라지면 기록으로서 쓸모가 없다.
+   *
+   * 화면에 들어오자마자 부르지 않는다. 사용자가 "공부 내용 요약 보기"를 누르기 전에는
+   * 이 패널이 보이지도 않는데, 미리 부르면 안 볼 사람 몫까지 호출한다.
+   */
+  const loadReview = useCallback(
+    async (force = false) => {
+      if (!lastSessionId) return
+      if (force) db.clearReview(lastSessionId)
+      setReviewState('loading')
+      const r = await ensureReview(lastSessionId, seats.find((x) => x.enabled) || seats[0])
+      setReview(r.review || null)
+      setReviewWhy(r.why || '')
+      setReviewState(r.state)
+    },
+    [lastSessionId, seats],
+  )
 
-  /* 세션 로드 — 없으면 안내 후 홈으로 */
+  /* 세션 로드 — 기존 db·계산 로직 재사용 (메인 화면용) */
   const data = useMemo(() => {
     const session = lastSessionId ? db.getSession(lastSessionId) : null
     if (!session) return null
@@ -207,25 +605,19 @@ export default function EndingScreen() {
     const score = session.score ?? computeScore(snapshot)
     const tone = commentTone(score, snapshot)
 
-    // 2단계 원천
-    const quiz = db.getQuizResults(session.id)
-    const points = db.getStudyPoints(session.id)
-    const today = db.getDaily(todayKey())
-    const yesterday = db.getDaily(daysAgoKey(1))
-    const peers = db.getPeers() || []
-    const myWeek = myWeeklyFocusSec()
-
-    const todayFocus = today ? today.total_focus_sec || 0 : snapshot.focusSec || 0
-    const yFocus = yesterday ? yesterday.total_focus_sec || 0 : null
-    const diff = yFocus == null ? null : todayFocus - yFocus
-
-    const higher = peers.filter((p) => (p.weekly_focus_sec || 0) > myWeek).length
-    const topPct = Math.max(1, Math.min(99, Math.round(((higher + 1) / (peers.length + 1)) * 100)))
-
-    const friends = peers
-      .filter((p) => p.is_friend)
-      .map((p) => ({ name: p.name, sec: p.weekly_focus_sec || 0, me: false }))
-    const chart = [...friends, { name: '나', sec: myWeek, me: true }].sort((a, b) => b.sec - a.sec)
+    // 지난 기록 비교 — 최근 7일 (오늘 포함, §8-4와 같은 로컬 기준)
+    const byDate = new Map(db.getDailyStats().map((r) => [r.date, r]))
+    const todayK = daysAgoKey(0)
+    const week = recent7Keys().map((k) => ({
+      key: k,
+      weekday: WEEKDAY[(parseKey(k).getDay() + 6) % 7],
+      isToday: k === todayK,
+      focusSec: k === todayK ? (measured ? snapshot.focusSec || 0 : 0) : byDate.get(k)?.total_focus_sec || 0,
+    }))
+    const daysWithStudy = week.filter((d) => d.focusSec > 0)
+    const avgFocusSec = daysWithStudy.length
+      ? Math.round(daysWithStudy.reduce((a, d) => a + d.focusSec, 0) / daysWithStudy.length)
+      : 0
 
     return {
       session,
@@ -235,18 +627,14 @@ export default function EndingScreen() {
       snapshot,
       score,
       tone,
-      quiz,
-      points,
-      diff,
-      yFocus,
+      week,
+      avgFocusSec,
       streak: db.streakDays(),
-      topPct,
-      chart,
       relaxed: session.integrity === 'relaxed',
     }
   }, [lastSessionId, seats])
 
-  /* 세션이 없을 때 — 안내 후 자동으로 홈 (§3-3) */
+  /* 세션이 없을 때 — 안내 후 자동으로 홈 (§3-3) — 기존 로직 그대로 */
   useEffect(() => {
     if (data) return
     if (countdown <= 0) {
@@ -257,68 +645,24 @@ export default function EndingScreen() {
     return () => clearTimeout(t)
   }, [data, countdown, go])
 
-  /* 비교 바 진입 애니메이션 */
+  /* 진행 막대 진입 애니메이션 */
   useEffect(() => {
     const t = setTimeout(() => setBarOn(true), 420)
     return () => clearTimeout(t)
   }, [])
 
-  /* 하단 화살표 — 마우스를 화면 하단으로 옮기면 fade-in (§6-4) */
-  useEffect(() => {
-    if (stage !== 1) return
-    const onMove = (e) => setNearBottom(e.clientY > window.innerHeight - 150)
-    window.addEventListener('mousemove', onMove)
-    return () => window.removeEventListener('mousemove', onMove)
-  }, [stage])
+  // Dialog 내부 effect가 onClose를 의존성으로 재실행되기 때문에, 렌더마다 새로 만들어지는
+  // 함수를 넘기면 타이핑 중 매 keystroke마다 포커스가 튕겨 나간다. useCallback으로 고정한다.
+  const closeSummary = useCallback(() => {
+    setSummaryOpen(false)
+    setOpenConceptKey(null)
+  }, [])
 
-  /* 키보드만으로 전부 조작 가능 (§6-4 [판단] 접근성 보완 · §11)
-     1단계: ↓ / PageDown / Enter → 2단계   2단계: ↑ / PageUp / Esc → 1단계 */
-  useEffect(() => {
-    if (!data) return
-    const onKey = (e) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      const el = e.target
-      const tag = (el?.tagName || '').toLowerCase()
-      const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || el?.isContentEditable
-
-      if (stage === 1) {
-        if (e.key === 'ArrowDown' || e.key === 'PageDown') {
-          e.preventDefault()
-          setStage(2)
-        } else if (e.key === 'Enter' && !typing && tag !== 'button' && tag !== 'a') {
-          // 버튼에 포커스가 있을 때의 Enter는 그 버튼의 것이다
-          e.preventDefault()
-          setStage(2)
-        }
-      } else {
-        const atTop = (scrollRef.current?.scrollTop || 0) <= 4
-        if (e.key === 'Escape') {
-          e.preventDefault()
-          setStage(1)
-        } else if ((e.key === 'ArrowUp' || e.key === 'PageUp') && atTop && !typing) {
-          e.preventDefault()
-          setStage(1)
-        }
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [stage, data])
-
-  /* 단계 전환 시 포커스를 따라가게 하고, 숨은 단계는 포커스에서 빼둔다 (§11) */
-  useEffect(() => {
-    if (stage1Ref.current) stage1Ref.current.inert = stage !== 1
-    if (stage2Ref.current) stage2Ref.current.inert = stage !== 2
-    if (!mounted.current) {
-      mounted.current = true
-      return
-    }
-    const t = setTimeout(() => {
-      if (stage === 2) upRef.current?.focus()
-      else downRef.current?.focus()
-    }, 520)
-    return () => clearTimeout(t)
-  }, [stage])
+  /** 요약 패널을 연다. 이때 처음으로 정리를 만든다 */
+  const openSummary = useCallback(() => {
+    setSummaryOpen(true)
+    if (reviewState === 'idle') loadReview()
+  }, [reviewState, loadReview])
 
   /* ── 세션 없음 ─────────────────────────────────────────── */
   if (!data) {
@@ -330,7 +674,7 @@ export default function EndingScreen() {
           style={{ width: 420, height: 420, right: '10%', bottom: '8%' }}
         />
         <div className="relative flex h-full items-center justify-center">
-          <div className="glass-read enter-up w-[520px] rounded-lg p-9 text-center">
+          <div className="glass-read enter-up w-full max-w-[520px] rounded-md p-9 text-center">
             <h1 className="t-section">보여드릴 학습 기록이 없어요</h1>
             <p className="t-body text-subtle mt-2">
               이번에 마친 세션을 찾지 못했어요. 홈 화면에서 다시 시작할 수 있어요.
@@ -347,466 +691,321 @@ export default function EndingScreen() {
     )
   }
 
-  const { session, topic, mate, measured, snapshot, score, tone, relaxed } = data
+  const { session, topic, mate, measured, snapshot, score, tone, week, avgFocusSec, streak, relaxed } = data
   const preset = PRESETS[mate?.preset] ? mate.preset : 'mina'
   const mateName = mate?.name || PRESETS[preset].name
   const studySec = snapshot.studySec
   const focusSec = snapshot.focusSec
   const focusPct = measured && studySec > 0 ? Math.round((focusSec / studySec) * 100) : 0
-  const arrowShown = nearBottom || arrowFocused
+  const mateLine = (MATE_LINES[tone] || MATE_LINES.neutral)[preset] || MATE_LINES.neutral.mina
+  const mates = activeSeats(seats)
+  const startedLabel = new Date(session.started_at).toLocaleString('ko-KR', {
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+  const flowSegments = measured
+    ? buildFlowSegments(focusSec, snapshot.awaySec || 0, snapshot.awayCount || 0)
+    : null
+
+  const handleDownload = () => {
+    const text = buildSummaryDownloadText({
+      startedLabel,
+      topic,
+      summaryText: review?.summaryText || '',
+    })
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `study-summary-${session.id}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-warm">
-      {/* 화면 전체가 위로 슬라이드된다 — 스크롤이 아니라 transform (§6-4 2단계) */}
+    <div className="relative min-h-full overflow-hidden bg-warm">
+      {/* 존 A 배경 블롭 — 홈·엔딩만 허용 (§4-3) */}
+      <div className="blob bg-sage" style={{ width: 520, height: 520, top: -190, left: -140 }} />
       <div
-        className="absolute inset-x-0 top-0"
-        style={{
-          height: '200%',
-          transform: stage === 2 ? 'translateY(-50%)' : 'translateY(0)',
-          transition: 'transform 720ms var(--ease-soft)',
-        }}
-      >
-        {/* ══ 1단계 — 요약 ══════════════════════════════════ */}
-        <section ref={stage1Ref} className="relative h-1/2 w-full overflow-hidden" aria-label="학습 요약">
-          {/* 존 A: 배경 블롭 허용 (§4-3) */}
-          <div className="blob bg-sage" style={{ width: 520, height: 520, left: '4%', top: '6%' }} />
-          <div
-            className="blob blob-delayed bg-lavender"
-            style={{ width: 460, height: 460, right: '6%', bottom: '4%' }}
-          />
+        className="blob blob-delayed bg-lavender"
+        style={{ width: 460, height: 460, top: 260, right: -160 }}
+      />
 
-          {/* 캐릭터 — 좌측 하단 고정 (§6-4) */}
-          <div className="absolute left-12 bottom-8 z-10 enter-up d1 flex flex-col items-center gap-1">
-            <CharacterSprite
-              imageKey={mate?.imageKey || PRESETS[preset].imageKey}
-              size={280}
-              state="studying"
-            />
-            <span className="t-caption rounded-full bg-surface border border-hairline px-3 py-1">
-              {mateName}
-            </span>
-          </div>
-
-          {/* 말풍선 — 캐릭터를 제외한 화면 대부분 */}
-          <div className="absolute left-[368px] right-16 top-14 bottom-16">
-            <div className="relative h-full">
-              {/* 꼬리 — 캐릭터 방향(좌측 하단). 테두리용 + 면용 삼각형 2겹 */}
-              <span
-                aria-hidden="true"
-                className="absolute"
-                style={{
-                  left: -27,
-                  bottom: 78,
-                  width: 0,
-                  height: 0,
-                  borderTop: '19px solid transparent',
-                  borderBottom: '19px solid transparent',
-                  borderRight: '27px solid rgba(255,255,255,.8)',
-                }}
+      <div className="relative mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-10 pb-16 pt-10">
+        {/* ══ 상단 — 캐릭터 + 말풍선, 오늘의 공부 자료 ══ */}
+        <section
+          aria-label="오늘의 공부"
+          className="glass-read glass-spec enter-up rounded-lg overflow-hidden"
+        >
+          <div className="flex items-stretch gap-8 p-9">
+            <div className="shrink-0 flex flex-col items-center justify-end gap-2">
+              <CharacterSprite
+                imageKey={mate?.imageKey || PRESETS[preset].imageKey}
+                size={172}
+                state="studying"
               />
-              <span
-                aria-hidden="true"
-                className="absolute"
-                style={{
-                  left: -25,
-                  bottom: 79,
-                  width: 0,
-                  height: 0,
-                  borderTop: '18px solid transparent',
-                  borderBottom: '18px solid transparent',
-                  borderRight: '25px solid rgba(255,255,255,.94)',
-                }}
-              />
+              <span className="t-caption rounded-full bg-surface border border-hairline px-3 py-1">
+                {mateName}
+              </span>
+            </div>
 
-              <div className="glass-read glass-spec enter-up flex h-full flex-col rounded-lg overflow-hidden">
-                <div className="flex-1 overflow-y-auto scroll-soft px-12 py-8">
-                  {/* ① 오늘 공부한 주제 (§6-4) */}
-                  <div className="fade-in d1">
-                    <div className="t-caption text-muted">오늘 공부한 주제</div>
-                    <h1 className="t-screen mt-1">{topic.title}</h1>
-                    <p className="t-help mt-1">
-                      {topic.kind === 'topic' && '업로드한 자료에서 주제를 뽑아봤어요.'}
-                      {topic.kind === 'file' && '자료에서 주제를 뽑지 못해 파일 이름을 그대로 적었어요.'}
-                      {topic.kind === 'none' && '업로드한 자료가 없어 오늘의 공부로 기록했어요.'}
-                    </p>
-                  </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="t-screen fade-in d1">오늘의 공부</h1>
+              <div className="fade-in d2 mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 t-help">
+                <span className="inline-flex items-center gap-1.5">
+                  <Calendar size={14} aria-hidden="true" /> {startedLabel}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <Timer size={14} aria-hidden="true" /> {fmtShort(studySec)} 함께함
+                </span>
+                {mates.length > 0 && (
+                  <span className="inline-flex items-center gap-1.5 min-w-0">
+                    <Users size={14} aria-hidden="true" className="shrink-0" />
+                    <span className="truncate">{mates.map((m) => m.name).join(', ')}와 함께</span>
+                  </span>
+                )}
+              </div>
 
-                  {/* ② 이번 공부 시간 / 이번 집중 시간 (§8-1 라벨) */}
-                  <div className="fade-in d2 mt-7 pt-7 border-t border-hairline">
-                    <div className="t-caption text-muted">이번 학습 시간</div>
-                    <div className="mt-2 flex items-end gap-12">
-                      <div>
-                        <div className="t-help">이번 공부 시간</div>
-                        <div className="t-section tnum mt-0.5">{fmtHuman(studySec)}</div>
-                      </div>
-                      <div>
-                        <div className="t-help">이번 집중 시간</div>
-                        <div className="t-section tnum mt-0.5">
-                          {measured ? fmtHuman(focusSec) : '측정 안 함'}
-                        </div>
-                      </div>
-                    </div>
+              <div className="fade-in d3 mt-3 min-w-0">
+                <span className="t-caption text-muted">자료</span>
+                <p className="t-item mt-0.5 truncate">{topic.title}</p>
+              </div>
 
-                    {measured ? (
-                      <div className="mt-4 max-w-[620px]">
-                        {/* 비교 바 — 트랙=공부 시간, 채움=집중 시간. 빨간 바를 쓰지 않는다 (§6-4) */}
-                        <div className="h-3.5 w-full rounded-full bg-chart-track overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-chart-focus"
-                            style={{
-                              width: `${barOn ? focusPct : 0}%`,
-                              transition: 'width 1100ms var(--ease-soft)',
-                            }}
-                          />
-                        </div>
-                        <div className="mt-2 flex items-center gap-5 t-caption">
-                          <span className="inline-flex items-center gap-1.5">
-                            <span
-                              className="inline-block h-2.5 w-2.5 rounded-full bg-chart-focus"
-                              aria-hidden="true"
-                            />
-                            집중 시간 {focusPct}%
-                          </span>
-                          <span className="inline-flex items-center gap-1.5">
-                            <span
-                              className="inline-block h-2.5 w-2.5 rounded-full bg-chart-track"
-                              aria-hidden="true"
-                            />
-                            전체 공부 시간
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      /* §8-3 폴백 — 감지가 꺼져 있으면 비교 바를 표시하지 않는다 */
-                      <div className="mt-4 flex max-w-[620px] items-center gap-4 rounded-sm bg-peach border border-hairline px-4 py-3">
-                        <Info size={18} className="shrink-0 text-subtle" aria-hidden="true" />
-                        <p className="t-body flex-1">집중 측정이 꺼져 있어 이번에는 공부 시간만 기록했어요</p>
-                        <Button variant="secondary" onClick={() => openSettings('me')}>
-                          <Settings size={15} aria-hidden="true" />
-                          설정 열기
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* ③ 오늘의 학습 점수 (§8-4 문구 통일) */}
-                  <div className="fade-in d3 mt-7 pt-7 border-t border-hairline">
-                    <div className="t-caption text-muted">오늘의 학습 점수</div>
-                    <p className="t-body mt-1">오늘 나의 집중 점수는?</p>
-                    <div className="t-metric tnum mt-1">
-                      {score}
-                      <span className="t-section ml-1 font-semibold">점</span>
-                    </div>
-                    {!measured && (
-                      <p className="t-help mt-1">집중 측정이 꺼져 있어 공부 시간만으로 계산한 점수예요.</p>
-                    )}
-                  </div>
-
-                  {/* ④ 스터디 메이트의 한마디 — 평가자가 아니라 동료 (§1-3) */}
-                  <div className="fade-in d4 mt-7 pt-7 border-t border-hairline">
-                    <div className="t-caption text-muted">{mateName}의 한마디</div>
-                    <p className="t-body mt-1 max-w-[720px]">
-                      {(MATE_LINES[tone] || MATE_LINES.neutral)[preset] || MATE_LINES.neutral.mina}
-                    </p>
-                  </div>
-                </div>
-
-                {/* CTA — 말풍선 제일 하단 */}
-                <div className="border-t border-hairline px-12 py-5 flex items-center justify-between">
-                  <span className="t-help">아래 화살표(또는 ↓ 키)로 더 자세한 기록을 볼 수 있어요.</span>
-                  <Button variant="primary" onClick={() => go('home')}>
-                    홈 화면으로 돌아가기
-                  </Button>
-                </div>
+              <div className="fade-in d4 relative mt-4 max-w-full sm:max-w-[600px] rounded-md bg-peach border border-hairline px-5 py-4">
+                <span
+                  aria-hidden="true"
+                  className="absolute -left-2 top-6 h-4 w-4 rotate-45 bg-peach border-l border-b border-hairline"
+                />
+                <p className="t-body relative">{mateLine}</p>
               </div>
             </div>
           </div>
+        </section>
 
-          {/* 하단 화살표 — 평소 낮은 투명도, 마우스 하단 이동/포커스 시 fade-in (§6-4 [판단]) */}
-          <div className="absolute inset-x-0 bottom-3 z-20 flex justify-center">
-            <button
-              ref={downRef}
-              type="button"
-              aria-label="세부 요약 보기"
-              onClick={() => setStage(2)}
-              onFocus={() => setArrowFocused(true)}
-              onBlur={() => setArrowFocused(false)}
-              className="inline-flex flex-col items-center gap-0.5 rounded-full px-5 py-2 text-subtle hover:bg-[var(--hover-bg)]"
-              style={{
-                opacity: arrowShown ? 1 : 0.28,
-                transition: 'opacity 420ms var(--ease-soft)',
-              }}
-            >
-              <span className="t-caption">세부 요약</span>
-              <ChevronDown size={22} aria-hidden="true" />
-            </button>
+        {/* ══ 이번 학습시간 ══ */}
+        <section aria-label="이번 학습시간" className="glass-read enter-up d1 mt-6 rounded-md p-6">
+          <span className="t-item">이번 학습시간</span>
+
+          <div className="mt-4 grid grid-cols-3 gap-5">
+            <SummaryCard
+              icon={<Timer size={16} aria-hidden="true" />}
+              label="공부 시간"
+              value={fmtShort(studySec)}
+              hint={fmtHuman(studySec)}
+            />
+            <SummaryCard
+              icon={<Sparkles size={16} aria-hidden="true" />}
+              label="집중 시간"
+              value={measured ? fmtShort(focusSec) : '측정 안 함'}
+              muted={!measured}
+              hint={measured ? `전체 시간의 ${focusPct}%` : '집중 감지가 꺼져 있었어요'}
+            />
+            <SummaryCard
+              icon={<Sparkles size={16} aria-hidden="true" />}
+              label="오늘의 학습 점수"
+              value={score}
+              unit="점"
+              hint={measured ? undefined : '공부 시간만으로 계산했어요'}
+            />
+          </div>
+
+          {/* 집중 흐름 바 — 초록 집중 / 코랄 이탈 구간 (비율 기반 근사치) */}
+          {measured ? (
+            <div className="mt-5">
+              <FlowBar segments={flowSegments} on={barOn} />
+              <div className="mt-2 flex items-center gap-5 t-caption">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-chart-focus" aria-hidden="true" />
+                  집중 구간
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-coral" aria-hidden="true" />
+                  이탈 구간
+                </span>
+                {relaxed && (
+                  <span className="rounded-full border border-hairline px-2.5 py-0.5">완화 모드</span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 flex items-center gap-4 rounded-sm bg-peach border border-hairline px-4 py-3">
+              <Info size={18} className="shrink-0 text-subtle" aria-hidden="true" />
+              <p className="t-body flex-1">집중 측정이 꺼져 있어 이번에는 공부 시간만 기록했어요.</p>
+              <Button variant="secondary" onClick={() => openSettings('me')}>
+                <Settings size={15} aria-hidden="true" />
+                설정 열기
+              </Button>
+            </div>
+          )}
+        </section>
+
+        {/* ══ 지난 기록 비교 ══ */}
+        <section aria-label="지난 기록 비교" className="glass-read enter-up d2 mt-6 rounded-md p-6">
+          <span className="t-item">지난 기록 비교</span>
+
+          <div className="mt-4 grid grid-cols-[1fr_1fr_1.4fr] gap-5">
+            <MiniStat
+              icon={<Timer size={15} aria-hidden="true" />}
+              label="최장 집중 시간"
+              value={measured ? fmtShort(snapshot.bestStreakSec || 0) : '측정 안 함'}
+              note={measured ? '이탈로 끊기지 않은 가장 긴 구간' : '집중 감지가 꺼져 있었어요'}
+            />
+            <MiniStat
+              icon={<DoorOpen size={15} aria-hidden="true" />}
+              label="집중 이탈 횟수"
+              value={measured ? `${snapshot.awayCount || 0}회` : '측정 안 함'}
+              note={measured ? '60초 이상 자리를 비운 경우만' : '집중 감지가 꺼져 있었어요'}
+            />
+            <div className="rounded-md border border-hairline bg-white/70 px-4 py-3.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="t-caption text-subtle">최근 7일 집중 시간</span>
+                <div className="flex items-center gap-2">
+                  <span className="t-caption rounded-full bg-sage border border-hairline px-2.5 py-1 inline-flex items-center gap-1">
+                    <Flame size={12} aria-hidden="true" /> 연속 {streak}일
+                  </span>
+                  <span className="t-caption rounded-full bg-lavender border border-hairline px-2.5 py-1">
+                    평균 {fmtShort(avgFocusSec)}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-3">
+                <WeekBars days={week} />
+              </div>
+            </div>
           </div>
         </section>
 
-        {/* ══ 2단계 — 세부 요약 (§6-4 [결정 7] 8개 항목 전부) ══ */}
-        <section ref={stage2Ref} className="relative h-1/2 w-full bg-warm" aria-label="세부 요약">
-          <div ref={scrollRef} className="h-full overflow-y-auto scroll-soft">
-            <div className="mx-auto w-full max-w-[1180px] px-16 pb-24 pt-10">
-              <div className="flex items-start justify-between gap-6">
-                <div>
-                  <h2 className="t-screen">세부 요약</h2>
-                  <p className="t-help mt-1">
-                    {new Date(session.started_at).toLocaleString('ko-KR', {
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}{' '}
-                    시작한 세션 · 총 {fmtShort(studySec)}
-                  </p>
-                </div>
-                <button
-                  ref={upRef}
-                  type="button"
-                  aria-label="요약 화면으로 돌아가기"
-                  onClick={() => setStage(1)}
-                  className="inline-flex flex-col items-center gap-0.5 rounded-full px-5 py-2 text-subtle hover:bg-[var(--hover-bg)]"
-                >
-                  <ChevronUp size={22} aria-hidden="true" />
-                  <span className="t-caption">돌아가기 (Esc)</span>
-                </button>
+        {/* ══ 공부 내용 요약 진입 ══ */}
+        <div className="mt-6 flex justify-center">
+          <Button variant="secondary" onClick={openSummary}>
+            <BookOpen size={16} aria-hidden="true" />
+            공부 내용 요약 보기
+          </Button>
+        </div>
+
+        {/* ══ 하단 CTA ══ */}
+        <div className="mt-6 flex justify-center gap-3">
+          <Button variant="secondary" onClick={() => go('lobby')}>
+            다시 공부하기
+          </Button>
+          <Button variant="primary" onClick={() => go('home')}>
+            홈 화면으로 돌아가기
+          </Button>
+        </div>
+      </div>
+
+      {/* ══ "공부 내용 요약" 모달 — demoSessionReview 기반 UI 렌더링 테스트 ══
+          왼쪽: 분야 그룹 → 개념 토글 → Markdown Viewer
+          오른쪽: 심화 학습 포인트 · T/F 퀴즈 · 내용 요약 */}
+      <Dialog open={summaryOpen} onClose={closeSummary} title="공부 내용 요약" width={1080} height={640}>
+        <div className="flex h-full flex-col">
+          <header className="flex items-center justify-between px-8 py-5 border-b border-hairline">
+            <h2 className="t-section">공부 내용 요약</h2>
+            <IconBtn label="닫기 (ESC)" tone="plain" onClick={closeSummary}>
+              <span className="t-caption">ESC</span>
+            </IconBtn>
+          </header>
+
+          <div className="flex-1 overflow-y-auto scroll-soft px-4 sm:px-8 py-4 sm:py-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+              {/* ── 왼쪽: 공부한 개념 — 분야 그룹 + 개념 토글 + Markdown Viewer ── */}
+              <div>
+                <h3 className="t-item mb-3">공부한 개념</h3>
+
+                {reviewState === 'loading' && (
+                  <p className="t-body text-subtle">오늘 나눈 얘기를 정리하는 중이에요…</p>
+                )}
+
+                {reviewState === 'ok' &&
+                  flattenConcepts(review.conceptGroups).map((concept) => (
+                    <div key={concept.key} className="mb-3">
+                      <span className="t-caption bg-sage border-hairline mb-1.5 inline-block rounded-full border px-2.5 py-1">
+                        {concept.groupLabel}
+                      </span>
+                      <ConceptToggle
+                        title={concept.title}
+                        markdown={concept.markdown}
+                        open={openConceptKey === concept.key}
+                        onToggle={() =>
+                          setOpenConceptKey((cur) => (cur === concept.key ? null : concept.key))
+                        }
+                      />
+                    </div>
+                  ))}
+
+                {/* 없으면 없다고 말한다. 표본을 대신 보여주면 그걸 오늘 공부한 걸로 읽는다 */}
+                {(reviewState === 'empty' || reviewState === 'error') && (
+                  <div className="border-hairline rounded-md border border-dashed p-5">
+                    <p className="t-body">{reviewWhy || '정리할 내용이 아직 없어요.'}</p>
+                    <p className="t-help mt-2">
+                      {reviewState === 'error'
+                        ? '잠시 뒤에 다시 만들어 볼 수 있어요.'
+                        : '메이트와 개념을 좀 더 이야기하거나 자료를 올리면 여기에 정리돼요.'}
+                    </p>
+                    {reviewState === 'error' && (
+                      <Button variant="secondary" className="mt-3" onClick={() => loadReview(true)}>
+                        다시 만들기
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* ── 이 기기에서 바로 측정한 값 ── */}
-              <h3 className="t-section mt-9">이번 세션 기록</h3>
-              <p className="t-help mb-3">이 기기에서 이번 세션 동안 직접 측정한 값이에요.</p>
-
-              <div className="grid grid-cols-3 gap-4">
-                {/* 1 최장 집중 시간 */}
-                <StatCard
-                  icon={<Timer size={17} />}
-                  label="최장 집중 시간"
-                  delay="d1"
-                  note={measured ? '이탈로 끊기지 않은 가장 긴 구간이에요.' : null}
-                >
-                  {measured ? (
-                    <Metric value={fmtShort(snapshot.bestStreakSec || 0)} />
-                  ) : (
-                    <>
-                      <Metric value="측정 안 함" muted />
-                      <p className="t-help mt-2">집중 감지가 꺼져 있어 기록하지 않았어요.</p>
-                    </>
-                  )}
-                </StatCard>
-
-                {/* 2 집중 이탈 횟수 */}
-                <StatCard
-                  icon={<DoorOpen size={17} />}
-                  label="집중 이탈 횟수"
-                  delay="d2"
-                  note={measured ? '60초 이상 자리를 비운 경우만 셌어요. 휴식은 빼고요.' : null}
-                >
-                  {measured ? (
-                    <Metric value={snapshot.awayCount || 0} unit="회" />
-                  ) : (
-                    <>
-                      <Metric value="측정 안 함" muted />
-                      <p className="t-help mt-2">집중 감지가 꺼져 있어 기록하지 않았어요.</p>
-                    </>
-                  )}
-                </StatCard>
-
-                {/* 7 기습 질문 응답 결과 */}
-                <StatCard icon={<HelpCircle size={17} />} label="기습 질문 응답 결과" delay="d3">
-                  {data.quiz.length ? (
-                    <>
-                      <Metric
-                        value={`성공 ${data.quiz.filter((q) => q.is_correct).length} / 전체 ${data.quiz.length}`}
-                      />
-                      <ul className="mt-3 space-y-1.5">
-                        {data.quiz.slice(0, 3).map((q) => (
-                          <li key={q.id} className="t-help flex items-start gap-2">
-                            <span className="t-caption mt-0.5 shrink-0 rounded-full border border-hairline px-2 py-0.5">
-                              {q.is_correct ? '성공' : '아쉬움'}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate">{q.question}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  ) : (
-                    <p className="t-body text-subtle">이번 세션에는 기습 질문이 없었어요.</p>
-                  )}
-                </StatCard>
-
-                {/* 8 심화 학습 포인트 */}
-                <StatCard
-                  icon={<Lightbulb size={17} />}
-                  label="심화 학습 포인트"
-                  delay="d4"
-                  className="col-span-3"
-                >
-                  {data.points.length ? (
-                    <ul className="grid grid-cols-2 gap-x-8 gap-y-2">
-                      {data.points.map((p) => (
-                        <li key={p.id} className="t-body flex items-start gap-2">
+              {/* ── 오른쪽: 심화 학습 포인트 · T/F 퀴즈 · 내용 요약 ── */}
+              {reviewState === 'ok' && (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="t-item mb-1 flex items-center gap-2">
+                      <Lightbulb size={16} className="text-subtle" aria-hidden="true" />
+                      심화 학습 포인트
+                    </h3>
+                    <p className="t-help mb-3">오늘 공부한 개념과 이어지는 다른 개념들이에요.</p>
+                    <ul className="space-y-2">
+                      {(review?.deepeningPoints || []).map((p) => (
+                        <li key={p.title} className="t-body flex items-start gap-2">
                           <span
                             className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-coral"
                             aria-hidden="true"
                           />
-                          <span>
-                            {p.text}
-                            {p.source_doc && <span className="t-help ml-2">({p.source_doc})</span>}
+                          <span className="min-w-0 break-words">
+                            <span className="font-semibold">{p.title}</span> — {p.body}
                           </span>
                         </li>
                       ))}
                     </ul>
-                  ) : (
-                    <p className="t-body text-subtle">이번 세션에서 따로 정리된 포인트는 없었어요.</p>
-                  )}
-                </StatCard>
-              </div>
-
-              {/* ── 계정 기록이 있어야 보이는 값 ── */}
-              <h3 className="t-section mt-10">지난 기록과 비교</h3>
-              <p className="t-help mb-3">
-                계정에 쌓인 학습 기록과 다른 이용자 기록이 필요한 항목이에요. 지금은 데모 데이터로 보여주고
-                있어요.
-              </p>
-
-              <div className="grid grid-cols-3 gap-4">
-                {/* 3 전일 대비 집중 시간 */}
-                <StatCard
-                  icon={<TrendingUp size={17} />}
-                  label="전일 대비 집중 시간"
-                  period="이번 주 기준 · 어제와 비교"
-                  badge="이번 주 · 데모 데이터"
-                  delay="d1"
-                >
-                  {!measured || data.diff == null ? (
-                    <>
-                      <Metric value={!measured ? '측정 안 함' : '비교할 기록 없음'} muted />
-                      <p className="t-help mt-2">
-                        {!measured
-                          ? '집중 감지가 꺼져 있어 비교하지 않았어요.'
-                          : '어제 기록이 없어 비교하지 못했어요.'}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <span
-                          aria-hidden="true"
-                          className={data.diff > 0 ? 'text-[var(--chart-focus)]' : 'text-muted'}
-                        >
-                          {data.diff > 0 ? (
-                            <TrendingUp size={26} />
-                          ) : data.diff < 0 ? (
-                            <TrendingDown size={26} />
-                          ) : (
-                            <Minus size={26} />
-                          )}
-                        </span>
-                        <span className="t-metric tnum">{fmtShort(Math.abs(data.diff))}</span>
-                      </div>
-                      <p className="t-body mt-1">
-                        {data.diff > 0
-                          ? '어제보다 더 집중했어요.'
-                          : data.diff < 0
-                            ? '어제보다는 조금 짧았어요.'
-                            : '어제와 거의 같아요.'}
-                      </p>
-                      <p className="t-help mt-1 tnum">어제 집중 시간 {fmtShort(data.yFocus || 0)}</p>
-                    </>
-                  )}
-                </StatCard>
-
-                {/* 4 연속 학습일 */}
-                <StatCard
-                  icon={<Flame size={17} />}
-                  label="연속 학습일"
-                  period="이번 주 기준 · 오늘까지"
-                  badge="이번 주 · 데모 데이터"
-                  delay="d2"
-                  note="하루 10분 이상 공부한 날만 셉니다."
-                >
-                  <Metric value={data.streak} unit="일" />
-                </StatCard>
-
-                {/* 6 전체 이용자 대비 주간 상위 % */}
-                <StatCard
-                  icon={<Trophy size={17} />}
-                  label="전체 이용자 대비"
-                  period="이번 주 기준 · 주간 집중 시간"
-                  badge="이번 주 · 데모 데이터"
-                  delay="d3"
-                  note={relaxed ? '완화 모드로 측정해 순위 집계에서 제외됨' : null}
-                >
-                  <div
-                    aria-hidden={relaxed ? 'true' : undefined}
-                    style={relaxed ? { filter: 'blur(6px)', opacity: 0.45 } : undefined}
-                  >
-                    <Metric value={`상위 ${data.topPct}%`} />
                   </div>
-                  {relaxed && (
-                    <p className="t-body mt-2">
-                      이번 세션은 순위에 넣지 않았어요. 종이책·강의 모드에서는 이탈을 세지 않기 때문이에요.
-                    </p>
-                  )}
-                </StatCard>
 
-                {/* 5 친구 대비 주간 비교 */}
-                <StatCard
-                  icon={<Users size={17} />}
-                  label="친구 대비 주간 집중 시간"
-                  period="이번 주 기준 (월요일 시작)"
-                  badge="이번 주 · 데모 데이터"
-                  delay="d4"
-                  className="col-span-3"
-                  note={relaxed ? '완화 모드로 측정해 순위 집계에서 제외됨' : null}
-                >
-                  {relaxed && (
-                    <p className="t-body mb-3">
-                      이번 세션은 친구 비교에서 빠졌어요. 아래 순위는 참고용으로만 흐리게 보여드려요.
-                    </p>
-                  )}
-                  <div
-                    aria-hidden={relaxed ? 'true' : undefined}
-                    style={relaxed ? { filter: 'blur(5px)', opacity: 0.5 } : undefined}
-                  >
-                    <ul className="space-y-2.5">
-                      {data.chart.map((row) => {
-                        const max = Math.max(1, ...data.chart.map((r) => r.sec))
-                        return (
-                          <li key={row.name} className="flex items-center gap-4">
-                            <span
-                              className={`t-item w-20 shrink-0 ${row.me ? 'font-semibold' : 'text-subtle'}`}
-                            >
-                              {row.name}
-                              {row.me && (
-                                <span className="t-caption ml-1 rounded-full border border-hairline bg-peach px-1.5 py-0.5">
-                                  나
-                                </span>
-                              )}
-                            </span>
-                            <span className="flex-1">
-                              <Bar pct={barOn ? (row.sec / max) * 100 : 0} strong={row.me} />
-                            </span>
-                            <span className="t-caption tnum w-24 shrink-0 text-right">
-                              {fmtShort(row.sec)}
-                            </span>
-                          </li>
-                        )
-                      })}
-                    </ul>
+                  <div>
+                    <h3 className="t-item mb-3 flex items-center gap-2">
+                      <HelpCircle size={16} className="text-subtle" aria-hidden="true" />
+                      T/F 퀴즈
+                    </h3>
+                    <TrueFalseQuizCarousel quizzes={review?.trueFalseQuizzes || []} />
                   </div>
-                </StatCard>
-              </div>
 
-              <div className="mt-10 flex justify-center">
-                <Button variant="primary" onClick={() => go('home')}>
-                  홈 화면으로 돌아가기
-                </Button>
-              </div>
+                  <div className="rounded-md border border-hairline bg-white/70 p-4">
+                    <h3 className="t-item mb-2 flex items-center gap-2">
+                      <FileText size={16} className="text-subtle" aria-hidden="true" />
+                      내용 요약
+                    </h3>
+                    <p className="t-body break-words" style={{ lineHeight: 1.7 }}>
+                      {review?.summaryText || ''}
+                    </p>
+                    <div className="mt-4 flex justify-center">
+                      <Button variant="secondary" onClick={handleDownload}>
+                        <Download size={15} aria-hidden="true" />
+                        요약 다운로드
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        </section>
-      </div>
+        </div>
+      </Dialog>
     </div>
   )
 }

@@ -6,7 +6,35 @@
  * 화면 코드는 절대 localStorage를 직접 만지지 않는다.
  */
 
-const KEY = 'studyroom.db.v1'
+import { accountKeyOf, loadAccount } from '../lib/auth'
+
+/**
+ * 저장 칸은 **계정마다 하나씩**이다. `studyroom.db.v1:<계정키>`.
+ *
+ * 로그인 전에 공부한 기록은 `guest` 칸에 남는다. 로그인해도 그 칸을 지우지 않는다 —
+ * 로그아웃하면 그대로 다시 보인다.
+ *
+ * 예전 버전은 접미사 없이 `studyroom.db.v1` 하나만 썼다. 이미 그 키로 쌓인 기록이
+ * 있는 브라우저에서는 guest 칸으로 옮겨 준다(원본은 지우지 않는다 — 되돌릴 수 있게).
+ */
+const KEY_BASE = 'studyroom.db.v1'
+
+let accountKey = accountKeyOf(loadAccount())
+
+const storageKey = () => `${KEY_BASE}:${accountKey}`
+
+function migrateLegacy() {
+  if (typeof localStorage === 'undefined') return
+  try {
+    const legacy = localStorage.getItem(KEY_BASE)
+    if (legacy && !localStorage.getItem(`${KEY_BASE}:guest`)) {
+      localStorage.setItem(`${KEY_BASE}:guest`, legacy)
+    }
+  } catch (e) {
+    console.warn('[db] 예전 기록 이전 실패', e)
+  }
+}
+migrateLegacy()
 
 const emptyDb = () => ({
   user: null,
@@ -18,6 +46,8 @@ const emptyDb = () => ({
   quiz_result: [],
   study_point: [],
   memory_item: [],
+  /** 올린 자료의 글 본문. 계정별로 갈리므로 남의 자료가 섞이지 않는다 */
+  document: [],
   friendship: [],
   message: [],
   peers: [], // 랭킹용 더미 이용자 (§9-4)
@@ -28,7 +58,7 @@ let cache = null
 function read() {
   if (cache) return cache
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(storageKey())
     cache = raw ? { ...emptyDb(), ...JSON.parse(raw) } : emptyDb()
   } catch {
     cache = emptyDb()
@@ -38,7 +68,7 @@ function read() {
 
 function write() {
   try {
-    localStorage.setItem(KEY, JSON.stringify(cache))
+    localStorage.setItem(storageKey(), JSON.stringify(cache))
   } catch (e) {
     console.warn('[db] 저장 실패', e)
   }
@@ -142,6 +172,37 @@ export const db = {
     return read().user
   },
 
+  /** 지금 열려 있는 칸의 이름 */
+  accountKey() {
+    return accountKey
+  },
+
+  /**
+   * 다른 계정의 칸으로 갈아탄다.
+   *
+   * 갈아타기 전에 지금 칸을 먼저 저장한다. 저장하지 않고 캐시를 버리면
+   * 로그인 직전에 한 공부가 통째로 날아간다.
+   *
+   * @returns {boolean} 실제로 칸이 바뀌었는가
+   */
+  useAccount(key) {
+    const next = key || 'guest'
+    if (next === accountKey) return false
+    if (cache) write()
+    accountKey = next
+    cache = null
+    seedIfEmpty() // 새 칸이면 사용자 레코드와 데모 기록을 만든다
+    return true
+  },
+
+  /** 로그인해서 알게 된 이름·사진을 사용자 레코드에 반영한다 */
+  setUser(patch) {
+    const d = read()
+    d.user = { ...(d.user || {}), ...patch }
+    write()
+    return d.user
+  },
+
   /* 설정 (roomConfig) */
   loadConfig() {
     const d = read()
@@ -170,6 +231,16 @@ export const db = {
       score: null,
       score_mode: 'full',
       integrity: 'strict',
+      /**
+       * 이번 세션에 하려는 것. 대기 화면에서 한 줄 받는다.
+       *
+       * 목표 추적(F4)이 **원문 그대로 인용**해야 해서 문자열을 그대로 보관한다.
+       * 비어 있으면 F4 는 아예 발동하지 않는다 — 없는 목표를 지어내지 않는다.
+       */
+      goal: '',
+      /** 사용자가 답한 진도. "2장까지 했어" 같은 원문 */
+      goal_progress: '',
+      goal_progress_at: null,
       topics: [],
       topic_source: 'none',
     }
@@ -244,6 +315,93 @@ export const db = {
   getQuizResults(sessionId) {
     return read().quiz_result.filter((q) => q.session_id === sessionId)
   },
+  /* 올린 자료 (§ 계정별 RAG) ────────────────────────────────
+     localStorage 는 출처(origin) 전체를 다 합쳐 5MB 안팎이다. 계정 칸이 여러 개면
+     그 5MB 를 나눠 쓴다. 그래서 자료는 **개수와 길이를 둘 다** 막는다.
+     넘치면 오래된 것부터 버린다 — 방금 올린 자료를 못 쓰게 되는 게 제일 나쁘다. */
+  MAX_DOCS: 30,
+  MAX_DOC_CHARS: 20000,
+
+  /**
+   * 엔딩 요약. 세션당 한 번 만들고 그대로 둔다.
+   *
+   * 열 때마다 새로 만들면 **볼 때마다 내용이 달라진다.** 어제 정리한 걸 오늘 다시 봤는데
+   * 개념이 바뀌어 있으면 기록으로서 쓸모가 없다.
+   */
+  saveReview(sessionId, review) {
+    const s = read().session.find((x) => x.id === sessionId)
+    if (!s) return
+    s.review = review
+    s.review_at = Date.now()
+    write()
+  },
+
+  getReview(sessionId) {
+    return read().session.find((x) => x.id === sessionId)?.review || null
+  },
+
+  /** 다시 만들기 — 실패했을 때만 */
+  clearReview(sessionId) {
+    const s = read().session.find((x) => x.id === sessionId)
+    if (!s) return
+    s.review = null
+    s.review_at = null
+    write()
+  },
+
+  addDocument({ name, text, sessionId = null }) {
+    const body = String(text || '').slice(0, db.MAX_DOC_CHARS)
+    if (!body.trim()) return null
+    const d = read()
+    // 같은 이름을 다시 올리면 덮어쓴다. 같은 자료가 두 벌 쌓이면 검색이 중복으로 나온다
+    d.document = (d.document || []).filter((x) => x.name !== name)
+    const doc = {
+      id: uid(),
+      name,
+      text: body,
+      chars: body.length,
+      session_id: sessionId,
+      added_at: Date.now(),
+    }
+    d.document.push(doc)
+    if (d.document.length > db.MAX_DOCS) d.document = d.document.slice(-db.MAX_DOCS)
+    try {
+      write()
+    } catch {
+      // 저장 공간이 꽉 찼다. 절반을 버리고 한 번만 다시 시도한다
+      d.document = d.document.slice(Math.floor(d.document.length / 2))
+      write()
+    }
+    return doc
+  },
+
+  getDocuments() {
+    return read().document || []
+  },
+
+  deleteDocument(id) {
+    const d = read()
+    d.document = (d.document || []).filter((x) => x.id !== id)
+    write()
+  },
+
+  /** 세션 목표를 적어 둔다 (대기 화면에서 한 번) */
+  setGoal(sessionId, text) {
+    const s = read().session.find((x) => x.id === sessionId)
+    if (!s) return
+    s.goal = String(text || '').slice(0, 60)
+    write()
+  },
+
+  /** 진도 응답을 기록한다. 다음 확인 때 이 지점부터 묻는다 */
+  setProgress(sessionId, text) {
+    const s = read().session.find((x) => x.id === sessionId)
+    if (!s) return
+    s.goal_progress = String(text || '').slice(0, 120)
+    s.goal_progress_at = Date.now()
+    write()
+  },
+
   addStudyPoint(sessionId, text, sourceDoc = null) {
     const d = read()
     if (d.study_point.some((p) => p.session_id === sessionId && p.text === text)) return
@@ -273,6 +431,20 @@ export const db = {
     const live = d.session
       .filter((s) => s.ended_at == null && todayKey(new Date(s.started_at)) === todayKey())
       .reduce((a, s) => a + s.study_sec, 0)
+    return persisted + live
+  },
+
+  /**
+   * 오늘 집중한 시간. 화면의 시계가 쓴다.
+   * 총 시간은 화면 앞에 있던 시간이고, 이건 실제로 집중한 시간이다 (§8-2).
+   */
+  todayFocusSec() {
+    const d = read()
+    const t = d.daily_stat.find((s) => s.date === todayKey())
+    const persisted = t ? t.total_focus_sec || 0 : 0
+    const live = d.session
+      .filter((s) => s.ended_at == null && todayKey(new Date(s.started_at)) === todayKey())
+      .reduce((a, s) => a + (s.focus_sec || 0), 0)
     return persisted + live
   },
 

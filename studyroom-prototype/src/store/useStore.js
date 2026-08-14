@@ -10,6 +10,9 @@
 import { create } from 'zustand'
 import { db } from './db'
 import { defaultSeats } from '../lib/presets'
+import { DEFAULT_OWNER, validateOwner } from '../lib/agent/functions'
+import { toneOf } from '../lib/agent/tone'
+import { GUEST, accountKeyOf, clearAccount, displayNameOf, loadAccount, saveAccount } from '../lib/auth'
 
 export const DEFAULT_SETTINGS = {
   // 집중 및 개입 (§6-5)
@@ -41,6 +44,16 @@ export const DEFAULT_SETTINGS = {
     quietTo: '07:00',
   },
 
+  /**
+   * 어느 캐릭터가 어느 기능을 맡는가. 값은 좌석 번호.
+   *
+   * 좌석 배열이 아니라 **방 전체의 맵 하나**에 둔다. 맵이면 중복 배정과 미배정이
+   * 자료 구조상 표현 불가능해지고, 세 좌석을 동시에 고칠 때 중간 상태가 저장되지 않는다.
+   * 게다가 settings 에는 이미 마이그레이션(mergeSettings)이 있어 기존 사용자가
+   * 기본 배정을 공짜로 받는다.
+   */
+  functionOwner: { ...DEFAULT_OWNER },
+
   // 대화 운영 (§6-5)
   replyPolicy: 'auto', // primary | mention | auto
   primarySlotNo: 1,
@@ -65,6 +78,9 @@ export const DEFAULT_SETTINGS = {
     awayDetect: true,
     inputDetect: true,
     wipeOnEnd: false,
+    // 카메라로 집중 상태를 본다. 판정은 전부 이 기기 안에서 돌고 영상은 나가지 않는다
+    visionDetect: true,
+    wakeOnDrowsy: true, // 졸음이면 소리로 깨운다
   },
 
   // 음성 — Web Speech API (§13-5b의 답)
@@ -72,11 +88,22 @@ export const DEFAULT_SETTINGS = {
 }
 
 const initial = () => {
+  // db 는 모듈이 로드될 때 이미 저장된 계정의 칸을 열어 둔다 (db.js 의 accountKey)
   db.init()
   db.reconcileOpenSessions()
+  return { account: loadAccount(), ...configOf() }
+}
+
+/**
+ * 지금 열려 있는 칸의 설정을 읽는다.
+ *
+ * 계정을 갈아탈 때마다 이걸 다시 불러야 한다. 스토어는 모듈 로드 시점에 한 번만
+ * 읽으므로, 이 함수 없이 계정만 바꾸면 **앞 계정의 캐릭터 설정이 그대로 남는다.**
+ */
+function configOf() {
   const saved = db.loadConfig()
   return {
-    seats: saved.seats?.length === 3 ? saved.seats : defaultSeats(),
+    seats: saved.seats?.length === 3 ? saved.seats.map(mergeSeat) : defaultSeats(),
     settings: saved.settings ? mergeSettings(saved.settings) : DEFAULT_SETTINGS,
   }
 }
@@ -92,14 +119,32 @@ function mergeSettings(s) {
     memoryFlags: { ...DEFAULT_SETTINGS.memoryFlags, ...(s.memoryFlags || {}) },
     privacyFlags: { ...DEFAULT_SETTINGS.privacyFlags, ...(s.privacyFlags || {}) },
     voice: { ...DEFAULT_SETTINGS.voice, ...(s.voice || {}) },
+    // 배정이 규칙을 어기면(옛 저장값·손댄 값) 기본으로 되돌린다.
+    // 어긋난 배정으로 도는 것보다 기본값이 낫다 — 기능 하나가 조용히 사라지는 게 제일 나쁘다
+    functionOwner: validateOwner(s.functionOwner).length
+      ? { ...DEFAULT_OWNER }
+      : { ...DEFAULT_OWNER, ...(s.functionOwner || {}) },
   }
+}
+
+/**
+ * 좌석 마이그레이션.
+ *
+ * settings 와 달리 좌석에는 마이그레이션이 없었다 — 개수만 3개인지 보고 통과시켰다.
+ * 그래서 축을 바꾸면 **이미 저장된 브라우저**의 좌석에 tone 이 없는 채로 들어온다.
+ * toneOf 가 옛 traits 에서 말투를 유추해 주므로 그걸 한 번 확정해 둔다.
+ */
+function mergeSeat(seat, i) {
+  const base = defaultSeats()[i] || {}
+  const { traits, explainStyle, proactivity, ...rest } = seat || {}
+  return { ...base, ...rest, tone: seat?.tone || toneOf(seat) || base.tone }
 }
 
 const boot = initial()
 
 export const useStore = create((set, get) => ({
-  /* 라우팅 — 홈 → 대기 → 스터디룸 → 엔딩 (§3-2) */
-  route: 'home',
+  /* 라우팅 — 랜딩 → 홈 → 대기 → 스터디룸 → 엔딩 (§3-2, 랜딩 기획서 §8·§10) */
+  route: 'landing',
   go: (route) => set({ route }),
 
   /* deviceState — 방문 한정, 영속화하지 않음 */
@@ -120,10 +165,51 @@ export const useStore = create((set, get) => ({
   stream: null,
   setStream: (stream) => set({ stream }),
 
+  /* 계정 — 데이터 칸을 가르는 이름표 (lib/auth.js) */
+  account: boot.account,
+
+  /**
+   * 로그인. 칸을 갈아타고 그 칸의 설정을 다시 읽는다.
+   *
+   * 진행 중인 세션 id 는 앞 계정 것이라 반드시 버린다. 남겨 두면 새 계정의 db 에
+   * 없는 세션에 대고 heartbeat 를 쏘게 된다.
+   */
+  signIn: (profile) => {
+    saveAccount(profile)
+    db.useAccount(accountKeyOf(profile))
+    db.setUser({
+      display_name: displayNameOf(profile),
+      avatar_url: profile.picture || null,
+      email: profile.email || '',
+      provider: profile.provider,
+    })
+    set({
+      account: profile,
+      displayName: displayNameOf(profile),
+      sessionId: null,
+      lastSessionId: null,
+      ...configOf(),
+    })
+  },
+
+  signOut: () => {
+    clearAccount()
+    db.useAccount('guest')
+    set({
+      account: { ...GUEST },
+      displayName: '나',
+      sessionId: null,
+      lastSessionId: null,
+      route: 'landing',
+      ...configOf(),
+    })
+  },
+
   /* roomConfig — 영속 */
-  displayName: '나',
+  displayName: displayNameOf(boot.account),
   setDisplayName: (v) => {
     set({ displayName: v })
+    db.setUser({ display_name: v })
     get().persist()
   },
 

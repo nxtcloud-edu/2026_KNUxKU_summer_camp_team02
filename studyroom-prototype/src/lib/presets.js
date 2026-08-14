@@ -22,10 +22,8 @@ export const PRESETS = {
     name: 'Mina',
     archetype: 'Focused & Reliable',
     imageKey: 'bear',
-    traits: ['차분함'],
-    explainStyle: 'stepwise',
-    proactivity: 'when_needed',
-    tone: '성실하고 조용한 타입. 공부 관련 정보나 정리 중심으로 이야기한다.',
+    tone: 'T1', // 차분함 — 기존 성격 그대로
+    blurb: '성실하고 조용한 타입. 공부 관련 정보나 정리 중심으로 이야기한다.',
     // 자율 행동 가중치 (§7-1 행동 경향)
     weights: {
       studying: 40,
@@ -45,10 +43,8 @@ export const PRESETS = {
     name: 'Theo',
     archetype: 'Social & Energetic',
     imageKey: 'tiger',
-    traits: ['친근함', '활발함'],
-    explainStyle: 'example',
-    proactivity: 'active',
-    tone: '활발하고 함께 공부하는 걸 좋아한다. 반응이 빠르고 표현이 많다.',
+    tone: 'T2', // 장난스러움 — 기존 개입 문구가 명백히 이 말투였다
+    blurb: '활발하고 함께 공부하는 걸 좋아한다. 반응이 빠르고 표현이 많다.',
     weights: {
       studying: 26,
       writing: 10,
@@ -67,10 +63,10 @@ export const PRESETS = {
     name: 'Juno',
     archetype: 'Chill & Independent',
     imageKey: 'duck',
-    traits: ['차분함', '장난스러움'],
-    explainStyle: 'concise',
-    proactivity: 'rare',
-    tone: '느긋하고 자기 방식대로 공부한다. 예상치 못한 관점을 던진다.',
+    // 끈질김. 문자 그대로면 T1 이지만 그러면 미나와 겹치고 T3·T4 가
+    // 기본 시연에 한 번도 안 나온다. 충돌표 6행 중 3행도 이 배치가 피해 간다
+    tone: 'T4',
+    blurb: '느긋하고 자기 방식대로 공부한다. 예상치 못한 관점을 던진다.',
     weights: {
       studying: 28,
       writing: 8,
@@ -115,21 +111,6 @@ export const STATE_LABEL = {
   typing: '입력 중',
 }
 
-export const TRAIT_OPTIONS = ['차분함', '친근함', '활발함', '장난스러움']
-
-export const EXPLAIN_STYLES = [
-  { value: 'easy', label: '쉽게 설명' },
-  { value: 'example', label: '예시 중심' },
-  { value: 'stepwise', label: '단계별 설명' },
-  { value: 'concise', label: '핵심만 간단히' },
-]
-
-export const PROACTIVITY = [
-  { value: 'rare', label: '거의 말하지 않음', help: '먼저 말을 걸지 않고 질문할 때만 답합니다.' },
-  { value: 'when_needed', label: '필요한 경우에만', help: '도움이 필요해 보일 때만 조심스럽게 말을 겁니다.' },
-  { value: 'active', label: '적극적으로 도움', help: '먼저 말을 걸고 휴식이나 정리를 자주 제안합니다.' },
-]
-
 /** 새 자리 하나를 프리셋으로 초기화 */
 export function seatFromPreset(slotNo, presetKey) {
   const p = PRESETS[presetKey]
@@ -139,9 +120,15 @@ export function seatFromPreset(slotNo, presetKey) {
     preset: presetKey,
     name: p.name,
     imageKey: p.imageKey,
-    traits: [...p.traits],
-    explainStyle: p.explainStyle,
-    proactivity: p.proactivity,
+    /**
+     * 말투 하나로 정한다 (T1~T4).
+     *
+     * 예전에는 성격(다중선택)·설명 방식·개입 정도 세 축이었다. 그런데 설명 방식은
+     * 개념 해설·심화 해설이, 개입 정도는 페이스 케어가 이미 규정한다 — 같은 지시가
+     * 두 레이어에 겹쳐서 어느 쪽을 고쳐야 출력이 바뀌는지 알 수 없었다.
+     * 이제 좌석은 "어떻게 말할지"만 갖고, "무엇을 할지"는 settings.functionOwner 가 갖는다.
+     */
+    tone: p.tone,
   }
 }
 
