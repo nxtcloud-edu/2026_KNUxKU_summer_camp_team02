@@ -234,7 +234,7 @@ export default function HomeScreen() {
         aria-hidden="true"
       />
 
-      <div className="relative mx-auto w-[1240px] px-10 pb-16 pt-10">
+      <div className="relative mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-10 pb-16 pt-10">
         {/* ── 상단 헤더 ── */}
         <header className="glass glass-spec enter-up mb-10 flex items-center justify-between rounded-full py-4 pl-8 pr-4">
           <div className="flex items-baseline gap-3">
@@ -268,7 +268,7 @@ export default function HomeScreen() {
         </header>
 
         {/* ── 1행: 할일 + 주간 스트립 ── */}
-        <div className="mt-8 flex items-stretch gap-6">
+        <div className="mt-8 flex flex-col lg:flex-row items-stretch gap-6">
           <TodoCard
             selected={selected}
             today={today}
@@ -290,7 +290,7 @@ export default function HomeScreen() {
         </div>
 
         {/* ── 2행: 통계 (2/3 너비) + 상점 카드 (1/3 너비) ── */}
-        <div className="relative z-0 mt-6 flex items-stretch gap-6">
+        <div className="relative z-0 mt-6 flex flex-col lg:flex-row items-stretch gap-6">
           <StatsCard
             selected={selected}
             selectedIsToday={selectedIsToday}
@@ -366,7 +366,7 @@ function PlanPopup({ onClose, plans, onUpdatePlans }) {
     <div className="fixed inset-0 z-[9999] flex items-center justify-center" onClick={onClose}>
       {/* 수정사항 1: pb-10으로 하단 여유 확보, overflow-hidden 제거 */}
       <div
-        className="relative flex w-[860px] flex-col rounded-lg border border-hairline bg-surface p-8 pb-10 shadow-soft"
+        className="relative flex w-full max-w-[860px] flex-col rounded-lg border border-hairline bg-surface p-8 pb-10 shadow-soft"
         style={{ height: 560 }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -384,7 +384,7 @@ function PlanPopup({ onClose, plans, onUpdatePlans }) {
 
         <div className="flex flex-1 min-h-0 gap-6">
           {/* 달력 */}
-          <div className={`${selectedDate ? 'w-[380px]' : 'w-full'} transition-all duration-300`}>
+          <div className={`${selectedDate ? 'w-full lg:w-[380px]' : 'w-full'} transition-all duration-300`}>
             <div className="mb-4 flex items-center justify-between">
               <button
                 type="button"
@@ -596,7 +596,7 @@ function TodoCard({ selected, today, selectedPlans, selectedCompleted, onToggle 
   const isToday = selected === today
 
   return (
-    <section className="enter-up d2 flex w-[380px] flex-col rounded-lg border border-hairline bg-surface p-7 shadow-soft">
+    <section className="enter-up d2 flex w-full lg:w-[380px] flex-col rounded-lg border border-hairline bg-surface p-7 shadow-soft">
       <div className="mb-4 flex items-center gap-2">
         <ListTodo size={18} className="text-subtle" aria-hidden="true" />
         <h2 className="t-section">{isToday ? '오늘의 할일' : `${shortLabel(selected)}의 계획`}</h2>
@@ -653,8 +653,7 @@ function StatsCard({ selected, selectedIsToday, selectedSec, selectedScore, week
 
   return (
     <section
-      className="enter-up d3 rounded-lg border border-hairline bg-surface p-7 shadow-soft relative"
-      style={{ width: '70%' }}
+      className="enter-up d3 rounded-lg border border-hairline bg-surface p-7 shadow-soft relative w-full lg:w-[70%]"
     >
       <div className="mb-5 flex items-center gap-2">
         <Clock3 size={18} className="text-subtle" aria-hidden="true" />
@@ -714,8 +713,7 @@ function StatsCard({ selected, selectedIsToday, selectedSec, selectedScore, week
 function ShopCard({ onGoCategory }) {
   return (
     <section
-      className="enter-up d4 flex flex-col rounded-lg border border-hairline bg-surface p-7 shadow-soft"
-      style={{ width: '30%' }}
+      className="enter-up d4 flex flex-col rounded-lg border border-hairline bg-surface p-7 shadow-soft w-full lg:w-[30%]"
     >
       <div className="mb-4 flex items-center gap-2">
         <ShoppingBag size={18} className="text-subtle" aria-hidden="true" />
@@ -756,7 +754,7 @@ function ReviewPopup({ item, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
       <div
-        className="relative w-[480px] rounded-lg border border-hairline bg-surface p-8 shadow-soft"
+        className="relative w-full max-w-[480px] rounded-lg border border-hairline bg-surface p-8 shadow-soft"
         onClick={(e) => e.stopPropagation()}
       >
         <button

@@ -610,7 +610,7 @@ export default function EndingScreen() {
           style={{ width: 420, height: 420, right: '10%', bottom: '8%' }}
         />
         <div className="relative flex h-full items-center justify-center">
-          <div className="glass-read enter-up w-[520px] rounded-md p-9 text-center">
+          <div className="glass-read enter-up w-full max-w-[520px] rounded-md p-9 text-center">
             <h1 className="t-section">보여드릴 학습 기록이 없어요</h1>
             <p className="t-body text-subtle mt-2">
               이번에 마친 세션을 찾지 못했어요. 홈 화면에서 다시 시작할 수 있어요.
@@ -679,7 +679,7 @@ export default function EndingScreen() {
         style={{ width: 460, height: 460, top: 260, right: -160 }}
       />
 
-      <div className="relative mx-auto w-[1100px] px-10 pb-16 pt-10">
+      <div className="relative mx-auto w-full max-w-[1100px] px-4 sm:px-6 lg:px-10 pb-16 pt-10">
         {/* ══ 상단 — 캐릭터 + 말풍선, 오늘의 공부 자료 ══ */}
         <section
           aria-label="오늘의 공부"
@@ -719,7 +719,7 @@ export default function EndingScreen() {
                 <p className="t-item mt-0.5 truncate">{topic.title}</p>
               </div>
 
-              <div className="fade-in d4 relative mt-4 max-w-[600px] rounded-md bg-peach border border-hairline px-5 py-4">
+              <div className="fade-in d4 relative mt-4 max-w-full sm:max-w-[600px] rounded-md bg-peach border border-hairline px-5 py-4">
                 <span
                   aria-hidden="true"
                   className="absolute -left-2 top-6 h-4 w-4 rotate-45 bg-peach border-l border-b border-hairline"
@@ -854,8 +854,8 @@ export default function EndingScreen() {
             </IconBtn>
           </header>
 
-          <div className="flex-1 overflow-y-auto scroll-soft px-8 py-6">
-            <div className="grid grid-cols-2 gap-8">
+          <div className="flex-1 overflow-y-auto scroll-soft px-4 sm:px-8 py-4 sm:py-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
               {/* ── 왼쪽: 공부한 개념 — 분야 그룹 + 개념 토글 + Markdown Viewer ── */}
               <div>
                 <h3 className="t-item mb-3">공부한 개념</h3>

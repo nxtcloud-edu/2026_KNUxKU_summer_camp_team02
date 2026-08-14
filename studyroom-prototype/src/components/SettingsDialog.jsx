@@ -250,7 +250,7 @@ export default function SettingsDialog() {
         title={title}
         labelledBy="settings-title"
         footer={
-          <footer className="glass flex h-[72px] shrink-0 items-center justify-between rounded-none border-0 border-t border-white/60 px-6">
+          <footer className="glass flex h-auto min-h-[72px] shrink-0 flex-wrap items-center justify-between rounded-none border-0 border-t border-white/60 px-4 sm:px-6 py-3 gap-3">
             <div className="flex gap-2">
               <Button variant="secondary" onClick={askReset}>
                 <RotateCcw size={15} /> 기본값으로 초기화
@@ -281,11 +281,11 @@ export default function SettingsDialog() {
           </IconBtn>
         </header>
 
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
           {/* 왼쪽 메뉴 240px — 설정 "대상" 전환 (§6-5 창 레이아웃) */}
           <nav
             aria-label="설정 대상"
-            className="glass w-[240px] shrink-0 overflow-y-auto scroll-soft rounded-none border-0 border-r border-white/60 p-3"
+            className="glass w-full sm:w-[240px] shrink-0 overflow-y-auto scroll-soft rounded-none border-0 border-r border-white/60 p-3"
           >
             <p className="t-caption px-3 pb-2 pt-1">설정 대상</p>
             <TargetItem
@@ -317,7 +317,7 @@ export default function SettingsDialog() {
           </nav>
 
           {/* 본문 — 이 영역만 스크롤한다 */}
-          <div ref={bodyRef} className="min-w-0 flex-1 overflow-y-auto scroll-soft px-8 py-6">
+          <div ref={bodyRef} className="min-w-0 flex-1 overflow-y-auto scroll-soft px-4 sm:px-8 py-4 sm:py-6">
             <div key={String(target)} className="fade-in">
               {isMe ? (
                 <MePanel
@@ -558,7 +558,7 @@ function MePanel({
     <>
       {/* 작은 미리보기 */}
       <div className="mb-6 flex items-center gap-4 rounded-lg border border-hairline bg-surface p-4">
-        <div className="h-[135px] w-[240px] shrink-0 overflow-hidden rounded-sm bg-surface-dark">
+        <div className="h-[100px] sm:h-[135px] w-[160px] sm:w-[240px] shrink-0 overflow-hidden rounded-sm bg-surface-dark">
           {stream && device.cameraOn ? (
             <video
               ref={videoRef}
@@ -654,7 +654,7 @@ function MePanel({
           <Toggle label="좌우 반전" checked={device.mirror} onChange={(v) => setDevice({ mirror: v })} />
         </Row>
         <Row title="배경">
-          <div className="w-[420px]">
+          <div className="w-full max-w-[420px]">
             <CardChoice
               ariaLabel="배경 선택"
               columns={3}
@@ -687,7 +687,7 @@ function MePanel({
       <Section title="프로필">
         <Row title="방에서 보일 이름" help="스터디룸 내 자리에 표시돼요. 최대 12자." last>
           <TextInput
-            className="w-[280px]"
+            className="w-full max-w-[280px]"
             ariaLabel="방에서 보일 이름"
             value={nameDraft}
             onChange={onNameChange}
@@ -883,7 +883,7 @@ function MePanel({
 
       <Section title="대화 운영" help="질문했을 때 누가, 얼마나 답할지 정합니다.">
         <Row title="답변 캐릭터 결정">
-          <div className="w-[460px]">
+          <div className="w-full max-w-[460px]">
             <CardChoice
               ariaLabel="답변 캐릭터 결정"
               columns={1}
@@ -1043,7 +1043,7 @@ function MePanel({
 
       <Section title="기억 범위">
         <Row title="어디까지 기억할까요" last>
-          <div className="w-[520px]">
+          <div className="w-full max-w-[520px]">
             <CardChoice
               ariaLabel="기억 범위"
               columns={3}
@@ -1235,7 +1235,7 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
         </Row>
         <Row title="이름" help="채팅에서 @이름으로 부를 때 쓰는 이름이에요. 최대 12자.">
           <TextInput
-            className="w-[280px]"
+            className="w-full max-w-[280px]"
             ariaLabel={`${seat.slotNo}번 캐릭터 이름`}
             value={nameDraft}
             onChange={onNameChange}
@@ -1265,7 +1265,7 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
           />
         </Row>
         <Row title="말투" help="같은 내용을 어떻게 말할지만 정해요. 무엇을 말할지는 담당 기능이 정합니다.">
-          <div className="w-[420px]">
+          <div className="w-full max-w-[420px]">
             <CardChoice
               ariaLabel="말투"
               columns={2}
@@ -1280,7 +1280,7 @@ function SeatPanel({ seat, seats, updateSeat, setConfirmState, toast }) {
           </div>
         </Row>
         <Row title="이렇게 말해요" help="실제 AI를 부르지 않고 보여주는 예시예요." last>
-          <p className="t-body text-subtle w-[420px] leading-relaxed">
+          <p className="t-body text-subtle w-full max-w-[420px] leading-relaxed">
             {toneSample(seat.tone || 'T1', '개념')}
           </p>
         </Row>

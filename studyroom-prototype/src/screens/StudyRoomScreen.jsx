@@ -1428,10 +1428,13 @@ export default function StudyRoomScreen() {
   const seatName = (no) => seats.find((s) => s.slotNo === no)?.name || `${no}번`
 
   return (
-    <div className="flex h-full min-w-[1280px] flex-col bg-warm">
-      <main className="flex min-h-0 flex-1">
-        {/* ── 좌 72% 참가자 ── */}
-        <section aria-label="참가자" className="min-w-0 p-6" style={{ width: '72%' }}>
+    <div className="flex h-full min-w-0 flex-col bg-warm">
+      <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* ── 좌 72% 참가자 (좁은 화면에서는 위/아래로 쌓인다) ── */}
+        <section
+          aria-label="참가자"
+          className="min-w-0 flex-1 max-h-[60vh] p-4 lg:max-h-none lg:p-6"
+        >
           <div className="grid h-full grid-cols-2 grid-rows-2 gap-4">
             <SelfTile
               stream={stream}
@@ -1464,8 +1467,7 @@ export default function StudyRoomScreen() {
         {/* ── 우 28% 채팅 — 항상 열려 있고 닫기 버튼이 없다 (§6-3) ── */}
         <aside
           aria-label="채팅"
-          className="flex min-h-0 flex-col border-l border-hairline bg-surface"
-          style={{ width: '28%', minWidth: 380 }}
+          className="flex min-h-[40vh] w-full flex-col border-l border-hairline bg-surface lg:min-h-0 lg:w-[28%] lg:min-w-[380px]"
         >
           <header className="flex items-baseline gap-2 border-b border-hairline px-5 py-4">
             <h2 className="t-section">채팅</h2>
@@ -1663,9 +1665,9 @@ export default function StudyRoomScreen() {
       </main>
 
       {/* ── 하단 컨트롤 바 (§6-3) ── */}
-      <footer className="glass glass-spec z-30 mx-4 mb-4 flex h-[76px] shrink-0 items-center rounded-full px-8">
+      <footer className="glass glass-spec z-30 mx-2 mb-4 flex h-[76px] shrink-0 items-center rounded-full px-4 sm:mx-4 sm:px-8">
         {/* 좌 — 오늘 누적 학습 시간 (§8-1). "Today"는 기조의 손글씨 액센트 (§4-2) */}
-        <div className="flex w-[280px] items-baseline gap-2.5">
+        <div className="flex w-auto items-baseline gap-2.5 sm:w-[280px]">
           <span className="font-hand text-[26px] leading-none text-subtle" aria-hidden="true">
             Today
           </span>
@@ -1697,7 +1699,7 @@ export default function StudyRoomScreen() {
         </div>
 
         {/* 우 — 카메라 → 마이크 → 설정 순서 고정 */}
-        <div className="flex w-[280px] items-center justify-end gap-2">
+        <div className="flex w-auto items-center justify-end gap-2 sm:w-[280px]">
           <IconBtn
             label={device.cameraOn ? '카메라 끄기' : '카메라 켜기'}
             aria-pressed={device.cameraOn}

@@ -172,7 +172,7 @@ export default function HomeScreen() {
         aria-hidden="true"
       />
 
-      <div className="relative mx-auto w-[1240px] px-10 pb-16 pt-10">
+      <div className="relative mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-10 pb-16 pt-10">
         {/* ── 상단 헤더 ─────────────────────────────────── */}
         {/* 기조의 nav처럼 떠 있는 유리 pill (§4-4) */}
         <header className="glass glass-spec enter-up mb-10 flex items-center justify-between rounded-full py-4 pl-8 pr-4">
@@ -208,7 +208,7 @@ export default function HomeScreen() {
         </header>
 
         {/* ── 1행: 주간 스트립 + 할일 ────────────────────── */}
-        <div className="mt-8 flex items-stretch gap-6">
+        <div className="mt-8 flex flex-col lg:flex-row items-stretch gap-6">
           <WeekStrip
             days={data.week}
             today={today}
@@ -221,7 +221,7 @@ export default function HomeScreen() {
         </div>
 
         {/* ── 2행: 통계 + 캐릭터 인사 ────────────────────── */}
-        <div className="mt-6 flex items-stretch gap-6">
+        <div className="mt-6 flex flex-col lg:flex-row items-stretch gap-6">
           <StatsCard
             selected={selected}
             selectedIsToday={selectedIsToday}
@@ -326,7 +326,7 @@ function TodoCard() {
   const items = ['알고리즘 문제 3개 풀기', '어제 정리한 노트 다시 읽기', '내일 퀴즈 범위 훑어보기']
 
   return (
-    <section className="enter-up d2 w-[380px] rounded-lg border border-hairline bg-surface p-7 shadow-soft">
+    <section className="enter-up d2 w-full lg:w-[380px] rounded-lg border border-hairline bg-surface p-7 shadow-soft">
       <div className="mb-4 flex items-center gap-2">
         <ListTodo size={18} className="text-subtle" aria-hidden="true" />
         <h2 className="t-section">오늘의 할일</h2>
@@ -522,7 +522,7 @@ function GreetingCard({ seat, line, onStart }) {
   if (!seat) return null
 
   return (
-    <section className="enter-up d4 flex w-[380px] flex-col items-center rounded-lg border border-hairline bg-peach p-7 shadow-soft">
+    <section className="enter-up d4 flex w-full lg:w-[380px] flex-col items-center rounded-lg border border-hairline bg-peach p-7 shadow-soft">
       <div className="mb-1 flex items-center gap-1.5 self-start">
         <Sparkles size={16} className="text-subtle" aria-hidden="true" />
         <h2 className="t-section">{seat.name}</h2>

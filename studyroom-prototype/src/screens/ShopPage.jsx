@@ -175,7 +175,7 @@ function CharCard({ char, onClick, fit = 'cover' }) {
     <button
       type="button"
       onClick={onClick}
-      className="w-[180px] shrink-0 rounded-lg border border-hairline bg-[var(--hover-bg)] p-4 text-left transition-colors duration-200 hover:bg-white hover:shadow-soft"
+      className="w-full max-w-[180px] rounded-lg border border-hairline bg-[var(--hover-bg)] p-4 text-left transition-colors duration-200 hover:bg-white hover:shadow-soft"
     >
       {/* 이미지 — 파일이 있으면 표시, 없으면 ? 플레이스홀더 */}
       <div
@@ -211,7 +211,7 @@ function CharDetailPopup({ char, onClose }) {
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30" onClick={onClose}>
       <div
-        className="relative w-[420px] rounded-lg border border-hairline bg-surface p-8 shadow-soft"
+        className="relative w-full max-w-[420px] rounded-lg border border-hairline bg-surface p-8 shadow-soft"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -298,7 +298,7 @@ export default function ShopPage({ onBack, category }) {
         aria-hidden="true"
       />
 
-      <div className="relative mx-auto w-[1240px] px-10 pb-16 pt-10">
+      <div className="relative mx-auto w-full max-w-[1240px] px-4 sm:px-6 lg:px-10 pb-16 pt-10">
         {/* 뒤로가기 버튼 좌상단 */}
         <button
           type="button"
@@ -340,7 +340,7 @@ export default function ShopPage({ onBack, category }) {
                 )}
 
                 {chars.length > 0 ? (
-                  <div className="grid grid-cols-5 justify-items-center gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 justify-items-center gap-4">
                     {chars.map((char) => (
                       <CharCard
                         key={char.id}
@@ -382,7 +382,7 @@ export default function ShopPage({ onBack, category }) {
           onClick={() => setShowBasicPopup(false)}
         >
           <div
-            className="relative w-[820px] rounded-lg border border-hairline bg-surface px-8 pt-14 pb-8 shadow-soft"
+            className="relative w-full max-w-[820px] rounded-lg border border-hairline bg-surface px-8 pt-14 pb-8 shadow-soft"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -395,7 +395,7 @@ export default function ShopPage({ onBack, category }) {
             </button>
 
             {/* 3개 섹션 */}
-            <div className="flex gap-6">
+            <div className="flex flex-col sm:flex-row gap-6">
               {/* 무료 */}
               <div className="flex-1 rounded-md border border-hairline p-5">
                 <h3 className="t-item font-semibold mb-1">무료</h3>

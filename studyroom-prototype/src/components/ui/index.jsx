@@ -409,7 +409,9 @@ export function Dialog({
         style={{
           width: `min(88vw, ${width}px)`,
           height: `min(86vh, ${height}px)`,
-          minWidth,
+          // 900px 을 그대로 박으면 좁은 화면에서 안쪽 반응형이 하나도 안 먹는다.
+          // 화면이 그보다 좁으면 화면에 맞춘다
+          minWidth: `min(88vw, ${minWidth}px)`,
           // 유리(좌측 메뉴·하단 바)가 읽히려면 뒤에 색이 있어야 한다 (§4-3)
           // plain: 로그인 모달처럼 유리 컨트롤이 없는 작은 대화상자는 장식용 그라데이션이 필요 없다
           background: plain

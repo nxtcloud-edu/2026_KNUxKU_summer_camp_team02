@@ -457,7 +457,7 @@ export default function LobbyScreen() {
             'radial-gradient(680px 340px at 60% 4%, rgba(239,237,244,.75), transparent 58%)',
         }}
       />
-      <header className="relative mx-auto w-[1120px] pt-7">
+      <header className="relative mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-0 pt-7">
         <button
           type="button"
           onClick={leave}
@@ -474,14 +474,14 @@ export default function LobbyScreen() {
       </header>
 
       {/* ── 미리보기 + 입장하기 ─────────────────────────── */}
-      <div className="relative mx-auto mt-6 flex w-[1120px] items-stretch gap-2 enter-up d2">
+      <div className="relative mx-auto mt-6 flex w-full max-w-6xl px-4 sm:px-6 lg:px-0 items-stretch gap-2 enter-up d2">
         <section
           aria-label="본인 미리보기"
           onPointerDown={onPreviewDown}
           onPointerMove={onPreviewMove}
           onPointerUp={onPreviewUp}
           onPointerCancel={onPreviewUp}
-          className="relative h-[430px] flex-1 select-none overflow-hidden rounded-lg bg-surface-dark shadow-soft"
+          className="relative h-[300px] sm:h-[430px] flex-1 select-none overflow-hidden rounded-lg bg-surface-dark shadow-soft"
           style={{ touchAction: 'none' }}
         >
           {/* 나 — 카메라 레이어. 자리를 옮겨도 언마운트하지 않는다(스트림 재생성 금지, §12-3 7) */}
@@ -516,7 +516,7 @@ export default function LobbyScreen() {
                 <div className="t-section text-[var(--bg-warm)]">
                   {acquiring ? '카메라를 켜는 중…' : showIssue ? issue.title : '카메라 꺼짐'}
                 </div>
-                <p className="t-body max-w-[520px] text-[var(--bg-warm)] opacity-80">
+                <p className="t-body max-w-full sm:max-w-[520px] text-[var(--bg-warm)] opacity-80">
                   {acquiring
                     ? '잠시만 기다려 주세요.'
                     : showIssue
@@ -659,7 +659,7 @@ export default function LobbyScreen() {
           onClick={enterRoom}
           disabled={entering || !online}
           aria-label={entering ? '입장 중' : '입장하기'}
-          className="h-auto w-[112px] shrink-0 flex-col gap-1"
+          className="h-auto w-[80px] sm:w-[112px] shrink-0 flex-col gap-1"
           style={{ borderRadius: 24, paddingLeft: 0, paddingRight: 0 }}
         >
           <span
@@ -676,7 +676,7 @@ export default function LobbyScreen() {
       {/* ── 커스텀 패널 — 항상 펼쳐져 있음. 접기/펼치기 없음 (§6-2) ── */}
       <section
         aria-label="자리 미리보기와 설정"
-        className="glass glass-spec relative mx-auto mt-4 flex w-[1120px] items-center gap-6 rounded-full px-14 py-4 enter-up d3"
+        className="glass glass-spec relative mx-auto mt-4 flex w-full max-w-6xl items-center gap-4 sm:gap-6 rounded-full px-6 sm:px-14 py-4 enter-up d3"
       >
         {/* 셀렉터 — 패널 안쪽 왼편을 넓게 차지 */}
         <div className="min-w-0 flex-1">
@@ -694,7 +694,7 @@ export default function LobbyScreen() {
         <div className="h-14 w-px shrink-0 bg-white/70" aria-hidden="true" />
 
         {/* 설정 버튼 — 패널 안쪽 오른쪽 끝의 원형 버튼 (§6-2) */}
-        <div className="flex w-[92px] shrink-0 flex-col items-center gap-1">
+        <div className="flex w-[72px] sm:w-[92px] shrink-0 flex-col items-center gap-1">
           <button
             type="button"
             aria-label={`${targetLabel} 설정 열기`}
@@ -708,7 +708,7 @@ export default function LobbyScreen() {
       </section>
 
       {/* ── 안내 줄 ─────────────────────────────────────── */}
-      <div className="relative mx-auto mt-3 flex w-[1120px] flex-col gap-2">
+      <div className="relative mx-auto mt-3 flex w-full max-w-6xl px-4 sm:px-6 lg:px-0 flex-col gap-2">
         <p className="t-help">
           지점을 누르거나 좌우로 끌어서 자리를 살펴보세요. 방향키 ←·→ 로도 옮길 수 있어요. 캐릭터 자리를 봐도
           내 카메라·마이크는 그대로예요.

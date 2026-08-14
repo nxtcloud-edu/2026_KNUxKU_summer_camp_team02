@@ -17,8 +17,15 @@ import LoginModal from '../components/landing/LoginModal'
 export default function LandingScreen() {
   const [loginOpen, setLoginOpen] = useState(false)
 
+  /*
+   * 넓은 화면은 예전처럼 한 화면에 꽉 채우고(lg:h-full lg:overflow-hidden),
+   * 좁아져 두 패널이 세로로 쌓이면 스크롤을 연다.
+   *
+   * 예전에는 `h-full overflow-hidden` 이라, 세로로 쌓인 뒤 아래로 밀려난
+   * Sign Up / Sign In 에 **닿을 수가 없었다.** 이 앱의 유일한 로그인 진입로다.
+   */
   return (
-    <div className="relative h-full overflow-hidden bg-warm">
+    <div className="relative min-h-full overflow-y-auto bg-warm lg:h-full lg:overflow-hidden">
       <div
         className="blob bg-sage"
         style={{ width: 720, height: 720, top: -280, left: -240, opacity: 0.95 }}
@@ -30,7 +37,7 @@ export default function LandingScreen() {
         aria-hidden="true"
       />
 
-      <div className="relative mx-auto flex h-full max-w-[1240px] w-full items-center justify-between gap-16 px-10">
+      <div className="relative mx-auto flex min-h-full lg:h-full max-w-[1240px] w-full items-center justify-between gap-8 lg:gap-16 px-4 sm:px-6 lg:px-10 flex-col lg:flex-row py-10 lg:py-0">
         <StudyPreview className="enter-up" onOpenLogin={() => setLoginOpen(true)} />
         <BrandPanel onOpenLogin={() => setLoginOpen(true)} />
       </div>
