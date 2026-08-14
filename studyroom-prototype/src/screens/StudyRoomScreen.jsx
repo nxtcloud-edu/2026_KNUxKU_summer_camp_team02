@@ -34,6 +34,7 @@ import {
 import { useListener, listenSupported } from '../lib/voice/useListener'
 import { screenUtterance, looksComplete, joinVoice, WHY_LABEL } from '../lib/voice/gate'
 import { requestSummary, requestReply } from '../lib/agent/client'
+import { readDocumentFile } from '../lib/readDocument'
 import { useVision } from '../lib/vision/useVision'
 import { wakeChime } from '../lib/chime'
 import {
@@ -1042,10 +1043,36 @@ export default function StudyRoomScreen() {
 
   /* ── 문서 업로드 (§6-3, §7-5) ──────────────────────────── */
 
-  const onPickFile = useCallback(
-    async (e) => {
-      const file = e.target.files?.[0]
-      e.target.value = ''
+  /**
+   * 읽어 둔 글을 이 세션에 붙이고 메이트가 한마디 한다.
+   * 로비에서 미리 읽어 온 자료도 이 문으로 들어온다.
+   */
+  const attachDoc = useCallback(
+    async (sid, name, body) => {
+      docRef.current = { name, prompt: toPrompt(name, body) }
+      db.addStudyPoint(sid, `${name} 읽음 (${body.length.toLocaleString()}자)`, name)
+      // 이 계정의 자료 칸에 남긴다. 다음 세션에서 물어도 찾을 수 있게 (lib/userDocs.js)
+      rememberDocument(name, body, sid)
+
+      const speaker = pickInterventionSpeaker(useStore.getState().seats)
+      if (speaker) {
+        await mateSay(speaker, () =>
+          generateReply({
+            seat: speaker,
+            text: `${docRef.current.prompt}\n\n위 자료를 방금 훑어본 사람처럼, 무엇에 대한 자료인지 두세 문장으로 말해줘. 없는 내용을 지어내지 않는다.`,
+            withDoc: true,
+            settings: { ...useStore.getState().settings, replyLength: 'brief' },
+            history: [],
+            summary: '',
+          }),
+        )
+      }
+    },
+    [mateSay],
+  )
+
+  const processFile = useCallback(
+    async (file) => {
       if (!file) return
 
       /**
@@ -1081,91 +1108,82 @@ export default function StudyRoomScreen() {
         topic_source: 'document',
       })
 
-      const plan = await planDocument(file)
+      /**
+       * 읽기 자체는 lib/readDocument.js 가 한다 — **로비도 같은 코드를 쓴다.**
+       * 여기 남는 것은 이 화면에만 있는 것들이다: 채팅 표시, 발언권, 캐릭터 발언.
+       */
+      setReadingDoc(file.name)
+      floorRef.current += 1
+      let got
+      try {
+        got = await readDocumentFile(file, {
+          onStage: (st) =>
+            setReadingDoc(
+              st.chunks > 1 ? `${file.name} · ${st.pages}쪽을 ${st.chunks}조각으로` : file.name,
+            ),
+        })
+      } finally {
+        setReadingDoc(null)
+        floorRef.current = Math.max(0, floorRef.current - 1)
+      }
 
-      if (plan.mode === 'no') {
+      if (!got.ok) {
         // 못 읽으면 못 읽었다고 말한다. 지어내지 않는다
         const s2 = pickInterventionSpeaker(useStore.getState().seats)
         if (s2) {
           await mateSay(s2, async () => {
             await sleep(500)
-            return `“${topic}” 열어봤는데 ${plan.reason}. 중요한 부분만 붙여넣어 주면 같이 볼게.`
+            return `“${topic}” 열어봤는데 ${got.reason}. 중요한 부분만 붙여넣어 주면 같이 볼게.`
           })
         }
         return
       }
 
-      let body = plan.text
-
-      // PDF 는 모델이 직접 읽는다. 우리가 글자를 뽑지 않는다 (docReader 주석 참고).
-      // 한 번 글로 옮겨 두면 이후 질문은 값싼 글자 호출로 끝난다.
-      if (plan.mode === 'model') {
-        // 20초쯤 걸린다. 토스트는 사라지므로 채팅에 계속 남는 표시를 둔다.
-        // 그동안 발언권을 쥐고 있어야 개입 엔진이 끼어들지 않는다 —
-        // 자료를 기다리는데 "오늘 잘하고 있는데?!" 가 튀어나오면 안 된다
-        setReadingDoc(file.name)
-        floorRef.current += 1
-        try {
-          const inline = await asInlineFile(file)
-          const read = (message) => requestReply({ mode: 'extract', settings: {}, turns: [], images: [inline], message })
-
-          /**
-           * 쪽수를 먼저 묻는다. 5~6초짜리 짧은 호출이다.
-           *
-           * PDF 바이트에서 세 보려 했는데 압축된 파일에서는 `/Type /Page` 가 하나도
-           * 안 나온다(실측: 22쪽 논문에서 0개). 모델은 "22"라고 정확히 답한다.
-           */
-          const pageCount = parsePageCount((await read('이 자료는 모두 몇 쪽이야? 숫자만 답해.'))?.text)
-          const ranges = pageCount > WHOLE_DOC_MAX_PAGES ? planRanges(pageCount) : []
-
-          if (ranges.length > 1) {
-            /**
-             * 긴 자료는 조각으로 나눠 **동시에** 읽는다.
-             * 빠르라고가 아니라 **안 잘리려고** 나눈다 — 자세한 사정은 docReader 주석에.
-             */
-            setReadingDoc(`${file.name} · ${pageCount}쪽을 ${ranges.length}조각으로`)
-            const parts = await Promise.all(
-              ranges.map(([a, b]) => read(rangePrompt(file.name, a, b)).then((r) => r?.text || '')),
-            )
-            body = mergePages(parts)
-            if (!body) throw new Error('빈 응답')
-            console.debug(`[doc] ${pageCount}쪽 · ${ranges.length}조각 · ${body.length.toLocaleString()}자`)
-          } else {
-            const got = await read(`"${file.name}" 자료의 내용을 빠짐없이 글로 옮겨 적어줘.`)
-            if (!got?.text) throw new Error('빈 응답')
-            body = got.text
-          }
-        } catch (e) {
-          console.warn('[doc] 자료 읽기 실패', e)
-          toast(`자료를 읽지 못했어요. (${String(e?.message || e).slice(0, 60)})`, 'danger')
-          return
-        } finally {
-          setReadingDoc(null)
-          floorRef.current = Math.max(0, floorRef.current - 1)
-        }
-      }
-
-      docRef.current = { name: file.name, prompt: toPrompt(file.name, body) }
-      db.addStudyPoint(sid, `${file.name} 읽음 (${body.length.toLocaleString()}자)`, file.name)
-      // 이 계정의 자료 칸에 남긴다. 다음 세션에서 물어도 찾을 수 있게 (lib/userDocs.js)
-      rememberDocument(file.name, body, sid)
-
-      const speaker = pickInterventionSpeaker(useStore.getState().seats)
-      if (speaker) {
-        await mateSay(speaker, () =>
-          generateReply({
-            seat: speaker,
-            text: `${docRef.current.prompt}\n\n위 자료를 방금 훑어본 사람처럼, 무엇에 대한 자료인지 두세 문장으로 말해줘. 없는 내용을 지어내지 않는다.`,
-            withDoc: true,
-            settings: { ...useStore.getState().settings, replyLength: 'brief' },
-            history: [],
-            summary: '',
-          }),
-        )
-      }
+      await attachDoc(sid, file.name, got.body)
     },
-    [mateSay, pushMsg],
+    [mateSay, pushMsg, attachDoc, toast],
   )
+
+  const onPickFile = useCallback(
+    (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = '' // 같은 파일을 다시 골라도 change 가 뜨게
+      if (file) processFile(file)
+    },
+    [processFile],
+  )
+
+  /**
+   * 로비에서 미리 올린 자료를 받는다.
+   *
+   * 로비가 **이미 다 읽어 뒀으면**(body) 그대로 붙인다 — 다시 읽지 않는다.
+   * 다 읽기 전에 입장했으면(file) 여기서 이어서 읽는다.
+   *
+   * 시간으로 기다리지 않고 **세션이 실제로 만들어졌는지**를 본다.
+   * 앞선 구현은 setTimeout 2초였는데, 느린 기기에서 세션이 아직 없으면
+   * db.addStudyPoint 가 조용히 아무 데도 안 쓴다.
+   */
+  useEffect(() => {
+    const pending = useStore.getState().pendingDoc
+    if (!pending) return
+    let cancelled = false
+    const tick = setInterval(async () => {
+      if (cancelled || !sidRef.current) return
+      clearInterval(tick)
+      useStore.getState().setPendingDoc(null) // 한 번만 쓴다
+      if (pending.body) {
+        pushMsg({ senderType: 'me', kind: 'file', body: pending.name, file: { name: pending.name } })
+        await attachDoc(sidRef.current, pending.name, pending.body)
+      } else if (pending.file) {
+        await processFile(pending.file)
+      }
+    }, 200)
+    return () => {
+      cancelled = true
+      clearInterval(tick)
+    }
+  }, [attachDoc, processFile, pushMsg])
+
 
   /* ── 상시 받아쓰기 ────────────────────────────────────────
      마이크를 계속 열어 두고, 받아적은 걸 **채팅 입력창에 그대로 쓴다.**

@@ -243,6 +243,20 @@ export const useStore = create((set, get) => ({
   previewTarget: 'me',
   setPreviewTarget: (t) => set({ previewTarget: t }),
 
+  /**
+   * 로비에서 미리 올린 자료 — 입장하면 방이 받아 간다.
+   *
+   * 두 가지 모양이 온다.
+   *   { name, body }  로비에서 **다 읽었다.** 방은 그대로 붙이기만 한다
+   *   { name, file }  아직 읽는 중에 입장했다. 방이 이어서 읽는다
+   *
+   * 이 값을 두는 이유는 22쪽 논문이 28초쯤 걸리기 때문이다. 방에 들어가서 읽으면
+   * 빈 화면을 그만큼 본다. 로비에서 읽으면 그 시간이 카메라·마이크 점검에 묻힌다.
+   * (한 번 쓰고 비운다 — 남겨 두면 다음 세션에 옛 자료가 딸려 들어간다)
+   */
+  pendingDoc: null,
+  setPendingDoc: (d) => set({ pendingDoc: d }),
+
   /* 세션 */
   sessionId: null,
   setSessionId: (id) => set({ sessionId: id }),

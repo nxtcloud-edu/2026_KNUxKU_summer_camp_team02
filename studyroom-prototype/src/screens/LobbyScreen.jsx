@@ -20,8 +20,10 @@ import {
   AlertTriangle,
   WifiOff,
   Users,
+  Paperclip,
 } from 'lucide-react'
 import { useStore, allSeatsOff } from '../store/useStore'
+import { readDocumentFile } from '../lib/readDocument'
 import { db } from '../store/db'
 import { PRESETS } from '../lib/presets'
 import { Button, IconBtn, CharacterSprite } from '../components/ui'
@@ -84,6 +86,7 @@ export default function LobbyScreen() {
   const openSettings = useStore((s) => s.openSettings)
   const displayName = useStore((s) => s.displayName)
   const setSessionId = useStore((s) => s.setSessionId)
+  const setPendingDoc = useStore((s) => s.setPendingDoc)
   const toast = useStore((s) => s.toast)
 
   const videoRef = useRef(null)
@@ -109,6 +112,60 @@ export default function LobbyScreen() {
   const [tick, setTick] = useState(0) // 트랙 ended 등으로 재계산이 필요할 때
   const [counts, setCounts] = useState({ cams: null, mics: null })
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
+
+  /* ── 사전 학습자료 ─────────────────────────────────────
+     doc = { name, note, error }. 실제 본문은 스토어(pendingDoc)에 둔다 —
+     방이 가져갈 것이라 화면 상태로 들고 있을 이유가 없다 */
+  const fileRef = useRef(null)
+  const [doc, setDoc] = useState(null)
+  /** 읽는 도중에 입장하면 컴포넌트가 사라진다. 그 뒤 도착한 결과는 버린다 */
+  const readTokenRef = useRef(0)
+  const [randomChar] = useState(() => {
+    const chars = ['bear', 'tiger', 'duck']
+    return chars[Math.floor(Math.random() * chars.length)]
+  })
+
+  const clearDoc = useCallback(() => {
+    readTokenRef.current += 1 // 읽는 중이면 그 결과를 무시한다
+    setDoc(null)
+    setPendingDoc(null)
+  }, [setPendingDoc])
+
+  const onPickDoc = useCallback(
+    async (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = '' // 같은 파일을 다시 골라도 change 가 뜨게
+      if (!file) return
+
+      const token = ++readTokenRef.current
+      setDoc({ name: file.name, note: '읽는 중…' })
+      /**
+       * 아직 다 안 읽었어도 파일을 먼저 넘겨 둔다.
+       * 사용자가 곧장 입장해도 방이 이어서 읽을 수 있어야 한다 — 입장을 막지 않는 이유다.
+       */
+      setPendingDoc({ name: file.name, file })
+
+      const got = await readDocumentFile(file, {
+        onStage: (st) => {
+          if (readTokenRef.current !== token) return
+          setDoc({
+            name: file.name,
+            note: st.chunks > 1 ? `${st.pages}쪽을 ${st.chunks}조각으로 읽는 중…` : '읽는 중…',
+          })
+        },
+      })
+      if (readTokenRef.current !== token) return // 지웠거나 다른 파일로 바뀌었다
+
+      if (!got.ok) {
+        setDoc({ name: file.name, note: got.reason, error: true })
+        setPendingDoc(null)
+        return
+      }
+      setDoc({ name: file.name, note: `다 읽었어요 · ${got.body.length.toLocaleString()}자` })
+      setPendingDoc({ name: got.name, body: got.body })
+    },
+    [setPendingDoc],
+  )
 
   const seatOf = (n) => seats.find((s) => s.slotNo === n) || null
   const isMe = previewTarget === 'me'
@@ -474,14 +531,14 @@ export default function LobbyScreen() {
       </header>
 
       {/* ── 미리보기 + 입장하기 ─────────────────────────── */}
-      <div className="relative mx-auto mt-6 flex w-full max-w-6xl px-4 sm:px-6 lg:px-0 items-stretch gap-2 enter-up d2">
+      <div className="relative mx-auto mt-6 flex w-full max-w-6xl px-4 sm:px-6 lg:px-0 items-stretch gap-4 enter-up d2 flex-col lg:flex-row">
         <section
           aria-label="본인 미리보기"
           onPointerDown={onPreviewDown}
           onPointerMove={onPreviewMove}
           onPointerUp={onPreviewUp}
           onPointerCancel={onPreviewUp}
-          className="relative h-[300px] sm:h-[430px] flex-1 select-none overflow-hidden rounded-lg bg-surface-dark shadow-soft"
+          className="relative h-[360px] sm:h-[500px] flex-[3] select-none overflow-hidden rounded-lg bg-surface-dark shadow-soft"
           style={{ touchAction: 'none' }}
         >
           {/* 나 — 카메라 레이어. 자리를 옮겨도 언마운트하지 않는다(스트림 재생성 금지, §12-3 7) */}
@@ -636,41 +693,85 @@ export default function LobbyScreen() {
           </div>
         </section>
 
-        {/* 오늘 뭘 할지 한 줄 — 메이트가 나중에 이 문구를 그대로 인용해 되묻는다 */}
-        <label className="flex min-w-0 flex-1 flex-col justify-center gap-2">
-          <span className="t-caption text-muted">오늘 뭘 할 거야? (건너뛰어도 돼)</span>
-          <input
-            type="text"
-            value={goal}
-            maxLength={40}
-            onChange={(e) => setGoal(e.target.value)}
-            onKeyDown={(e) => {
-              // 엔터로 곧장 입장. 목표만 적고 마우스로 옮겨가는 건 번거롭다
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing && !entering && online) enterRoom()
-            }}
-            placeholder="예: 자료구조 3장 끝내기"
-            className="border-hairline t-body bg-surface w-full rounded-2xl border px-4 py-3 outline-none transition-colors duration-200 focus:border-[var(--text-strong)]"
-          />
-        </label>
+        {/* ── 우측 패널 — 목표·사전 자료·입장 ───────────────── */}
+        <div className="flex w-full lg:w-[300px] shrink-0 flex-col gap-4">
+          {/* 오늘 뭘 할지 한 줄 — 메이트가 나중에 이 문구를 그대로 인용해 되묻는다 */}
+          <div>
+            <span className="t-caption text-muted">오늘 뭘 할 거야? (건너뛰어도 돼)</span>
+            <input
+              type="text"
+              value={goal}
+              maxLength={40}
+              onChange={(e) => setGoal(e.target.value)}
+              onKeyDown={(e) => {
+                // 엔터로 곧장 입장. 목표만 적고 마우스로 옮겨가는 건 번거롭다
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && !entering && online) enterRoom()
+              }}
+              placeholder="예: 자료구조 3장 끝내기"
+              className="mt-2 border-hairline t-body bg-surface w-full rounded-2xl border px-4 py-3 outline-none transition-colors duration-200 focus:border-[var(--text-strong)]"
+            />
+          </div>
 
-        {/* 입장하기 — 미리보기 오른쪽 변에 세로로 길게 밀착. 이 화면에서 가장 강조 (§6-2) */}
-        <Button
-          variant="primary"
-          onClick={enterRoom}
-          disabled={entering || !online}
-          aria-label={entering ? '입장 중' : '입장하기'}
-          className="h-auto w-[80px] sm:w-[112px] shrink-0 flex-col gap-1"
-          style={{ borderRadius: 24, paddingLeft: 0, paddingRight: 0 }}
-        >
-          <span
-            aria-hidden="true"
-            className="flex flex-col items-center gap-1 text-[24px] font-semibold leading-[32px]"
+          {/**
+            * 사전 학습자료 — **여기서 실제로 읽는다.**
+            *
+            * 22쪽 논문이 28초쯤 걸린다. 방에 들어가서 읽으면 사용자는 빈 화면을 그만큼 본다.
+            * 여기서 읽으면 그 시간이 카메라·마이크 점검에 묻힌다.
+            * 기다림을 없애는 게 아니라 **이미 기다리던 시간에 겹쳐 두는 것**이다.
+            */}
+          <div>
+            <span className="t-caption text-muted">사전 학습자료 (건너뛰어도 돼)</span>
+            {doc ? (
+              <div className="mt-2 rounded-2xl border border-hairline bg-[var(--hover-bg)] px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <Paperclip size={16} className="shrink-0 text-subtle" aria-hidden="true" />
+                  <span className="t-body min-w-0 flex-1 truncate">{doc.name}</span>
+                  <button
+                    type="button"
+                    onClick={clearDoc}
+                    className="t-caption shrink-0 text-muted underline underline-offset-2 hover:text-ink"
+                  >
+                    지우기
+                  </button>
+                </div>
+                {/* 상태를 정직하게 적는다. 다 읽지도 않고 "준비 완료"라고 하면 안 된다 */}
+                <p className={`t-caption mt-1 ${doc.error ? 'text-danger' : 'text-muted'}`}>{doc.note}</p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="mt-2 flex w-full items-center gap-2 rounded-2xl border border-dashed border-hairline px-4 py-3 t-body text-muted transition-colors hover:bg-[var(--hover-bg)] hover:text-ink"
+              >
+                <Paperclip size={16} aria-hidden="true" />
+                PDF·글자 파일 올리기
+              </button>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              /* docReader 가 읽을 수 있는 것만 연다. .docx 를 열어 두면 고른 뒤에 거절당한다 */
+              accept=".pdf,.txt,.md,.markdown,.csv,.json"
+              className="hidden"
+              onChange={onPickDoc}
+            />
+          </div>
+
+          <div className="hidden flex-1 items-center justify-center lg:flex">
+            <CharacterSprite imageKey={randomChar} size={120} state="studying" />
+          </div>
+
+          {/* 입장하기 — 자료를 읽는 중에도 들어갈 수 있다. 방이 이어서 읽는다 */}
+          <Button
+            variant="primary"
+            onClick={enterRoom}
+            disabled={entering || !online}
+            aria-label={entering ? '입장 중' : '입장하기'}
+            className="w-full py-3 text-[15px] font-semibold"
           >
-            {(entering ? ['입', '장', '중'] : ['입', '장', '하', '기']).map((ch, i) => (
-              <span key={i}>{ch}</span>
-            ))}
-          </span>
-        </Button>
+            {entering ? '입장 중…' : '입장하기'}
+          </Button>
+        </div>
       </div>
 
       {/* ── 커스텀 패널 — 항상 펼쳐져 있음. 접기/펼치기 없음 (§6-2) ── */}
