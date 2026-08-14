@@ -36,7 +36,16 @@ import { screenUtterance, looksComplete, joinVoice, WHY_LABEL } from '../lib/voi
 import { requestSummary, requestReply } from '../lib/agent/client'
 import { useVision } from '../lib/vision/useVision'
 import { wakeChime } from '../lib/chime'
-import { planDocument, toPrompt, asInlineFile } from '../lib/docReader'
+import {
+  planDocument,
+  toPrompt,
+  asInlineFile,
+  planRanges,
+  rangePrompt,
+  mergePages,
+  parsePageCount,
+  WHOLE_DOC_MAX_PAGES,
+} from '../lib/docReader'
 import { rememberDocument, searchUserDocs, toUserDocContext } from '../lib/userDocs'
 import { routeFunction, resolveTiming } from '../lib/agent/functions'
 import { makeQuiz as generateQuiz } from '../lib/agent/quiz'
@@ -1097,15 +1106,35 @@ export default function StudyRoomScreen() {
         setReadingDoc(file.name)
         floorRef.current += 1
         try {
-          const got = await requestReply({
-            mode: 'extract',
-            settings: {},
-            turns: [],
-            images: [await asInlineFile(file)],
-            message: `"${file.name}" 자료의 내용을 빠짐없이 글로 옮겨 적어줘.`,
-          })
-          if (!got?.text) throw new Error('빈 응답')
-          body = got.text
+          const inline = await asInlineFile(file)
+          const read = (message) => requestReply({ mode: 'extract', settings: {}, turns: [], images: [inline], message })
+
+          /**
+           * 쪽수를 먼저 묻는다. 5~6초짜리 짧은 호출이다.
+           *
+           * PDF 바이트에서 세 보려 했는데 압축된 파일에서는 `/Type /Page` 가 하나도
+           * 안 나온다(실측: 22쪽 논문에서 0개). 모델은 "22"라고 정확히 답한다.
+           */
+          const pageCount = parsePageCount((await read('이 자료는 모두 몇 쪽이야? 숫자만 답해.'))?.text)
+          const ranges = pageCount > WHOLE_DOC_MAX_PAGES ? planRanges(pageCount) : []
+
+          if (ranges.length > 1) {
+            /**
+             * 긴 자료는 조각으로 나눠 **동시에** 읽는다.
+             * 빠르라고가 아니라 **안 잘리려고** 나눈다 — 자세한 사정은 docReader 주석에.
+             */
+            setReadingDoc(`${file.name} · ${pageCount}쪽을 ${ranges.length}조각으로`)
+            const parts = await Promise.all(
+              ranges.map(([a, b]) => read(rangePrompt(file.name, a, b)).then((r) => r?.text || '')),
+            )
+            body = mergePages(parts)
+            if (!body) throw new Error('빈 응답')
+            console.debug(`[doc] ${pageCount}쪽 · ${ranges.length}조각 · ${body.length.toLocaleString()}자`)
+          } else {
+            const got = await read(`"${file.name}" 자료의 내용을 빠짐없이 글로 옮겨 적어줘.`)
+            if (!got?.text) throw new Error('빈 응답')
+            body = got.text
+          }
         } catch (e) {
           console.warn('[doc] 자료 읽기 실패', e)
           toast(`자료를 읽지 못했어요. (${String(e?.message || e).slice(0, 60)})`, 'danger')

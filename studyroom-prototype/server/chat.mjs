@@ -54,7 +54,17 @@ const proPool = poolFromEnv(env, ['S1'])
 const MODELS = {
   gemini: env.MODEL_GEMINI || 'gemini-3.5-flash-lite',
   openai: env.MODEL_OPENAI || 'gpt-5.4-mini',
-  pro: env.MODEL_PRO || 'gemini-3.6-flash',
+  /**
+   * 지능이 필요한 자리(자료 읽기·자료를 놓고 답하기·엔딩 요약)에 쓰는 유료 키 모델.
+   *
+   * 3.6 → 3.7 로 올린다. 실측에서 전 구간이 빨랐고, 무엇보다 **잘리던 게 안 잘린다**:
+   *   자료 읽기(22쪽)   85초 → 39초, 3.6 은 MAX_TOKENS 로 끝났고 3.7 은 STOP
+   *   자료 놓고 답하기  16.6초 → 11.1초 (사고 high, 3회 중앙값)
+   *   엔딩 요약 JSON    12.9초 → 7.7초, 스키마 강제 정상
+   *   검색 근거         양쪽 다 정상
+   * ⚠️ 꼬리 지연은 3.7 도 튄다 (같은 호출이 84초 걸린 적 있음). 되돌리려면 이 한 줄이다.
+   */
+  pro: env.MODEL_PRO || 'gemini-3.7-flash',
 }
 
 const SECRETS = Object.values(env).filter((v) => v && v.length > 12)

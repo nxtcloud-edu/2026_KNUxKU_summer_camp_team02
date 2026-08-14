@@ -53,6 +53,92 @@ function fit(text, max = MAX_CHARS) {
   }
 }
 
+/* ── 긴 자료를 나눠 읽기 ─────────────────────────────────────
+   [결정] 쪽수가 많으면 조각으로 나눠 **동시에** 읽는다.
+
+   빠르라고 나누는 게 아니다. **안 잘리려고** 나눈다.
+
+   모델의 한 번 출력 상한이 24,000토큰이다. 22쪽짜리 논문이 그 언저리라
+   통째로 읽으면 될 때도 있고 조용히 잘릴 때도 있었다 — 실측에서 같은 파일이
+   한 번은 65,778자 STOP, 다음엔 66,296자 MAX_TOKENS 였다. 뒤가 날아가도
+   화면에는 아무 표시가 없고, sys:extract 는 예산을 늘려 다시 부르지도 않는다
+   (widen:false — 터널 100초 제한 때문에 그렇게 뒀다).
+   조각으로 나누면 조각마다 예산이 따로라 이 절벽이 사라진다.
+
+   덤으로 빠르기도 하다. 실측(22쪽): 통째로 39초 · 4조각 동시 25초 · 4조각 차례 59초.
+   ⚠️ 조각 시간은 튄다. 같은 4조각이 한 번은 25초, 한 번은 213초였다(API 쪽 사정).
+      그래서 조각 수를 무작정 늘리지 않는다. */
+
+/** 한 조각이 맡을 쪽수 */
+export const PAGES_PER_CHUNK = 6
+
+/**
+ * 이 쪽수까지는 통째로 읽는다.
+ * 10쪽이면 출력이 대략 9천 토큰이라 상한(24,000)에 한참 못 미친다.
+ * 그 아래에서는 나누는 값보다 쪽수를 묻는 호출 하나가 더 비싸다.
+ */
+export const WHOLE_DOC_MAX_PAGES = 10
+
+/** 1쪽부터 pages 쪽까지를 조각 범위로 자른다 */
+export function planRanges(pages, per = PAGES_PER_CHUNK) {
+  if (!Number.isFinite(pages) || pages <= 0) return []
+  const out = []
+  for (let p = 1; p <= pages; p += per) out.push([p, Math.min(pages, p + per - 1)])
+  return out
+}
+
+/** 조각 하나에게 줄 지시. `[p12]` 표시를 요구하는 게 병합의 열쇠다 */
+export function rangePrompt(fileName, from, to) {
+  return (
+    `"${fileName}" 자료의 **${from}쪽부터 ${to}쪽까지만** 빠짐없이 글로 옮겨 적어줘.\n` +
+    `- 각 쪽이 시작할 때 [p쪽번호] 를 먼저 적는다. 예: [p${from}]\n` +
+    `- 표는 값을 그대로 옮긴다. 요약하지 않는다.\n` +
+    `- 범위 밖의 쪽은 적지 않는다. 그 쪽이 없으면 아무것도 적지 않는다.`
+  )
+}
+
+/**
+ * 조각들을 한 벌로 합친다.
+ *
+ * 이어붙이기만 하면 조각이 겹치거나 빠졌을 때 그대로 티가 안 난다.
+ * `[p12]` 표시로 **쪽 단위**로 갈라 담으면, 쪽수를 잘못 세도 겹친 쪽은 하나로 모이고
+ * 순서도 저절로 맞는다. 같은 쪽이 두 번 오면 **더 긴 쪽**을 남긴다 —
+ * 조각 경계에서 한쪽이 잘렸을 때 온전한 쪽이 이긴다.
+ */
+export function mergePages(parts) {
+  const pages = new Map()
+  let sawMarker = false
+  for (const t of parts) {
+    const s = String(t || '')
+    const marks = [...s.matchAll(/\[p(\d+)\]/g)]
+    if (!marks.length) continue
+    sawMarker = true
+    for (let i = 0; i < marks.length; i++) {
+      const no = Number(marks[i][1])
+      const from = marks[i].index + marks[i][0].length
+      const to = i + 1 < marks.length ? marks[i + 1].index : s.length
+      const body = s.slice(from, to).trim()
+      if (!body) continue
+      if (!pages.has(no) || pages.get(no).length < body.length) pages.set(no, body)
+    }
+  }
+  // 표시를 하나도 안 붙였으면 순서대로 잇는다. 없는 것보다 낫다
+  if (!sawMarker) return parts.filter(Boolean).join('\n\n').trim()
+  return [...pages.keys()]
+    .sort((a, b) => a - b)
+    .map((n) => pages.get(n))
+    .join('\n\n')
+    .trim()
+}
+
+/** 모델이 답한 쪽수 문자열에서 숫자만 꺼낸다. 못 읽으면 null */
+export function parsePageCount(text) {
+  const m = /\d+/.exec(String(text || ''))
+  if (!m) return null
+  const n = Number(m[0])
+  return Number.isFinite(n) && n > 0 && n <= 2000 ? n : null
+}
+
 /** 파일을 모델에 그대로 넘길 형태로 (base64) */
 export async function asInlineFile(file) {
   const buf = new Uint8Array(await file.arrayBuffer())
