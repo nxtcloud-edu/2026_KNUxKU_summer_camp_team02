@@ -36,8 +36,17 @@ export const LISTEN = {
    *  한국어 발화 끝의 자연스러운 쉼이 0.7초 안팎이라 그 위로 잡는다.
    *  공부하며 더듬거리는 말은 더 느리므로 900ms 는 짧다. */
   silenceMs: 1200,
-  /** 쉼 없이 계속 말해도 이만큼 지나면 일단 끊어 보낸다 */
-  hardFlushMs: 15000,
+  /**
+   * 쉼 없이 계속 말할 때 강제로 끊는 시간. **0 이면 끊지 않는다.**
+   *
+   * 15초로 두면 길게 설명하다 문장 한가운데서 잘린다. 그 잘린 조각이 그대로
+   * 질문으로 나가서, 되묻는 답이 온다.
+   *
+   * 안 끊어도 되는 이유는 **받아적은 게 입력창에 그대로 보이기** 때문이다.
+   * 말이 길어지면 사용자가 눈으로 보고 엔터를 치면 된다. 강제로 끊는 장치가
+   * 유일한 탈출구였다면 남겨야 하지만, 그렇지 않다.
+   */
+  hardFlushMs: 0,
   /** 읽어주기가 끝나고 이만큼 기다렸다가 다시 듣는다 (스피커 잔향) */
   ttsTailMs: 500,
   /** 이보다 짧은 발화는 버린다 */
@@ -96,8 +105,10 @@ export function createListener({
   function armTimers() {
     clearTimeout(silenceTimer)
     silenceTimer = setTimeout(() => flush('silence'), LISTEN.silenceMs)
-    // 쉬지 않고 말하는 경우에도 영영 안 넘어가는 일이 없게
-    if (!hardTimer) hardTimer = setTimeout(() => flush('hard'), LISTEN.hardFlushMs)
+    // 0 이면 강제로 끊지 않는다. 말이 끝날 때까지 계속 모은다
+    if (LISTEN.hardFlushMs > 0 && !hardTimer) {
+      hardTimer = setTimeout(() => flush('hard'), LISTEN.hardFlushMs)
+    }
   }
 
   /* ── 인식기 ────────────────────────────────────────────── */
