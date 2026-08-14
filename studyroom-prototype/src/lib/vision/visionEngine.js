@@ -11,8 +11,14 @@
  */
 
 import { FilesetResolver, FaceLandmarker, ObjectDetector } from '@mediapipe/tasks-vision'
-import { RATES, MODELS, WASM_PATH, PHONE, USE_EYE_SIGNAL, DEGRADE } from './constants'
-import { AttentionAnalyzer, PhoneTracker, poseFromMatrix, eyeClosednessFromBlendshapes } from './attention'
+import { RATES, MODELS, WASM_PATH, PHONE, PERSON, USE_EYE_SIGNAL, DEGRADE } from './constants'
+import {
+  AttentionAnalyzer,
+  PhoneTracker,
+  PersonTracker,
+  poseFromMatrix,
+  eyeClosednessFromBlendshapes,
+} from './attention'
 import { probeGpu } from './gpuProbe'
 
 let filesetPromise = null
@@ -137,6 +143,7 @@ export function createVisionLoop({
 
   const analyzer = new AttentionAnalyzer({ useEye })
   const phone = new PhoneTracker(PHONE)
+  const person = new PersonTracker(PERSON)
 
   const perf = { faceMs: [], phoneMs: [] }
   const pushPerf = (arr, v) => {
@@ -152,6 +159,17 @@ export function createVisionLoop({
 
   let lastFaceRaw = null
   let phoneVisible = false
+  let personVisible = false
+  /**
+   * 검출기가 마지막으로 답을 준 시각.
+   *
+   * 이게 없으면 조용한 고장이 하나 생긴다. GPU 컨텍스트가 날아가거나 모델 생성이
+   * 실패하면 stepPhone 이 매번 빠져나가는데, personVisible 은 마지막 값 그대로
+   * **true 로 얼어붙는다.** 그러면 사용자가 자리를 떠도 자리 비움이 영영 안 뜬다.
+   * 값이 낡으면 false 가 아니라 **null(모름)** 로 떨어뜨려, 부르는 쪽이
+   * "사람이 있다"로 오해하지 않게 한다.
+   */
+  let lastPersonAt = 0
   let lastDetections = [] // 모델이 실제로 뭘 봤는지 (폰 판정 품질 확인용)
   let lastTs = 0
   let faceInterval = faceMs
@@ -173,6 +191,8 @@ export function createVisionLoop({
 
   /** 어떤 경우에도 화면에 현재 상태를 흘려보낸다 */
   function report(snap) {
+    // 검출기가 이만큼 조용하면 그 값은 더 이상 사실이 아니다 (주기의 네 배)
+    const personFresh = detectPhone && lastPersonAt > 0 && Date.now() - lastPersonAt <= phoneInterval * 4
     onSample({
       ...(snap || analyzer.snapshot()),
       pose: snap ? lastFaceRaw?.pose : null,
@@ -180,6 +200,10 @@ export function createVisionLoop({
       phoneVisible,
       phoneScore: phone.lastScore,
       phoneName: phone.lastName,
+      /** true=있음 · false=없음 · null=모름(검출기가 조용하거나 안 돈다) */
+      personVisible: personFresh ? personVisible : null,
+      personScore: person.lastScore,
+      personArea: person.lastArea,
       detections: lastDetections,
       perf: { faceMs: median(perf.faceMs), phoneMs: median(perf.phoneMs) },
       diag: { ...diag },
@@ -237,8 +261,10 @@ export function createVisionLoop({
     const snap = analyzer.push({
       t: Date.now(),
       hasFace,
-      yaw: pose?.yaw,
-      pitch: pose?.pitch,
+      // 물리적인 이름으로 넘긴다. 예전에는 yaw/pitch 를 그대로 넘겼는데
+      // 그 이름들이 실제 동작과 한 칸씩 어긋나 있었다 (attention.js poseFromMatrix 주석)
+      turn: pose?.turn,
+      nod: pose?.nod,
       eyeClosedness: eye,
     })
 
@@ -324,6 +350,13 @@ export function createVisionLoop({
     }
     pushPerf(perf.phoneMs, performance.now() - t)
     phoneVisible = phone.push(res?.detections)
+    /*
+     * 같은 추론 결과에서 'person' 만 다시 읽는다 — 추가 비용이 없다.
+     * 자리 비움 판정의 주 근거가 이것이다. 얼굴은 고개만 돌려도 사라지지만
+     * 사람은 옆을 보든 고개를 숙이든 여전히 사람으로 잡힌다.
+     */
+    personVisible = person.push(res?.detections, (video.videoWidth || 0) * (video.videoHeight || 0))
+    lastPersonAt = Date.now()
 
     // 폰 검출이 느린 기기에서는 주기를 늘린다 (얼굴 루프와 독립적으로)
     phoneSteps += 1

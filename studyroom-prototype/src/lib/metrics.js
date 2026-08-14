@@ -11,6 +11,8 @@
 import { db } from '../store/db'
 
 const AWAY_MIN_MS = 60 * 1000 // 이탈 1회로 세는 최소 길이 (§8-2)
+/** 다른 창을 눌렀을 때 이만큼은 기다렸다가 이탈로 본다. 스치듯 누른 것은 이탈이 아니다 */
+const BLUR_GRACE_MS = 5 * 1000
 const TICK_MS = 1000
 const HEARTBEAT_MS = 30 * 1000 // §9-3
 
@@ -32,6 +34,7 @@ export class MetricsTracker {
     this.isAway = false
     this.awayStartedAt = null
     this.lastInputAt = Date.now()
+    this.blurAt = null // 다른 창으로 간 시각 (유예 중)
     this.restingHint = false // §6-3 채팅으로 휴식을 알린 구간
 
     /**
@@ -69,19 +72,25 @@ export class MetricsTracker {
     this._listeners.forEach((f) => f(s))
   }
 
-  /** 지금 집중 시간이 멈춰 있는가, 그리고 왜 */
+  /**
+   * 지금 집중 시간이 멈춰 있는가, 그리고 왜.
+   *
+   * 순서는 **"얼마나 직접 본 것인가"** 다. 앞에 있는 하나만 화면에 뜨고 나머지는 버려지므로,
+   * 근거가 구체적인 쪽이 앞에 와야 사용자가 원인을 안다.
+   *
+   * 예전엔 창 이탈(isAway)이 맨 앞이었다. 그건 카메라를 한 번도 보지 않은 신호인데
+   * 가장 자주 걸려서, 한 번 다른 창을 누르면 그 뒤로 카메라가 무엇을 보든 화면에는
+   * '자리 비움'만 떴다. 게다가 absent 와 **같은 라벨**이라 둘을 구분할 방법이 없었다.
+   * 라벨을 가르고(StudyRoomScreen PAUSE_LABEL) 순서를 뒤집는다.
+   */
   get pausedBy() {
-    if (this.isAway) return 'away'
-    /**
-     * 폰이 먼저다.
-     *
-     * 예전엔 absent 를 먼저 봤다. 그런데 **폰을 보려고 고개를 숙이면 얼굴이 사라진다.**
-     * 그래서 폰을 보는 내내 "자리 비움"으로 떴다 — 사용자는 자리에 있는데.
-     * 화면에 폰이 보인다는 건 사람이 거기 있다는 뜻이므로, 폰 신호가 자리 비움보다 정확하다.
-     */
+    // 폰이 먼저다. 폰을 보려고 고개를 숙이면 얼굴이 사라지는데, 화면에 폰이 보인다는 건
+    // 사람이 거기 있다는 뜻이다. 지금 유일하게 잘 도는 판정이기도 하다
     if (this.vision.phone) return 'phone'
+    // 얼굴·사람·폰이 모두 없다는 합의. 카메라가 낼 수 있는 가장 강한 증거다
     if (this.vision.absent) return 'absent'
     if (this.vision.drowsy) return 'drowsy'
+    if (this.isAway) return 'away'
     return null
   }
 
@@ -123,11 +132,33 @@ export class MetricsTracker {
       else this._exitAway()
       this._flush()
     }
-    this._bound.blur = () => this._enterAway('window_blur')
-    this._bound.focus = () => this._exitAway()
+    /**
+     * 다른 창을 **스치듯** 눌렀다고 곧바로 이탈로 보지 않는다.
+     *
+     * 예전에는 blur 즉시 이탈이었다. 알림창을 닫거나 음악을 넘기려고 한 번 클릭해도
+     * 그 순간부터 집중 시간이 깎였다. 카메라 판정에는 2초·0.75초씩 확인 절차를 뒀는데
+     * 정작 제일 자주 걸리는 이 신호에는 아무 확인도 없었다.
+     *
+     * 유예를 두되 **이탈 시각은 blur 순간으로 소급**한다. 안 그러면 유예 시간만큼
+     * 이탈이 짧게 기록돼, 75초 자리비움이 55초로 남고 이탈 횟수 문턱(60초)도 못 넘는다.
+     */
+    this._bound.blur = () => {
+      if (this.blurAt == null) this.blurAt = Date.now()
+    }
+    this._bound.focus = () => {
+      this.blurAt = null
+      this._exitAway()
+    }
     this._bound.input = () => {
-      this.lastInputAt = Date.now()
-      if (this.isAway && !document.hidden) this._exitAway()
+      /**
+       * **포커스가 없는 창 위를 지나간 마우스는 활동이 아니다.**
+       *
+       * 브라우저는 포커스가 없는 창에도 커서가 그 위를 지나가면 mousemove 를 보낸다.
+       * 듀얼 모니터에서 왼쪽 유튜브를 보면서 커서만 스터디룸 창 위에 둬도
+       * 계속 "활동 중"이 되어 무입력 판정이 영영 안 걸렸다.
+       */
+      if (!document.hasFocus()) return
+      this.noteActivity()
     }
     this._bound.unload = () => this._flush()
 
@@ -157,6 +188,19 @@ export class MetricsTracker {
     this._flush()
   }
 
+  /**
+   * 사용자가 뭔가를 했다. **말한 것도 여기 포함된다.**
+   *
+   * 예전에는 mousemove·keydown·wheel·pointerdown 만 들었다. 그런데 이 프로그램은
+   * 말로 쓰는 물건이다 — 마이크에 대고 계속 이야기해도 마우스를 안 만지면
+   * 10분 뒤 '자리 비움'이 됐고, 마우스를 움직이기 전까지 풀리지도 않았다.
+   * 음성 입력이 들어오면 STT 쪽에서 이걸 부른다.
+   */
+  noteActivity() {
+    this.lastInputAt = Date.now()
+    if (this.isAway && !document.hidden) this._exitAway()
+  }
+
   /** 사용자가 채팅으로 휴식을 알림 (§6-3) — 그 구간의 이탈은 "휴식"으로 분류 */
   setRestingHint(on) {
     this.restingHint = on
@@ -165,6 +209,11 @@ export class MetricsTracker {
 
   _onTick() {
     this.studySec += 1
+
+    // 다른 창에 머문 지 유예 시간이 지났으면 그제서야 이탈로 본다 (시각은 소급)
+    if (this.blurAt != null && !this.isAway && Date.now() - this.blurAt >= BLUR_GRACE_MS) {
+      this._enterAway('window_blur', this.blurAt)
+    }
 
     // 무입력 판정 — 입력 활동 감지가 켜져 있고 완화 모드가 아닐 때만
     if (this.opts.inputDetect && !this.opts.relaxed && !this.isAway) {
@@ -177,7 +226,16 @@ export class MetricsTracker {
     const paused = this.pausedBy
     if (paused) {
       this.awaySec += 1
-      this.currentStreakSec = 0
+      /**
+       * 졸음은 **연속 집중을 끊지 않는다.**
+       *
+       * 졸음은 "자리에 없다"가 아니라 "있는데 주의가 떨어졌다"이다. 최장 연속 집중
+       * 20점은 자리를 뜨는 것을 벌하라고 만든 항이지, 한 번 꾸벅한 것을 벌하라고
+       * 만든 게 아니다. 90분을 앉아 있다가 30분 지점에 한 번 졸면 최장 연속이
+       * 90분에서 60분으로 잘려 점수가 크게 깎인다 — 그건 측정이 아니라 처벌이다.
+       * 집중 시간에서 그 초를 빼는 것으로 충분하다.
+       */
+      if (paused !== 'drowsy') this.currentStreakSec = 0
       if (paused !== 'away') this.visionSec[paused] += 1
     } else {
       this.currentStreakSec += 1
@@ -186,13 +244,14 @@ export class MetricsTracker {
     this._emit()
   }
 
-  _enterAway(reason) {
+  /** @param {number} [startedAt] 이탈이 실제로 시작된 시각. 유예를 둔 경우 소급해서 넘긴다 */
+  _enterAway(reason, startedAt) {
     // 완화 모드(종이책·강의·자료 탐색)에서는 창 이탈을 이탈로 보지 않는다 (§8-2)
     if (this.opts.relaxed && reason !== 'idle') return
     if (!this.opts.awayDetect && reason !== 'idle') return
     if (this.isAway) return
     this.isAway = true
-    this.awayStartedAt = Date.now()
+    this.awayStartedAt = startedAt || Date.now()
     db.logEvent(this.sessionId, 'away_start', { reason })
   }
 
@@ -201,6 +260,7 @@ export class MetricsTracker {
     const dur = Date.now() - (this.awayStartedAt || Date.now())
     this.isAway = false
     this.awayStartedAt = null
+    this.blurAt = null
     // 60초 미만의 짧은 탭 전환은 이탈 횟수로 세지 않는다 (§8-2)
     // 휴식을 미리 알린 구간도 이탈 횟수에서 제외한다 (§6-3)
     if (dur >= AWAY_MIN_MS && !this.restingHint) this.awayCount += 1

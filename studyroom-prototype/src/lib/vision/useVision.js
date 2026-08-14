@@ -21,24 +21,70 @@ import { STATE } from './attention'
  *      복귀      HYSTERESIS.toFocused 2표본       = 0.4초
  *      휴대폰    PHONE.confirmCount 3회 × 250ms   = 0.75초
  *
- * **자리 비움에는 아무것도 얹지 않는다.** 처음엔 시계가 깜빡이는 게 싫어서 4초를 얹었는데,
- * 그건 측정을 늦춰서 표시 문제를 푸는 것이었다. 깜빡임은 표시 쪽에서 늦추면 된다
- * (StudyRoomScreen 의 PAUSE_SHOW_MS). 측정은 빠를수록 집중 시간이 정확하다.
+ * 예전 주석에는 "**자리 비움에는 아무것도 얹지 않는다**. 측정은 빠를수록 정확하다"고
+ * 적혀 있었다. 그 판단이 옳으려면 2.0초짜리 근거가 **믿을 만해야** 했는데,
+ * 그 근거는 얼굴 하나였고 얼굴은 고개만 돌려도 사라진다. 빠른 판정은 정확한 판정이
+ * 아니라 **자주 틀리는 판정**이었다. 지금은 근거를 늘리고 시간도 얹는다.
  *
  * **휴대폰에만 조금 얹는다.** 검출기가 계산기·필통·리모컨을 폰으로 오인한다
  * (constants.js 의 PHONE_CAVEAT). 모듈의 3회 확인이 주 방어고 이건 덤이다.
  */
 export const CONFIRM_MS = {
-  absent: 0, // 모듈의 2.0초로 충분하다
+  /**
+   * 얼굴도 사람도 안 보일 때 이만큼 더 본다. 합계 약 5초.
+   *
+   * 예전엔 0이었다 — "모듈의 2.0초로 충분하다"고 봤는데, 그 2.0초의 근거가
+   * **얼굴 하나뿐**이었던 게 문제였다. 얼굴은 고개를 돌리거나 숙이기만 해도 사라진다.
+   * 이제 사람 검출까지 함께 보므로 근거가 두 겹이 됐고, 그 위에 3초를 더 얹는다.
+   * 진짜 이탈이 3초 늦게 잡히는 손해는 3초지만, 오탐 한 번은 화면을 빨갛게 만든다.
+   */
+  absent: 3000,
+  /**
+   * 사람 검출을 **믿을 수 없을 때**의 확인 시간. 합계 약 10초.
+   *
+   * 모델을 못 받았거나 GPU 컨텍스트가 날아가면 판단 근거가 다시 얼굴 하나로 줄어든다.
+   * 그럴 때 예전 값으로 돌아가면 예전 오탐도 같이 돌아온다. 근거가 약할수록 더 오래 본다.
+   */
+  absentUnsure: 8000,
   present: 0, // 돌아온 건 즉시 인정한다
   phone: 400, // 합계 약 1.15초 — 오인 물체 때문에만
   phoneGone: 600,
 }
 
+/**
+ * 졸음 판정을 소비한 뒤에도 이만큼은 화면에 남긴다.
+ * 캐릭터가 말을 거는데 이유가 화면에 한 번도 안 뜨면 사용자는 영문을 모른다.
+ */
+export const DROWSY_SHOW_MS = 6000
+
 /** 같은 사유로 반복해서 말 걸지 않도록 */
 export const ALERT_COOLDOWN_MS = {
   drowsy: 3 * 60 * 1000,
   phone: 5 * 60 * 1000,
+}
+
+/**
+ * 사람이 자리에 있다고 볼 것인가.
+ *
+ * 훅 안쪽 클로저에 두면 검사할 방법이 없어서 순수 함수로 뺐다.
+ * 자리 비움은 이 프로그램에서 가장 자주 틀렸던 판정이고, 그 판정이
+ * 테스트 없이 굴러가고 있었다.
+ *
+ * @param {{state:string, personVisible:boolean|null, phoneVisible:boolean}} s
+ * @returns {{someone:boolean, needMs:number, why:string}}
+ */
+export function judgePresence(s) {
+  const faceSeen = s.state !== STATE.NO_FACE
+  const personSeen = s.personVisible === true
+  const personKnown = s.personVisible !== null // null = 검출기가 조용하다
+  const phoneSeen = !!s.phoneVisible
+  return {
+    // 증거가 **하나라도** 있으면 사람이 있는 것이다
+    someone: faceSeen || personSeen || phoneSeen,
+    // 근거가 얼굴 하나뿐이면(검출기 사망) 더 오래 본다
+    needMs: personKnown ? CONFIRM_MS.absent : CONFIRM_MS.absentUnsure,
+    why: faceSeen ? 'face' : personSeen ? 'person' : phoneSeen ? 'phone' : personKnown ? 'none' : 'unsure',
+  }
 }
 
 /**
@@ -79,6 +125,7 @@ export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
     const since = { absent: null, present: null, phone: null, phoneGone: null }
     const cur = { absent: false, phone: false, drowsy: false }
     const lastAlert = { drowsy: 0, phone: 0 }
+    let drowsyShownUntil = 0 // 졸음 판정을 소비한 뒤에도 이 시각까지는 화면에 남긴다
     let lastPerfLog = 0
     let lastSampleAt = Date.now()
 
@@ -94,16 +141,32 @@ export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
       lastSampleAt = now
       let changed = false
 
-      // ── 자리 비움 ──
-      const faceMissing = s.state === STATE.NO_FACE
-      if (!cur.absent && mark('absent', faceMissing, now)) {
-        cur.absent = true
+      /**
+       * ── 자리 비움 ──
+       *
+       * 예전에는 이 한 줄이 전부였다: `s.state === STATE.NO_FACE`.
+       * 즉 **"얼굴이 안 보인다"를 곧장 "사람이 없다"로 읽었다.** 그런데 얼굴은
+       * 고개를 옆으로 돌려도, 숙여도, 역광이어도, 손으로 턱을 괴어도 사라진다.
+       * 그 전부에서 사람은 자리에 있다. 사용자가 겪은 "옆에만 봐도 자리 비움"이 이것이다.
+       * (constants.js 의 NO_FACE_REASONS 는 이 목록을 이미 적어 두고도 판정에 안 썼다)
+       *
+       * 이제 **사람이 있다는 증거가 하나라도 있으면 자리 비움이 아니다.**
+       * 켜는 데는 만장일치를 요구하고, 끄는 데는 증거 하나면 된다.
+       */
+      const { someone, needMs: need } = judgePresence(s)
+      if (!someone) {
+        since.absent = since.absent ?? now
         since.present = null
-        changed = true
-      } else if (cur.absent && mark('present', !faceMissing, now)) {
-        cur.absent = false
+        if (!cur.absent && now - since.absent >= need) {
+          cur.absent = true
+          changed = true
+        }
+      } else {
         since.absent = null
-        changed = true
+        if (cur.absent) {
+          cur.absent = false
+          changed = true
+        }
       }
 
       /**
@@ -124,8 +187,17 @@ export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
         changed = true
       }
 
-      // ── 졸음 ── 분석기가 이미 20초 창에서 끄덕임을 세어 판정한다
-      const drowsyNow = !cur.absent && !!s.drowsy
+      /**
+       * ── 졸음 ──
+       *
+       * 분석기가 끄덕임과 긴 눈감김을 **둘 다** 봐서 판정한다.
+       *
+       * 표시가 잠깐 남게 한 이유: 아래 깨우기 블록이 판정을 소비하면서 곧바로
+       * cur.drowsy 를 false 로 되돌리는데, 그러면 캐릭터는 말을 거는데 화면에는
+       * 이유가 한 번도 안 뜬다. 사용자가 겪은 "빨간 건 늘 자리 비움"의 나머지 절반이다.
+       * metrics 의 시계는 1초마다 도니, 그보다 짧게 스치면 관측되지도 않는다.
+       */
+      const drowsyNow = (!cur.absent && !!s.drowsy) || now < drowsyShownUntil
       if (drowsyNow !== cur.drowsy) {
         cur.drowsy = drowsyNow
         changed = true
@@ -162,10 +234,10 @@ export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
       // ── 깨우기 ──
       if (cur.drowsy && now - lastAlert.drowsy > ALERT_COOLDOWN_MS.drowsy) {
         lastAlert.drowsy = now
-        // 경보를 소비해서 같은 끄덕임으로 계속 울리지 않게 한다
+        // 경보를 소비해서 같은 끄덕임으로 계속 울리지 않게 한다.
+        // 판정은 비우되 **표시는 잠깐 남긴다** — 캐릭터가 왜 말을 걸었는지 보여야 한다
         loopRef.current?.analyzer?.consumeDrowsy?.()
-        cur.drowsy = false
-        cbRef.current.onSignal?.({ ...cur })
+        drowsyShownUntil = now + DROWSY_SHOW_MS
         cbRef.current.onAlert?.('drowsy')
       } else if (cur.phone && now - lastAlert.phone > ALERT_COOLDOWN_MS.phone) {
         lastAlert.phone = now

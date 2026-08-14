@@ -83,7 +83,8 @@ export default function BenchScreen() {
         onSample: (s) => {
           setSnap(s)
           setHistory((h) => {
-            const next = [...h, { t: Date.now(), pitch: s.pose?.pitch ?? null }]
+            // 그래프는 끄덕임을 본다 — 졸음 판정이 실제로 쓰는 값이다
+            const next = [...h, { t: Date.now(), pitch: s.pose?.nod ?? null }]
             return next.length > 150 ? next.slice(-150) : next
           })
         },
@@ -359,17 +360,16 @@ export default function BenchScreen() {
           </Card>
 
           <Card title="머리 자세">
-            <Metric label="yaw (좌우)" value={`${fmt(pose?.yaw)}°`} note={`허용 ±${POSE.yawLimit}°`} />
-            <Metric
-              label="pitch (위아래)"
-              value={`${fmt(pose?.pitch)}°`}
-              note={`위 ${POSE.pitchUpLimit}° / 아래 ${POSE.pitchDownLimit}°`}
-            />
-            <Metric label="roll (기울기)" value={`${fmt(pose?.roll)}°`} />
+            {/* 이름이 실제 동작을 가리킨다. 예전에는 수학 관례 이름(yaw/pitch/roll)을
+                그대로 붙였는데, 그 이름들이 실제 동작과 한 칸씩 어긋나 있었다 */}
+            <Metric label="좌우 돌림 (도리도리)" value={`${fmt(pose?.turn)}°`} note={`허용 ±${POSE.turnLimit}°`} />
+            <Metric label="위아래 끄덕임" value={`${fmt(pose?.nod)}°`} note={`허용 ±${POSE.nodLimit}°`} />
+            <Metric label="갸웃 (기울기)" value={`${fmt(pose?.tilt)}°`} />
             <p className="t-help mt-3 rounded-sm bg-peach p-3">
-              <strong>확인할 것</strong> — 고개를 <strong>오른쪽</strong>으로 돌렸을 때 yaw가 한쪽으로 꾸준히
-              커지고, 고개를 <strong>숙였을 때</strong> pitch가 한 방향으로 움직이면 해석이 맞는 것입니다.
-              값이 뒤죽박죽이면 위의 &ldquo;열 우선&rdquo; 체크를 꺼서 행 우선으로 바꿔 보세요.
+              <strong>10초 확인</strong> — 고개를 <strong>좌우로</strong> 흔들면 &ldquo;좌우 돌림&rdquo;만,{' '}
+              <strong>끄덕이면</strong> &ldquo;위아래 끄덕임&rdquo;만 움직여야 맞습니다. 다른 칸이 움직이면 축이
+              어긋난 것입니다 (예전에 그랬고, 그래서 옆을 세 번 보면 졸음으로 판정됐습니다).
+              부호가 반대라면 위의 &ldquo;열 우선&rdquo; 체크를 꺼 보세요 — 그 체크는 부호만 뒤집습니다.
             </p>
           </Card>
         </div>

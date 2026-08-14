@@ -92,10 +92,16 @@ const VOICE_IDLE_MS = 1500
  */
 const PAUSE_SHOW_MS = 1200
 
-/** 시계가 멈춘 이유 — 색만으로는 알 수 없으니 글자로도 붙인다 */
+/**
+ * 시계가 멈춘 이유 — 색만으로는 알 수 없으니 글자로도 붙인다.
+ *
+ * away 와 absent 가 **같은 '자리 비움'** 이었다. 하나는 다른 창을 눌렀다는 뜻이고
+ * 하나는 카메라에 사람이 안 보인다는 뜻인데, 화면에서는 구분이 안 됐다.
+ * 사용자가 "왜 자리비움이 뜨지"를 물어도 답을 찾을 수 없는 상태였다.
+ */
 const PAUSE_LABEL = {
-  away: '자리 비움',
-  absent: '자리 비움',
+  away: '다른 창', // 스터디룸에서 포커스가 떠났다
+  absent: '자리 비움', // 카메라에 사람이 안 보인다
   phone: '휴대폰',
   drowsy: '졸음',
 }
@@ -1164,6 +1170,14 @@ export default function StudyRoomScreen() {
   }, [flushVoice])
 
   const onVoicePartial = useCallback((text) => {
+    /**
+     * **말하는 것도 활동이다.**
+     *
+     * 이 프로그램은 말로 쓰는 물건인데, 무입력 판정은 마우스·키보드만 듣고 있었다.
+     * 그래서 마이크에 대고 10분을 이야기해도 '자리 비움'이 됐고, 마우스를 움직이기
+     * 전까지 풀리지도 않았다. 받아적히는 중이라는 건 사람이 거기서 말하고 있다는 뜻이다.
+     */
+    trackerRef.current?.noteActivity()
     // 손으로 뭔가 쓰고 있으면 건드리지 않는다
     if (draftSourceRef.current === 'typed' && draftRef.current.trim()) return
     draftSourceRef.current = 'voice'
@@ -1630,9 +1644,12 @@ export default function StudyRoomScreen() {
             Today
           </span>
           <span
-            className={['t-section tnum transition-colors duration-300', pausedBy ? 'text-danger' : ''].join(
-              ' ',
-            )}
+            /* 색도 글자와 **같은 시점**에 켠다. 예전에는 색만 지연 없이 켜져서,
+               깜빡임을 없애려고 둔 PAUSE_SHOW_MS 가 절반만 일하고 있었다 */
+            className={[
+              't-section tnum transition-colors duration-300',
+              pausedShown ? 'text-danger' : '',
+            ].join(' ')}
             aria-label={`오늘 집중한 시간 ${fmtHMS(todaySec)}${pausedShown ? ` — ${PAUSE_LABEL[pausedShown]}라 멈춰 있어요` : ''}`}
           >
             {fmtHMS(todaySec)}

@@ -46,17 +46,55 @@ export function eulerFromRotation(R) {
   return { yaw: yaw * DEG, pitch: pitch * DEG, roll: roll * DEG }
 }
 
+/**
+ * 머리 자세를 **물리적인 이름**으로 돌려준다.
+ *
+ * ⚠️ 여기가 이 파일에서 제일 중요한 열두 줄이다. 오래 틀려 있었다.
+ *
+ * eulerFromRotation 은 항공 관례(ZYX)를 따라 결과를 yaw/pitch/roll 로 부른다.
+ * 그 관례는 **Z축이 위**인 좌표계의 것이다. 그런데 MediaPipe 얼굴 좌표계는 **Y축이 위**다.
+ * Z축 관례를 Y축 데이터에 갖다 대면 이름이 한 칸씩 밀린다:
+ *
+ *     실제 동작            수학이 부르는 이름     ← 코드가 그동안 믿은 것
+ *     고개 갸웃 (Z축)       yaw                  "좌우 돌림"    ✗
+ *     고개 좌우 (Y축)       pitch                "위아래"       ✗
+ *     고개 끄덕 (X축)       roll                 "기울기"       ✗ (그래서 버려졌다)
+ *
+ * 결과가 어땠는가.
+ *  · NodDetector 는 pitch 를 받았다 = **좌우 돌림**. 옆을 세 번 보면 졸음이 확정됐다.
+ *  · 진짜 끄덕임(roll)은 아무도 안 봤다. 조는 사람을 원리적으로 못 잡았다.
+ *  · isLookingAtScreen 은 아무리 고개를 숙여도 "집중"이라고 했다.
+ *
+ * 수치로 확인했다. 실제 Y축 30도 회전 → {yaw:0, pitch:30, roll:0},
+ * 실제 X축 30도 → {yaw:0, pitch:0, roll:30}, 실제 Z축 30도 → {yaw:30, pitch:0, roll:0}.
+ * 행 우선으로 읽어도 **부호만** 뒤집히고 이름 대응은 같다 — 즉 이건 행/열 문제가 아니다.
+ *
+ * 그래서 각도에 물리적인 이름을 붙여 내보낸다. 부르는 쪽이 다시 헷갈릴 여지를 없앤다.
+ * raw 는 /bench 진단용으로만 남긴다.
+ *
+ * @returns {{turn:number, nod:number, tilt:number, raw:object}|null}
+ *   turn  좌우 돌림 (도리도리)
+ *   nod   위아래 끄덕임
+ *   tilt  갸웃 (어깨 쪽으로 기울임)
+ */
 export function poseFromMatrix(matrix, columnMajor = true) {
   if (!matrix || !matrix.data || matrix.data.length < 16) return null
-  return eulerFromRotation(rotationFromMatrix(matrix.data, columnMajor))
+  const e = eulerFromRotation(rotationFromMatrix(matrix.data, columnMajor))
+  return { turn: e.pitch, nod: e.roll, tilt: e.yaw, raw: e }
 }
 
-/** 화면을 보고 있다고 인정할 각도 범위인가 */
-export function isLookingAtScreen({ yaw, pitch }) {
-  if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) return false
-  if (Math.abs(yaw) > POSE.yawLimit) return false
-  if (pitch > POSE.pitchUpLimit) return false
-  if (pitch < -POSE.pitchDownLimit) return false
+/**
+ * 화면을 보고 있다고 인정할 각도 범위인가.
+ *
+ * 위아래를 **대칭**으로 둔다. 부호(어느 쪽이 아래인가)는 기기·행렬 배치에 따라
+ * 뒤집힐 수 있는데, 예전 코드는 그 부호를 확인하지 않은 채 위 22도·아래 28도로
+ * 갈라 뒀다. 확인하지 않은 비대칭은 절반의 확률로 정반대로 작동한다.
+ * 부호를 /bench 에서 확정하기 전까지는 대칭이 정직하다.
+ */
+export function isLookingAtScreen({ turn, nod }) {
+  if (!Number.isFinite(turn) || !Number.isFinite(nod)) return false
+  if (Math.abs(turn) > POSE.turnLimit) return false
+  if (Math.abs(nod) > POSE.nodLimit) return false
   return true
 }
 
@@ -216,16 +254,25 @@ export class AttentionAnalyzer {
     this.lastNodAt = null
   }
 
-  /** @param {{t:number, hasFace:boolean, yaw?:number, pitch?:number, eyeClosedness?:number|null}} s */
+  /** @param {{t:number, hasFace:boolean, turn?:number, nod?:number, eyeClosedness?:number|null}} s */
   push(s) {
     const t = s.t
     const raw = !s.hasFace ? STATE.NO_FACE : isLookingAtScreen(s) ? STATE.FOCUSED : STATE.AWAY
     this._applyHysteresis(raw)
 
-    if (s.hasFace && Number.isFinite(s.pitch)) {
-      if (this.nod.push(t, s.pitch)) this.lastNodAt = t
+    /**
+     * 끄덕임은 **화면을 보고 있는 동안에만** 센다.
+     *
+     * 예전에는 얼굴만 잡히면 무조건 셌다. 그래서 옆을 보러 고개를 돌리는 동안의
+     * 머리 움직임까지 졸음의 근거로 쌓였다. 딴 데 보는 사람은 조는 게 아니다.
+     *
+     * 각도 이름이 아니라 **상태**로 거는 게 중요하다. 각도로 걸면 축이 밀렸을 때
+     * 조용히 무력해진다 — 실제로 그런 상태였다.
+     */
+    if (s.hasFace && this.state === STATE.FOCUSED && Number.isFinite(s.nod)) {
+      if (this.nod.push(t, s.nod)) this.lastNodAt = t
     } else {
-      // 얼굴이 사라지면 진행 방향 추적을 끊는다 (되돌아왔을 때 가짜 끄덕임 방지)
+      // 추적을 끊는다 (되돌아왔을 때 그 사이의 간격이 가짜 끄덕임이 되지 않게)
       this.nod.dir = 0
       this.nod.last = null
       this.nod.pending = null
@@ -234,8 +281,21 @@ export class AttentionAnalyzer {
 
     if (this.useEye) this._trackEyes(t, s.hasFace ? s.eyeClosedness : null)
 
-    this.drowsy =
-      this.nod.isDrowsy() || (this.useEye && this.longClosures.length >= this.eye.longClosureCount)
+    /**
+     * 졸음 = 끄덕임 **그리고** 긴 눈감김. 예전에는 `또는` 이었다.
+     *
+     * 끄덕임만으로는 원리적으로 못 가른다. 책을 내려다봤다 올려다보는 동작은
+     * 조는 사람의 고개 떨어짐과 **물리적으로 같은 움직임**이다. 5fps 로는
+     * 그 둘의 속도 차이도 분해되지 않는다. 문턱을 어떻게 조절해도 마찬가지다 —
+     * 진폭·주기 조합 12가지를 전부 돌려 확인했고 전부 오탐이었다.
+     *
+     * 눈은 다르다. 1.2초 이상 감고 있는 것은 깜빡임(0.2초 안팎)이 아니고,
+     * 책을 읽는 사람은 그렇게 오래 눈을 감지 않는다. 이게 유일하게 종류가 다른 증거다.
+     * 둘 다 요구하면 놓치는 경우가 늘지만, 틀린 말로 공부를 끊는 것보다 낫다.
+     */
+    const nodding = this.nod.isDrowsy()
+    const eyesHeavy = this.useEye && this.longClosures.length >= this.eye.longClosureCount
+    this.drowsy = this.useEye ? nodding && eyesHeavy : nodding
 
     return this.snapshot()
   }
@@ -293,6 +353,78 @@ export class AttentionAnalyzer {
       longClosures: this.longClosures.length,
       closedNow: this.closedSince != null,
     }
+  }
+}
+
+/* ── 사람이 프레임 안에 있는가 ────────────────────────────────
+   자리 비움 오탐의 뿌리는 **"얼굴이 안 보인다"를 "사람이 없다"로 읽은 것**이다.
+   얼굴 랜드마커는 고개를 돌리거나 숙이거나, 역광이거나, 손으로 턱을 괴어도 놓친다.
+   그때마다 사람은 자리에 있다.
+
+   폰 검출에 이미 쓰고 있는 물체 검출기(EfficientDet-Lite2)의 COCO 90종 중
+   **0번이 'person'** 이다. 모델 파일을 직접 열어 labels.txt 로 확인했다.
+   같은 추론 결과를 이름만 다르게 읽는 것이라 **추가 비용이 0**이다. */
+
+export class PersonTracker {
+  /**
+   * 횟수가 아니라 **최근 창의 검출 비율**로 판정한다.
+   *
+   * PhoneTracker 처럼 연속 횟수로 세면 두 방향으로 다 틀린다.
+   *  · 한 프레임 놓칠 때마다 풀려서 자리 비움이 깜빡인다.
+   *  · 반대로 의자에 걸린 옷이 이따금 사람으로 잡히면, 켜기 1회짜리 래치는
+   *    그 한 번에 계속 되살아나 자리 비움이 영영 안 뜬다.
+   * 비율은 둘 다 견딘다 — 산발적 오검출은 비율을 못 올리고, 한두 프레임 놓침은 못 내린다.
+   */
+  constructor(cfg) {
+    this.cfg = cfg
+    this.hist = [] // 최근 스텝들의 검출 여부
+    this.visible = false
+    this.lastScore = 0
+    this.lastArea = 0
+  }
+
+  /**
+   * @param {Array} detections 검출기 원본
+   * @param {number} frameArea 영상 넓이 (px²). 0이면 면적 검사를 건너뛴다
+   */
+  push(detections, frameArea = 0) {
+    let best = 0
+    let area = 0
+    for (const d of detections || []) {
+      for (const c of d.categories || []) {
+        if (c.categoryName !== 'person' || c.score < this.cfg.minScore) continue
+        const b = d.boundingBox
+        const a = b && frameArea ? (b.width * b.height) / frameArea : 1
+        // 벽에 붙은 인물 포스터·모니터 속 화상통화처럼 아주 작게 잡히는 것은 뺀다.
+        // 문턱을 아주 낮게 두는 건 의도적이다 — 이 검사가 진짜 사용자를 걸러 내면
+        // 고치려던 문제가 그대로 돌아온다. 위조 방어는 여기가 아니라 무입력 쪽이 맡는다
+        if (a < this.cfg.minAreaRatio) continue
+        if (c.score > best) {
+          best = c.score
+          area = a
+        }
+      }
+    }
+    this.lastScore = best
+    this.lastArea = area
+
+    this.hist.push(best > 0)
+    if (this.hist.length > this.cfg.windowSteps) this.hist.shift()
+
+    // 표본이 모자라면 섣불리 "없다"고 하지 않는다
+    if (this.hist.length < this.cfg.minSteps) return this.visible
+
+    const ratio = this.hist.filter(Boolean).length / this.hist.length
+    if (!this.visible && ratio >= this.cfg.onRatio) this.visible = true
+    else if (this.visible && ratio <= this.cfg.offRatio) this.visible = false
+    return this.visible
+  }
+
+  reset() {
+    this.hist = []
+    this.visible = false
+    this.lastScore = 0
+    this.lastArea = 0
   }
 }
 
