@@ -155,7 +155,6 @@ export async function handleChat(body) {
   } = body || {}
   if (mode !== 'extract' && (!seat || !seat.name)) throw new HttpError(400, { error: 'seat 이 필요합니다' })
 
-
   // ── 전공 근거 검색 ──
   // 개입 턴에는 넣지 않는다. 연관 낮은 조각이 긴 컨텍스트에서 답을 더 흐린다.
   const spec = effectiveSpec(funcId, settings)
@@ -177,7 +176,8 @@ export async function handleChat(body) {
    */
   const wantsPro = !!(proPool && (hits.length > 0 || images.length > 0 || spec.wantsPro || withDoc))
   const attempts = buildAttempts({ wantsPro, sticky: `${seat?.slotNo ?? seat?.name ?? funcId}` })
-  if (!attempts.length) throw new HttpError(503, { error: '사용 가능한 API 키가 없습니다. .env 를 확인하세요.' })
+  if (!attempts.length)
+    throw new HttpError(503, { error: '사용 가능한 API 키가 없습니다. .env 를 확인하세요.' })
 
   /**
    * 자료 읽기 전용 모드.
@@ -260,7 +260,7 @@ export async function handleChat(body) {
       // 사고량은 질문마다 크게 달라서(같은 medium 에서 254~1150토큰) 어떤 고정 예산도
       // 넘길 수 있다. 그러니 **예산만 키워서** 다시 부른다.
       let widened = 0
-      while (r.finish === 'MAX_TOKENS' && widened < 2) {
+      while (r.finish === 'MAX_TOKENS' && widened < 2 && spec.widen !== false) {
         widened += 1
         r = await call({ ...opts, maxTokens: maxOut * (1 + widened) })
       }
@@ -272,7 +272,9 @@ export async function handleChat(body) {
       // 실측에서 상한 120자짜리 기능이 184자로 나왔다. 예산으로는 막을 수 없다
       // JSON 을 받기로 한 호출은 손대지 않는다. 이모지 제거가 문자열 값 안을 건드리면
       // 파싱은 되는데 내용이 달라진다 — 눈에 안 띄는 종류의 고장이다
-      const cleaned = spec.json ? { text: r.text, changed: [] } : postprocess(r.text, spec, toneOf(seat || {}))
+      const cleaned = spec.json
+        ? { text: r.text, changed: [] }
+        : postprocess(r.text, spec, toneOf(seat || {}))
 
       return {
         text: cleaned.text,

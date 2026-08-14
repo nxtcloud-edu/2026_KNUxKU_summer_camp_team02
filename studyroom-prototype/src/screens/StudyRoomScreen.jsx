@@ -396,6 +396,9 @@ export default function StudyRoomScreen() {
   const replyChainRef = useRef(Promise.resolve()) // 답변 루프를 한 줄로 세운다
   const [typingSlots, setTypingSlots] = useState([]) // 타이핑 인디케이터 (§6-3)
   const [readingDoc, setReadingDoc] = useState(null) // 자료를 읽는 중이면 파일 이름
+  // 콜백 안에서 최신 값을 봐야 해서 ref 로도 들고 있는다
+  const readingDocRef = useRef(null)
+  readingDocRef.current = readingDoc
   const [draft, setDraft] = useState('')
   const [mention, setMention] = useState(null) // {q, start, end}
   const [mentionIdx, setMentionIdx] = useState(0)
@@ -998,6 +1001,23 @@ export default function StudyRoomScreen() {
       const file = e.target.files?.[0]
       e.target.value = ''
       if (!file) return
+
+      /**
+       * 읽는 중에 같은 파일을 또 올리는 걸 막는다.
+       *
+       * 논문 하나가 30초 넘게 걸리는데 그동안 화면이 조용해서, 안 된 줄 알고 다시 올리게 된다.
+       * 그러면 같은 문서를 두 번 읽느라 **더 느려지고**, 답답해서 또 올리는 악순환이 된다.
+       * 실제로 그렇게 같은 논문이 두 번 올라간 걸 봤다.
+       */
+      if (readingDocRef.current) {
+        toast(
+          readingDocRef.current === file.name
+            ? `"${file.name}" 아직 읽는 중이에요. 조금만 기다려 주세요.`
+            : `"${readingDocRef.current}" 를 읽고 있어요. 끝나면 올려 주세요.`,
+        )
+        return
+      }
+
       const sid = sidRef.current
 
       pushMsg({

@@ -36,9 +36,24 @@ function accessKey() {
   }
 }
 
+/**
+ * 게이트웨이가 끊은 것과 서버가 거절한 것을 구분한다.
+ *
+ * 우리 공개 주소는 Cloudflare 터널을 지나는데, **원본이 100초 안에 답하지 않으면
+ * 524 로 끊는다.** 그 경우 서버는 멀쩡히 일하는 중이고 응답 본문도 없어서,
+ * 그냥 "HTTP 524" 라고만 보이면 원인을 알 수가 없다. 실제로 논문 추출이
+ * 여기 걸려서 "문서를 못 읽는다"로만 보였다.
+ */
+const GATEWAY = {
+  504: '처리가 오래 걸려 연결이 끊겼어요.',
+  524: '처리가 100초를 넘겨 연결이 끊겼어요. 문서가 길면 앞부분만 잘라서 올려 보세요.',
+  502: '서버에 연결하지 못했어요.',
+  503: '서버가 잠시 바빠요.',
+}
+
 class ApiError extends Error {
   constructor(status, body) {
-    super(body?.error || `HTTP ${status}`)
+    super(body?.error || GATEWAY[status] || `HTTP ${status}`)
     this.status = status
     this.body = body
   }
