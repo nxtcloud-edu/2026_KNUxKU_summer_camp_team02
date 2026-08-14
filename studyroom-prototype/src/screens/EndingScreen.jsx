@@ -686,7 +686,7 @@ export default function EndingScreen() {
           className="glass-read glass-spec enter-up rounded-lg overflow-hidden"
         >
           <div className="flex items-stretch gap-8 p-9">
-            <div className="shrink-0 flex flex-col items-center justify-end gap-2">
+            <div className="shrink-0 flex flex-col items-center justify-end gap-12">
               <CharacterSprite
                 imageKey={mate?.imageKey || PRESETS[preset].imageKey}
                 size={172}

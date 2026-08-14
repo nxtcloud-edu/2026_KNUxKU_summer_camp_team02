@@ -19,7 +19,7 @@ export function characterImagePng(imageKey) {
 export const PRESETS = {
   mina: {
     key: 'mina',
-    name: 'Mina',
+    name: '강두리',
     archetype: 'Focused & Reliable',
     imageKey: 'bear',
     tone: 'T1', // 차분함 — 기존 성격 그대로
@@ -40,7 +40,7 @@ export const PRESETS = {
   },
   theo: {
     key: 'theo',
-    name: 'Theo',
+    name: '고범수',
     archetype: 'Social & Energetic',
     imageKey: 'tiger',
     tone: 'T2', // 장난스러움 — 기존 개입 문구가 명백히 이 말투였다
@@ -60,7 +60,7 @@ export const PRESETS = {
   },
   juno: {
     key: 'juno',
-    name: 'Juno',
+    name: '신유연',
     archetype: 'Chill & Independent',
     imageKey: 'duck',
     // 끈질김. 문자 그대로면 T1 이지만 그러면 미나와 겹치고 T3·T4 가
