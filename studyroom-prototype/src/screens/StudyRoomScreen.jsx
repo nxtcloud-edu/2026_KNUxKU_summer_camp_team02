@@ -705,6 +705,8 @@ export default function StudyRoomScreen() {
       goalText: goalRef.current || '',
       // 목표를 안 적었으면 방금 나눈 얘기에서 낸다
       recentTopics: docRef.current?.name ? [docRef.current.name] : [],
+      // 이름만 주면 모델이 이름만 보고 지어낸다 (quiz.js 주석 참고)
+      docPrompt: docRef.current?.prompt || '',
       history: historyRef.current.slice(-6),
     })
     if (!q || !aliveRef.current) return

@@ -34,9 +34,24 @@ export function validateQuiz(q) {
  *          만들지 못하면 null. **문제를 못 내는 건 조용히 넘어간다** —
  *          "문제를 못 만들었어요" 같은 말풍선은 아무에게도 도움이 안 된다.
  */
-export async function makeQuiz({ seat, settings = {}, goalText = '', recentTopics = [], history = [] }) {
+export async function makeQuiz({
+  seat,
+  settings = {},
+  goalText = '',
+  recentTopics = [],
+  history = [],
+  /**
+   * 올린 자료의 본문(toPrompt 로 감싼 것). **있으면 반드시 실어 보낸다.**
+   *
+   * 예전에는 자료 **이름만** 넘겼다. 그랬더니 모델이 이름만 보고 지어냈다 —
+   * 실측에서 "sisa_neurips_submission.pdf" 하나만 주니
+   * "SISA 프레임워크에서 샤드를 슬라이스로 나누는 이유는?" 이라는 문제가 나왔다.
+   * 그 논문에 샤드도 슬라이스도 없다. 4지선다는 그럴듯해 보여서 더 위험하다.
+   */
+  docPrompt = '',
+}) {
   const scope = goalText || recentTopics.join(', ')
-  if (!scope) return null // 범위가 없으면 아예 내지 않는다
+  if (!scope && !docPrompt) return null // 범위가 없으면 아예 내지 않는다
 
   try {
     const r = await requestReply({
@@ -45,7 +60,10 @@ export async function makeQuiz({ seat, settings = {}, goalText = '', recentTopic
       funcId: 'sys:quiz',
       state: { goalText, recentTopics },
       turns: history.slice(-6),
-      message: `지금까지 다룬 범위에서 4지선다 확인 문제를 하나 내줘.`,
+      withDoc: !!docPrompt, // 자료가 있으면 그 자료가 근거다 (뱅크 대신)
+      message: docPrompt
+        ? `${docPrompt}\n\n위 자료에서 4지선다 확인 문제를 하나 내줘. 자료에 없는 건 묻지 않는다.`
+        : `지금까지 다룬 범위에서 4지선다 확인 문제를 하나 내줘.`,
     })
     const parsed = JSON.parse(r?.text || 'null')
     return validateQuiz(parsed)

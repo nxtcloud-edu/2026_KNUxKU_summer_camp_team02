@@ -125,6 +125,9 @@ export default function LobbyScreen() {
     return chars[Math.floor(Math.random() * chars.length)]
   })
 
+  /** 지금 자료를 읽고 있는가. 다 읽었거나 실패했으면 아니다 */
+  const reading = !!doc && !doc.error && !/다 읽었어요/.test(doc.note)
+
   const clearDoc = useCallback(() => {
     readTokenRef.current += 1 // 읽는 중이면 그 결과를 무시한다
     setDoc(null)
@@ -705,7 +708,9 @@ export default function LobbyScreen() {
               onChange={(e) => setGoal(e.target.value)}
               onKeyDown={(e) => {
                 // 엔터로 곧장 입장. 목표만 적고 마우스로 옮겨가는 건 번거롭다
-                if (e.key === 'Enter' && !e.nativeEvent.isComposing && !entering && online) enterRoom()
+                // 버튼만 막으면 여기 엔터로 새어 들어간다
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && !entering && online && !reading)
+                  enterRoom()
               }}
               placeholder="예: 자료구조 3장 끝내기"
               className="mt-2 border-hairline t-body bg-surface w-full rounded-2xl border px-4 py-3 outline-none transition-colors duration-200 focus:border-[var(--text-strong)]"
@@ -762,14 +767,21 @@ export default function LobbyScreen() {
           </div>
 
           {/* 입장하기 — 자료를 읽는 중에도 들어갈 수 있다. 방이 이어서 읽는다 */}
+          {/**
+            * 읽는 동안은 들어가지 못하게 막는다.
+            *
+            * 열어 두면 읽다 만 채로 입장하게 되고, 그러면 방이 **처음부터 다시 읽는다** —
+            * 로비에서 쓴 시간이 통째로 버려지고 사용자는 두 번 기다린다.
+            * 어차피 기다릴 거면 카메라를 보며 기다리는 편이 낫다.
+            */}
           <Button
             variant="primary"
             onClick={enterRoom}
-            disabled={entering || !online}
-            aria-label={entering ? '입장 중' : '입장하기'}
+            disabled={entering || !online || reading}
+            aria-label={entering ? '입장 중' : reading ? '자료를 읽는 중' : '입장하기'}
             className="w-full py-3 text-[15px] font-semibold"
           >
-            {entering ? '입장 중…' : '입장하기'}
+            {entering ? '입장 중…' : reading ? '자료 읽는 중…' : '입장하기'}
           </Button>
         </div>
       </div>
