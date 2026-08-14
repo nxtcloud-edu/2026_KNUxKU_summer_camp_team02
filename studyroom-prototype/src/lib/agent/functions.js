@@ -171,6 +171,77 @@ export const SYS_SPEC = {
     },
   },
 
+  /**
+   * 엔딩 요약 — 오늘 공부한 것을 정리한다.
+   *
+   * 한 세션에 한 번뿐인 호출이고 결과가 화면 절반을 채운다. 값싸게 굴 자리가 아니다.
+   * 스키마를 강제하지 않으면 코드펜스로 감싸거나 필드 이름을 바꿔서 파싱이 깨지는데,
+   * 하필 세션 끝에서 터지면 그날 공부한 걸 통째로 못 보여준다.
+   */
+  'sys:review': {
+    maxChars: 0,
+    maxTokens: 8000,
+    thinking: 'medium',
+    useKnowledge: false,
+    useSearch: false,
+    wantsPro: true,
+    toneIntensity: 'none',
+    stateKeys: [],
+    json: {
+      type: 'OBJECT',
+      properties: {
+        conceptGroups: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              domain: { type: 'STRING' },
+              label: { type: 'STRING' },
+              concepts: {
+                type: 'ARRAY',
+                items: {
+                  type: 'OBJECT',
+                  properties: { title: { type: 'STRING' }, markdown: { type: 'STRING' } },
+                  required: ['title', 'markdown'],
+                },
+              },
+            },
+            required: ['domain', 'label', 'concepts'],
+          },
+        },
+        deepeningPoints: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: { title: { type: 'STRING' }, body: { type: 'STRING' } },
+            required: ['title', 'body'],
+          },
+        },
+        trueFalseQuizzes: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              statement: { type: 'STRING' },
+              answer: { type: 'BOOLEAN' },
+              explanation: { type: 'STRING' },
+            },
+            required: ['statement', 'answer', 'explanation'],
+          },
+        },
+        summaryText: { type: 'STRING' },
+        downloadSummaryMarkdown: { type: 'STRING' },
+      },
+      required: [
+        'conceptGroups',
+        'deepeningPoints',
+        'trueFalseQuizzes',
+        'summaryText',
+        'downloadSummaryMarkdown',
+      ],
+    },
+  },
+
   'sys:docIntro': {
     maxChars: 200,
     maxTokens: 900,

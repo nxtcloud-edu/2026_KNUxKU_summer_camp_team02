@@ -1,13 +1,13 @@
 /**
  * 엔딩 페이지 — 통합 설계서 §6-4 (지표 §8-1 / 폴백 §8-3 / 점수 §8-4)
  *
- * [UI 재구성 v4] "공부 내용 요약" 모달을 데모데이터(demoSessionReview) 기반 UI 렌더링 테스트로 재구성.
+ * "공부 내용 요약" 모달은 **이번 세션의 실제 대화·자료**로 만든다 (lib/review.js).
  *   - 메인 화면(캐릭터 인사 · 이번 학습시간 · 지난 기록 비교)은 이전 버전과 동일하다.
  *   - 모달 왼쪽: 분야별 그룹(conceptGroups) → 개념 토글 → Markdown Viewer
  *   - 모달 오른쪽: 심화 학습 포인트(deepeningPoints) · T/F 퀴즈(trueFalseQuizzes) · 내용 요약(summaryText)
  *
- *   §주의: 이번 작업은 실제 기능 개발이 아니라 UI 렌더링 테스트다.
- *   demoSessionReview는 고정된 mock 데이터이며, 실제 RAG·AI 호출·채팅 분석·DB 스키마와는 무관하다.
+ *   §처음엔 고정된 표본을 보여줬다. 사용자가 뭘 공부했든 늘 같은 개념이 떴고, 그걸 본 사람은
+ *   실제로 공부한 것으로 읽는다. 이제 기록에서 만들고, 만들 게 없으면 없다고 말한다.
  *   Markdown Viewer도 새 라이브러리를 추가하지 않고 최소 문법(###, 문단, 목록, 인라인 코드, 코드블록,
  *   공식처럼 보이는 한 줄)만 직접 파싱해서 보여준다.
  */
@@ -36,6 +36,7 @@ import {
 
 import { useStore, activeSeats } from '../store/useStore'
 import { db, daysAgoKey } from '../store/db'
+import { ensureReview } from '../lib/review'
 import { PRESETS } from '../lib/presets'
 import { computeScore, commentTone, fmtHuman, fmtShort } from '../lib/metrics'
 import { Button, IconBtn, Dialog, CharacterSprite } from '../components/ui'
@@ -67,273 +68,24 @@ const MATE_LINES = {
 
 const WEEKDAY = ['월', '화', '수', '목', '금', '토', '일']
 
-/* ── 공부 내용 요약 모달용 데모데이터 (§UI 렌더링 테스트 전용) ─────
-   실제 세션 데이터가 아니라, 모달 레이아웃과 Markdown 렌더링을 한 번에
-   확인하기 위해 고정해 둔 mock 데이터다. */
-const DEMO_SESSION_REVIEW = {
-  contentScale: 'normal',
+/*
+ * 여기 하드코딩된 표본이 있었다 — 조건부 확률·베이즈 정리·Attention…
+ *
+ * 사용자가 뭘 공부했든 늘 같은 개념이 떴다. 시연에서는 그럴듯해 보이지만,
+ * 그 목록을 본 사람은 **실제로 공부한 것**으로 읽는다. 없는 걸 있다고 보여주는 셈이었다.
+ * 이제 실제 대화·자료에서 만든다 (lib/review.js). 만들 게 없으면 없다고 말한다.
+ */
 
-  conceptGroups: [
-    {
-      domain: 'computer_math',
-      label: '컴퓨터 수학',
-      concepts: [
-        {
-          title: '조건부 확률',
-          markdown: `
-### 개념 설명
-조건부 확률은 어떤 사건 B가 이미 일어났다는 조건 아래에서, 다른 사건 A가 일어날 확률이에요.
-
-### 공식
-\`P(A|B) = P(A∩B) / P(B)\`
-
-### 변수 의미
-- \`A\`: 알고 싶은 사건
-- \`B\`: 이미 일어났다고 가정하는 조건 사건
-- \`P(A∩B)\`: A와 B가 동시에 일어날 확률
-- \`P(B)\`: 조건 사건 B가 일어날 확률
-
-### 예시
-주사위를 던져 짝수가 나왔다는 조건에서, 그 수가 4일 확률은 \`1/3\`이에요.
-
-### 자주 헷갈리는 점
-\`P(A|B)\`와 \`P(B|A)\`는 서로 다른 확률이에요.
-`,
-        },
-        {
-          title: '베이즈 정리',
-          markdown: `
-### 개념 설명
-베이즈 정리는 관찰된 결과를 바탕으로 원인의 확률을 다시 계산하는 방법이에요.
-
-### 공식
-\`P(A|B) = P(B|A)P(A) / P(B)\`
-
-### 활용 흐름
-1. 사전 확률 \`P(A)\`를 정해요.
-2. 관찰된 증거 \`B\`가 주어져요.
-3. \`P(B|A)\`를 이용해 가능성을 갱신해요.
-4. 최종적으로 \`P(A|B)\`를 구해요.
-
-### 예시
-검사 결과가 양성일 때 실제로 병이 있을 확률을 계산할 때 사용할 수 있어요.
-`,
-        },
-      ],
-    },
-    {
-      domain: 'operating_system',
-      label: '운영체제',
-      concepts: [
-        {
-          title: '프로세스 상태 전이',
-          markdown: `
-### 개념 설명
-프로세스 상태 전이는 프로그램이 실행되는 동안 상태가 바뀌는 흐름이에요.
-
-### 주요 상태
-- New: 프로세스가 생성됨
-- Ready: CPU 할당을 기다림
-- Running: CPU를 받아 실행 중
-- Waiting: 입출력 같은 이벤트를 기다림
-- Terminated: 실행 종료
-
-### 동작 흐름
-\`\`\`
-New → Ready → Running → Waiting → Ready → Running → Terminated
-\`\`\`
-
-### 예시
-파일을 읽는 프로그램은 CPU에서 실행되다가 디스크 입출력이 필요하면 Waiting 상태로 이동해요.
-입출력이 끝나면 다시 Ready 상태가 됩니다.
-`,
-        },
-        {
-          title: 'CPU 스케줄링',
-          markdown: `
-### 개념 설명
-CPU 스케줄링은 Ready 상태의 프로세스 중 어떤 프로세스에게 CPU를 줄지 결정하는 방식이에요.
-
-### 주요 기준
-- 응답 시간
-- 대기 시간
-- 처리량
-- 공정성
-
-### 대표 알고리즘
-1. FCFS: 먼저 온 프로세스를 먼저 실행
-2. SJF: 실행 시간이 짧은 프로세스를 먼저 실행
-3. Round Robin: 정해진 시간 단위로 번갈아 실행
-
-### 예시
-화상회의, 음악 재생, 문서 편집이 동시에 실행될 때 운영체제는 짧은 시간 단위로 CPU를 나누어 배분해요.
-`,
-        },
-      ],
-    },
-    {
-      domain: 'network',
-      label: '네트워크',
-      concepts: [
-        {
-          title: 'TCP 3-Way Handshake',
-          markdown: `
-### 개념 설명
-TCP 3-Way Handshake는 클라이언트와 서버가 안정적인 연결을 만들기 위해 세 번의 메시지를 주고받는 과정이에요.
-
-### 단계
-1. SYN: 클라이언트가 연결 요청
-2. SYN-ACK: 서버가 요청 수락과 응답
-3. ACK: 클라이언트가 최종 확인
-
-### 왜 필요한가
-양쪽이 서로 통신 가능한 상태인지 확인하고, 패킷 순서와 연결 정보를 맞추기 위해 필요해요.
-
-### 흐름
-\`\`\`
-Client → SYN → Server
-Client ← SYN-ACK ← Server
-Client → ACK → Server
-\`\`\`
-
-### 예시
-브라우저가 웹 서버에 접속할 때 HTTP 요청을 보내기 전에 TCP 연결이 먼저 만들어져요.
-`,
-        },
-      ],
-    },
-    {
-      domain: 'algorithm',
-      label: '자료구조/알고리즘',
-      concepts: [
-        {
-          title: 'BFS와 DFS',
-          markdown: `
-### 개념 설명
-BFS와 DFS는 그래프나 트리를 탐색하는 대표 알고리즘이에요.
-
-### BFS
-가까운 노드부터 넓게 탐색해요. Queue를 사용합니다.
-
-### DFS
-한 방향으로 깊게 들어가며 탐색해요. Stack 또는 재귀를 사용합니다.
-
-### 사용 예시
-- BFS: 최단 거리 탐색
-- DFS: 모든 경로 탐색, 백트래킹
-
-### 간단한 의사코드
-\`\`\`
-BFS(start):
-  queue.push(start)
-  visited.add(start)
-
-  while queue is not empty:
-    node = queue.pop()
-    for next in node.neighbors:
-      if next not visited:
-        queue.push(next)
-\`\`\`
-`,
-        },
-      ],
-    },
-    {
-      domain: 'artificial_intelligence',
-      label: '인공지능',
-      concepts: [
-        {
-          title: 'Transformer 모델',
-          markdown: `
-### 모델의 개념
-Transformer는 Attention Mechanism을 기반으로 입력 토큰 간의 관계를 학습하는 딥러닝 모델 구조예요.
-
-### 특징
-- 문장 전체의 관계를 한 번에 계산
-- 병렬 처리에 유리함
-- 긴 문맥 처리에 강함
-- 대규모 언어 모델의 기반 구조로 사용됨
-
-### 기본 파이프라인
-\`\`\`
-입력 토큰 → 임베딩 → Self-Attention → Feed Forward Network → 출력
-\`\`\`
-
-### 활용 예시
-번역, 요약, 질의응답, 코드 생성 같은 작업에서 Transformer 기반 모델이 사용돼요.
-`,
-        },
-      ],
-    },
-  ],
-
-  deepeningPoints: [
-    {
-      title: '베이즈 정리',
-      body: '조건부 확률의 방향을 뒤집어 결과로부터 원인의 확률을 구하는 방법이에요.',
-    },
-    {
-      title: '문맥 교환',
-      body: 'CPU가 실행 중인 프로세스를 바꿀 때 저장하고 복원해야 하는 상태 정보와 관련된 개념이에요.',
-    },
-    {
-      title: 'Attention Mechanism',
-      body: 'Transformer를 이해하려면 입력 토큰들이 서로 얼마나 관련 있는지 계산하는 Attention 구조를 함께 보는 게 좋아요.',
-    },
-  ],
-
-  trueFalseQuizzes: [
-    {
-      statement: '조건부 확률 P(A|B)는 B가 일어난 조건에서 A가 일어날 확률이다.',
-      answer: true,
-      explanation: '맞아요. 조건부 확률은 특정 조건이 주어진 상황에서의 확률을 의미해요.',
-    },
-    {
-      statement: 'Ready 상태의 프로세스는 입출력 작업이 끝나기를 기다리는 상태다.',
-      answer: false,
-      explanation:
-        '아니에요. Ready 상태는 CPU 할당을 기다리는 상태이고, 입출력을 기다리는 상태는 Waiting이에요.',
-    },
-    {
-      statement: 'TCP 3-Way Handshake는 SYN, SYN-ACK, ACK 순서로 진행된다.',
-      answer: true,
-      explanation: '맞아요. TCP 연결을 만들 때 세 단계 확인 과정을 거쳐요.',
-    },
-    {
-      statement: 'DFS는 일반적으로 Queue를 사용해 가까운 노드부터 탐색한다.',
-      answer: false,
-      explanation: '아니에요. Queue를 사용하는 넓이 우선 탐색은 BFS이고, DFS는 Stack 또는 재귀를 사용해요.',
-    },
-  ],
-
-  summaryText:
-    '오늘은 조건부 확률과 베이즈 정리 같은 컴퓨터 수학 개념, 프로세스 상태 전이와 CPU 스케줄링 같은 운영체제 개념, TCP 연결 과정, 그래프 탐색, Transformer 구조를 함께 정리했어요.',
-}
-
-/** conceptGroups를 평평하게 펼친 검색 대상 목록 — 분야 라벨을 함께 들고 있는다 */
-const ALL_CONCEPTS = DEMO_SESSION_REVIEW.conceptGroups.flatMap((group) =>
-  group.concepts.map((concept) => ({
-    key: `${group.domain}::${concept.title}`,
-    title: concept.title,
-    markdown: concept.markdown,
-    groupLabel: group.label,
-  })),
-)
-
-/** 미리보기 입력창 아래에 보여줄 예시 주제 몇 개 */
-const SAMPLE_TOPICS = ALL_CONCEPTS.slice(0, 4).map((c) => c.title)
-
-/** 입력한 주제명과 데모 개념 제목을 부분 일치로 매칭한다 (공백·대소문자 무시) */
-function findDemoConcept(query) {
-  const q = query.replace(/\s/g, '').toLowerCase()
-  if (!q) return null
-  return (
-    ALL_CONCEPTS.find((c) => {
-      const t = c.title.replace(/\s/g, '').toLowerCase()
-      return t.includes(q) || q.includes(t)
-    }) || null
+/** conceptGroups를 평평하게 펼친다 — 분야 라벨을 함께 들고 있는다 */
+const flattenConcepts = (groups = []) =>
+  (groups || []).flatMap((group) =>
+    group.concepts.map((concept) => ({
+      key: `${group.domain}::${concept.title}`,
+      title: concept.title,
+      markdown: concept.markdown,
+      groupLabel: group.label,
+    })),
   )
-}
 
 /* ── Markdown Viewer (최소 지원) ─────────────────────────────
    지원: ### 제목 · 문단 · - 목록 · 1. 번호 목록 · 인라인 코드 · 코드블록 ·
@@ -419,20 +171,37 @@ function parseMarkdownBlocks(md) {
 }
 
 /** 인라인 `코드` 표기를 <code>로 바꿔서 렌더링한다 */
+/**
+ * 인라인 마크다운 — 코드와 굵게.
+ *
+ * 굵게가 빠져 있었다. 표본 데이터에는 `**` 가 없어서 드러나지 않았는데, 실제 모델이
+ * 쓰기 시작하니 별표가 글자로 그대로 보였다. 파서를 새로 들이지 않고 두 규칙만 처리한다.
+ */
 function renderInline(text) {
-  const parts = String(text).split(/`([^`]+)`/g)
-  return parts.map((part, i) =>
-    i % 2 === 1 ? (
-      <code
-        key={i}
-        className="rounded-sm bg-[var(--hover-bg)] border border-hairline px-1.5 py-0.5 t-caption tnum"
-      >
-        {part}
-      </code>
-    ) : (
-      part
-    ),
-  )
+  // 코드가 먼저다 — 코드 안의 별표는 굵게가 아니라 글자다
+  return String(text)
+    .split(/`([^`]+)`/g)
+    .flatMap((part, i) => {
+      if (i % 2 === 1) {
+        return [
+          <code
+            key={`c${i}`}
+            className="rounded-sm bg-[var(--hover-bg)] border border-hairline px-1.5 py-0.5 t-caption tnum"
+          >
+            {part}
+          </code>,
+        ]
+      }
+      return part.split(/\*\*([^*]+)\*\*/g).map((seg, j) =>
+        j % 2 === 1 ? (
+          <strong key={`b${i}-${j}`} className="font-semibold">
+            {seg}
+          </strong>
+        ) : (
+          seg
+        ),
+      )
+    })
 }
 
 function MarkdownViewer({ markdown }) {
@@ -497,12 +266,20 @@ function MarkdownViewer({ markdown }) {
 }
 
 /* ── T/F 퀴즈 캐러셀 — 한 번에 한 문제씩, 화살표/도트로 옆으로 넘긴다 ──── */
-function TrueFalseQuizCarousel({ quizzes }) {
+function TrueFalseQuizCarousel({ quizzes = [] }) {
   const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState({}) // index -> boolean
 
   const total = quizzes.length
   const q = quizzes[index]
+
+  /**
+   * 문제가 없으면 아무것도 그리지 않는다.
+   *
+   * 예전에는 표본이 늘 3~4문항이라 빈 배열이 올 일이 없었다. 이제 실제 대화에서 만드니
+   * 얘기가 짧으면 0문항이 나올 수 있고, 그때 q.answer 를 읽다 **화면 전체가 하얘졌다.**
+   */
+  if (!q) return null
   const selected = answers[index]
   const answered = selected !== undefined
   const isCorrect = answered && selected === q.answer
@@ -779,9 +556,33 @@ export default function EndingScreen() {
   const [countdown, setCountdown] = useState(5)
   const [summaryOpen, setSummaryOpen] = useState(false) // "공부 내용 요약" 오버레이
   const [openConceptKey, setOpenConceptKey] = useState(null) // 처음엔 입력창만 보이고, 검색 결과가 열리면서 채워진다
-  const [topicInput, setTopicInput] = useState('')
-  const [foundConcepts, setFoundConcepts] = useState([]) // 검색해서 찾은 데모 개념들 — 검색할 때마다 쌓인다
-  const [notFoundQuery, setNotFoundQuery] = useState(null) // 데모 데이터에 없는 주제를 검색했을 때
+  /**
+   * 오늘 공부한 것 정리. 실제 기록에서 만든다 (lib/review.js).
+   * 만들 게 없으면 표본을 대신 보여주지 않고 없다고 말한다.
+   */
+  const [review, setReview] = useState(null)
+  const [reviewState, setReviewState] = useState('idle') // idle · loading · ok · empty · error
+  const [reviewWhy, setReviewWhy] = useState('')
+
+  /**
+   * 요약을 가져온다. 세션당 한 번 만들고 그 뒤로는 저장된 걸 준다 —
+   * 볼 때마다 내용이 달라지면 기록으로서 쓸모가 없다.
+   *
+   * 화면에 들어오자마자 부르지 않는다. 사용자가 "공부 내용 요약 보기"를 누르기 전에는
+   * 이 패널이 보이지도 않는데, 미리 부르면 안 볼 사람 몫까지 호출한다.
+   */
+  const loadReview = useCallback(
+    async (force = false) => {
+      if (!lastSessionId) return
+      if (force) db.clearReview(lastSessionId)
+      setReviewState('loading')
+      const r = await ensureReview(lastSessionId, seats.find((x) => x.enabled) || seats[0])
+      setReview(r.review || null)
+      setReviewWhy(r.why || '')
+      setReviewState(r.state)
+    },
+    [lastSessionId, seats],
+  )
 
   /* 세션 로드 — 기존 db·계산 로직 재사용 (메인 화면용) */
   const data = useMemo(() => {
@@ -855,25 +656,13 @@ export default function EndingScreen() {
   const closeSummary = useCallback(() => {
     setSummaryOpen(false)
     setOpenConceptKey(null)
-    setTopicInput('')
-    setFoundConcepts([])
-    setNotFoundQuery(null)
   }, [])
 
-  const runTopicSearch = () => {
-    const query = topicInput.trim()
-    if (!query) return
-    const found = findDemoConcept(query)
-    if (!found) {
-      setNotFoundQuery(query)
-      setTopicInput('')
-      return
-    }
-    setNotFoundQuery(null)
-    setFoundConcepts((prev) => (prev.some((c) => c.key === found.key) ? prev : [...prev, found]))
-    setOpenConceptKey(found.key)
-    setTopicInput('')
-  }
+  /** 요약 패널을 연다. 이때 처음으로 정리를 만든다 */
+  const openSummary = useCallback(() => {
+    setSummaryOpen(true)
+    if (reviewState === 'idle') loadReview()
+  }, [reviewState, loadReview])
 
   /* ── 세션 없음 ─────────────────────────────────────────── */
   if (!data) {
@@ -924,7 +713,7 @@ export default function EndingScreen() {
     const text = buildSummaryDownloadText({
       startedLabel,
       topic,
-      summaryText: DEMO_SESSION_REVIEW.summaryText,
+      summaryText: review?.summaryText || '',
     })
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -1090,7 +879,7 @@ export default function EndingScreen() {
 
         {/* ══ 공부 내용 요약 진입 ══ */}
         <div className="mt-6 flex justify-center">
-          <Button variant="secondary" onClick={() => setSummaryOpen(true)}>
+          <Button variant="secondary" onClick={openSummary}>
             <BookOpen size={16} aria-hidden="true" />
             공부 내용 요약 보기
           </Button>
@@ -1125,103 +914,94 @@ export default function EndingScreen() {
               <div>
                 <h3 className="t-item mb-3">공부한 개념</h3>
 
-                {/* 원하는 주제를 입력하면, 데모 데이터(conceptGroups)에 있는 개념을 찾아 카드로 쌓아 보여준다.
-                    처음엔 입력창만 있고, 검색할 때마다 결과가 아래에 하나씩 추가된다. */}
-                <div className="rounded-md border border-dashed border-hairline bg-white/50 p-3.5 mb-4">
-                  <p className="t-caption text-muted mb-2">공부한 주제를 입력해보세요</p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      aria-label="공부한 주제"
-                      value={topicInput}
-                      onChange={(e) => setTopicInput(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && runTopicSearch()}
-                      placeholder="예: 조건부 확률, CPU 스케줄링, BFS..."
-                      className="flex-1 rounded-full border border-hairline bg-white px-4 py-1.5 t-body focus:border-coral"
-                    />
-                    <Button variant="secondary" onClick={runTopicSearch}>
-                      <Search size={14} aria-hidden="true" />
-                      확인
-                    </Button>
-                  </div>
-                  <p className="t-help mt-2">예시로 있는 주제: {SAMPLE_TOPICS.join(' · ')}</p>
-                  {notFoundQuery && (
-                    <p className="t-help mt-2 text-[var(--danger)] fade-in">
-                      &ldquo;{notFoundQuery}&rdquo;은 이번 데모에 없는 주제예요. 위 예시 중 하나로
-                      확인해보세요.
-                    </p>
-                  )}
-                </div>
+                {reviewState === 'loading' && (
+                  <p className="t-body text-subtle">오늘 나눈 얘기를 정리하는 중이에요…</p>
+                )}
 
-                {foundConcepts.length === 0 ? (
-                  <p className="t-body text-subtle">주제를 입력하면 여기에 개념 카드가 쌓여요.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {foundConcepts.map((concept) => (
-                      <div key={concept.key}>
-                        <span className="t-caption rounded-full bg-sage border border-hairline px-2.5 py-1 inline-block mb-1.5">
-                          {concept.groupLabel}
-                        </span>
-                        <ConceptToggle
-                          title={concept.title}
-                          markdown={concept.markdown}
-                          open={openConceptKey === concept.key}
-                          onToggle={() =>
-                            setOpenConceptKey((cur) => (cur === concept.key ? null : concept.key))
-                          }
-                        />
-                      </div>
-                    ))}
+                {reviewState === 'ok' &&
+                  flattenConcepts(review.conceptGroups).map((concept) => (
+                    <div key={concept.key} className="mb-3">
+                      <span className="t-caption bg-sage border-hairline mb-1.5 inline-block rounded-full border px-2.5 py-1">
+                        {concept.groupLabel}
+                      </span>
+                      <ConceptToggle
+                        title={concept.title}
+                        markdown={concept.markdown}
+                        open={openConceptKey === concept.key}
+                        onToggle={() =>
+                          setOpenConceptKey((cur) => (cur === concept.key ? null : concept.key))
+                        }
+                      />
+                    </div>
+                  ))}
+
+                {/* 없으면 없다고 말한다. 표본을 대신 보여주면 그걸 오늘 공부한 걸로 읽는다 */}
+                {(reviewState === 'empty' || reviewState === 'error') && (
+                  <div className="border-hairline rounded-md border border-dashed p-5">
+                    <p className="t-body">{reviewWhy || '정리할 내용이 아직 없어요.'}</p>
+                    <p className="t-help mt-2">
+                      {reviewState === 'error'
+                        ? '잠시 뒤에 다시 만들어 볼 수 있어요.'
+                        : '메이트와 개념을 좀 더 이야기하거나 자료를 올리면 여기에 정리돼요.'}
+                    </p>
+                    {reviewState === 'error' && (
+                      <Button variant="secondary" className="mt-3" onClick={() => loadReview(true)}>
+                        다시 만들기
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
 
               {/* ── 오른쪽: 심화 학습 포인트 · T/F 퀴즈 · 내용 요약 ── */}
-              <div className="space-y-6">
-                <div>
-                  <h3 className="t-item mb-1 flex items-center gap-2">
-                    <Lightbulb size={16} className="text-subtle" aria-hidden="true" />
-                    심화 학습 포인트
-                  </h3>
-                  <p className="t-help mb-3">오늘 공부한 개념과 이어지는 다른 개념들이에요.</p>
-                  <ul className="space-y-2">
-                    {DEMO_SESSION_REVIEW.deepeningPoints.map((p) => (
-                      <li key={p.title} className="t-body flex items-start gap-2">
-                        <span
-                          className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-coral"
-                          aria-hidden="true"
-                        />
-                        <span className="min-w-0 break-words">
-                          <span className="font-semibold">{p.title}</span> — {p.body}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+              {reviewState === 'ok' && (
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="t-item mb-1 flex items-center gap-2">
+                      <Lightbulb size={16} className="text-subtle" aria-hidden="true" />
+                      심화 학습 포인트
+                    </h3>
+                    <p className="t-help mb-3">오늘 공부한 개념과 이어지는 다른 개념들이에요.</p>
+                    <ul className="space-y-2">
+                      {(review?.deepeningPoints || []).map((p) => (
+                        <li key={p.title} className="t-body flex items-start gap-2">
+                          <span
+                            className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-coral"
+                            aria-hidden="true"
+                          />
+                          <span className="min-w-0 break-words">
+                            <span className="font-semibold">{p.title}</span> — {p.body}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
 
-                <div>
-                  <h3 className="t-item mb-3 flex items-center gap-2">
-                    <HelpCircle size={16} className="text-subtle" aria-hidden="true" />
-                    T/F 퀴즈
-                  </h3>
-                  <TrueFalseQuizCarousel quizzes={DEMO_SESSION_REVIEW.trueFalseQuizzes} />
-                </div>
+                  <div>
+                    <h3 className="t-item mb-3 flex items-center gap-2">
+                      <HelpCircle size={16} className="text-subtle" aria-hidden="true" />
+                      T/F 퀴즈
+                    </h3>
+                    <TrueFalseQuizCarousel quizzes={review?.trueFalseQuizzes || []} />
+                  </div>
 
-                <div className="rounded-md border border-hairline bg-white/70 p-4">
-                  <h3 className="t-item mb-2 flex items-center gap-2">
-                    <FileText size={16} className="text-subtle" aria-hidden="true" />
-                    내용 요약
-                  </h3>
-                  <p className="t-body break-words" style={{ lineHeight: 1.7 }}>
-                    {DEMO_SESSION_REVIEW.summaryText}
-                  </p>
-                  <div className="mt-4 flex justify-center">
-                    <Button variant="secondary" onClick={handleDownload}>
-                      <Download size={15} aria-hidden="true" />
-                      요약 다운로드
-                    </Button>
+                  <div className="rounded-md border border-hairline bg-white/70 p-4">
+                    <h3 className="t-item mb-2 flex items-center gap-2">
+                      <FileText size={16} className="text-subtle" aria-hidden="true" />
+                      내용 요약
+                    </h3>
+                    <p className="t-body break-words" style={{ lineHeight: 1.7 }}>
+                      {review?.summaryText || ''}
+                    </p>
+                    <div className="mt-4 flex justify-center">
+                      <Button variant="secondary" onClick={handleDownload}>
+                        <Download size={15} aria-hidden="true" />
+                        요약 다운로드
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>

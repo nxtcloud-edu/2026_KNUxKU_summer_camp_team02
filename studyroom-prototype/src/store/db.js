@@ -322,6 +322,33 @@ export const db = {
   MAX_DOCS: 30,
   MAX_DOC_CHARS: 20000,
 
+  /**
+   * 엔딩 요약. 세션당 한 번 만들고 그대로 둔다.
+   *
+   * 열 때마다 새로 만들면 **볼 때마다 내용이 달라진다.** 어제 정리한 걸 오늘 다시 봤는데
+   * 개념이 바뀌어 있으면 기록으로서 쓸모가 없다.
+   */
+  saveReview(sessionId, review) {
+    const s = read().session.find((x) => x.id === sessionId)
+    if (!s) return
+    s.review = review
+    s.review_at = Date.now()
+    write()
+  },
+
+  getReview(sessionId) {
+    return read().session.find((x) => x.id === sessionId)?.review || null
+  },
+
+  /** 다시 만들기 — 실패했을 때만 */
+  clearReview(sessionId) {
+    const s = read().session.find((x) => x.id === sessionId)
+    if (!s) return
+    s.review = null
+    s.review_at = null
+    write()
+  },
+
   addDocument({ name, text, sessionId = null }) {
     const body = String(text || '').slice(0, db.MAX_DOC_CHARS)
     if (!body.trim()) return null
