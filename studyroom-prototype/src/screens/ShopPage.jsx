@@ -550,7 +550,7 @@ export default function ShopPage({ onBack, category }) {
               {/* 무료 */}
               <div className="flex-1 rounded-md border border-hairline p-5">
                 <h3 className="t-item font-semibold mb-1">무료</h3>
-                <p className="t-caption text-muted mb-4">OO에 오신 것을 환영합니다</p>
+                <p className="t-caption text-muted mb-4">Alongside에 오신걸 환영합니다</p>
                 <div className="mb-5">
                   <span className="text-[24px] font-bold">0₩</span>
                 </div>
