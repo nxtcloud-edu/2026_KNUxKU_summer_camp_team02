@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   WifiOff,
   Users,
+  Paperclip,
 } from 'lucide-react'
 import { useStore, allSeatsOff } from '../store/useStore'
 import { db } from '../store/db'
@@ -84,6 +85,7 @@ export default function LobbyScreen() {
   const openSettings = useStore((s) => s.openSettings)
   const displayName = useStore((s) => s.displayName)
   const setSessionId = useStore((s) => s.setSessionId)
+  const setPendingDoc = useStore((s) => s.setPendingDoc)
   const toast = useStore((s) => s.toast)
 
   const videoRef = useRef(null)
@@ -109,6 +111,16 @@ export default function LobbyScreen() {
   const [tick, setTick] = useState(0) // 트랙 ended 등으로 재계산이 필요할 때
   const [counts, setCounts] = useState({ cams: null, mics: null })
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine)
+
+  // PDF 업로드 관련
+  const fileRef = useRef(null)
+  const [uploadedFile, setUploadedFile] = useState(null)
+  const [uploading, setUploading] = useState(false)
+  // 랜덤 캐릭터 (mina/theo/juno 중 하나)
+  const [randomChar] = useState(() => {
+    const chars = ['bear', 'tiger', 'duck']
+    return chars[Math.floor(Math.random() * chars.length)]
+  })
 
   const seatOf = (n) => seats.find((s) => s.slotNo === n) || null
   const isMe = previewTarget === 'me'
@@ -468,20 +480,19 @@ export default function LobbyScreen() {
         </button>
         <h1 className="t-screen mt-4 enter-up">들어가기 전에 확인해요</h1>
         <p className="t-help enter-up d1">
-          내 모습과 소리를 확인하고, 함께 들어갈 자리를 살펴보세요. 여기서 정한 설정은 방 안까지 그대로
-          이어집니다.
+          내 모습과 소리를 확인하고, 함께 들어갈 자리를 살펴보세요. 카메라를 끄면 집중 시간이 체크되지 않아요.
         </p>
       </header>
 
-      {/* ── 미리보기 + 입장하기 ─────────────────────────── */}
-      <div className="relative mx-auto mt-6 flex w-full max-w-6xl px-4 sm:px-6 lg:px-0 items-stretch gap-2 enter-up d2">
+      {/* ── 미리보기 + 우측 패널 ─────────────────────────── */}
+      <div className="relative mx-auto mt-6 flex w-full max-w-6xl px-4 sm:px-6 lg:px-0 items-stretch gap-4 enter-up d2">
         <section
           aria-label="본인 미리보기"
           onPointerDown={onPreviewDown}
           onPointerMove={onPreviewMove}
           onPointerUp={onPreviewUp}
           onPointerCancel={onPreviewUp}
-          className="relative h-[300px] sm:h-[430px] flex-1 select-none overflow-hidden rounded-lg bg-surface-dark shadow-soft"
+          className="relative h-[360px] sm:h-[500px] flex-[3] select-none overflow-hidden rounded-lg bg-surface-dark shadow-soft"
           style={{ touchAction: 'none' }}
         >
           {/* 나 — 카메라 레이어. 자리를 옮겨도 언마운트하지 않는다(스트림 재생성 금지, §12-3 7) */}
@@ -636,41 +647,80 @@ export default function LobbyScreen() {
           </div>
         </section>
 
-        {/* 오늘 뭘 할지 한 줄 — 메이트가 나중에 이 문구를 그대로 인용해 되묻는다 */}
-        <label className="flex min-w-0 flex-1 flex-col justify-center gap-2">
-          <span className="t-caption text-muted">오늘 뭘 할 거야? (건너뛰어도 돼)</span>
-          <input
-            type="text"
-            value={goal}
-            maxLength={40}
-            onChange={(e) => setGoal(e.target.value)}
-            onKeyDown={(e) => {
-              // 엔터로 곧장 입장. 목표만 적고 마우스로 옮겨가는 건 번거롭다
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing && !entering && online) enterRoom()
-            }}
-            placeholder="예: 자료구조 3장 끝내기"
-            className="border-hairline t-body bg-surface w-full rounded-2xl border px-4 py-3 outline-none transition-colors duration-200 focus:border-[var(--text-strong)]"
-          />
-        </label>
+        {/* ── 우측 패널 ── */}
+        <div className="flex w-[260px] sm:w-[300px] shrink-0 flex-col gap-4">
+          {/* 오늘 뭘 할 거야? — 맨 위 고정 */}
+          <div>
+            <span className="t-caption text-muted">오늘 뭘 할 거야? (건너뛰어도 돼)</span>
+            <input
+              type="text"
+              value={goal}
+              maxLength={40}
+              onChange={(e) => setGoal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.nativeEvent.isComposing && !entering && online) enterRoom()
+              }}
+              placeholder="예: 자료구조 3장 끝내기"
+              className="mt-2 border-hairline t-body bg-surface w-full rounded-2xl border px-4 py-3 outline-none transition-colors duration-200 focus:border-[var(--text-strong)]"
+            />
+          </div>
 
-        {/* 입장하기 — 미리보기 오른쪽 변에 세로로 길게 밀착. 이 화면에서 가장 강조 (§6-2) */}
-        <Button
-          variant="primary"
-          onClick={enterRoom}
-          disabled={entering || !online}
-          aria-label={entering ? '입장 중' : '입장하기'}
-          className="h-auto w-[80px] sm:w-[112px] shrink-0 flex-col gap-1"
-          style={{ borderRadius: 24, paddingLeft: 0, paddingRight: 0 }}
-        >
-          <span
-            aria-hidden="true"
-            className="flex flex-col items-center gap-1 text-[24px] font-semibold leading-[32px]"
+          {/* PDF 업로드 */}
+          <div>
+            <span className="t-caption text-muted">사전 학습자료</span>
+            {uploadedFile ? (
+              <div className="mt-2 flex items-center gap-2 rounded-2xl border border-hairline bg-[var(--hover-bg)] px-4 py-3">
+                <Paperclip size={16} className="shrink-0 text-subtle" />
+                <span className="t-body truncate flex-1">{uploadedFile.name}</span>
+                {uploading && <span className="t-caption text-muted">읽는 중…</span>}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="mt-2 flex w-full items-center gap-2 rounded-2xl border border-dashed border-hairline px-4 py-3 t-body text-muted transition-colors hover:bg-[var(--hover-bg)] hover:text-ink"
+              >
+                <Paperclip size={16} />
+                PDF 파일 업로드
+              </button>
+            )}
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".pdf,.txt,.md,.docx"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (!file) return
+                setUploadedFile(file)
+                setUploading(true)
+                setPendingDoc(file)
+                // 업로드 시뮬레이션 (실제로는 StudyRoomScreen 입장 시 processFile이 처리)
+                setTimeout(() => {
+                  setUploading(false)
+                  toast('학습 자료 준비 완료. 입장하면 바로 요약을 시작해요.')
+                }, 2000)
+              }}
+            />
+          </div>
+
+          {/* 캐릭터 이미지 — 랜덤 */}
+          <div className="flex flex-1 items-center justify-center">
+            <CharacterSprite imageKey={randomChar} size={120} state="studying" />
+          </div>
+
+          {/* 입장하기 — 하단 고정, 작게. 업로드 중엔 비활성화 */}
+          <Button
+            variant="primary"
+            onClick={enterRoom}
+            disabled={entering || !online || uploading}
+            aria-label={entering ? '입장 중' : '입장하기'}
+            className="w-full py-3 text-[15px] font-semibold"
           >
-            {(entering ? ['입', '장', '중'] : ['입', '장', '하', '기']).map((ch, i) => (
-              <span key={i}>{ch}</span>
-            ))}
-          </span>
-        </Button>
+            {entering ? '입장 중…' : uploading ? '자료 읽는 중…' : '입장하기'}
+          </Button>
+        </div>
       </div>
 
       {/* ── 커스텀 패널 — 항상 펼쳐져 있음. 접기/펼치기 없음 (§6-2) ── */}

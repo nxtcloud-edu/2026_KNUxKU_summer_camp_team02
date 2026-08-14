@@ -993,10 +993,8 @@ export default function StudyRoomScreen() {
 
   /* ── 문서 업로드 (§6-3, §7-5) ──────────────────────────── */
 
-  const onPickFile = useCallback(
-    async (e) => {
-      const file = e.target.files?.[0]
-      e.target.value = ''
+  const processFile = useCallback(
+    async (file) => {
       if (!file) return
       const sid = sidRef.current
 
@@ -1080,6 +1078,25 @@ export default function StudyRoomScreen() {
     },
     [mateSay, pushMsg],
   )
+
+  const onPickFile = useCallback(
+    (e) => {
+      const file = e.target.files?.[0]
+      e.target.value = ''
+      if (file) processFile(file)
+    },
+    [processFile],
+  )
+
+  /* ── 사전 업로드 문서 처리 (LobbyScreen_v1에서 넘어온 pendingDoc) ── */
+  useEffect(() => {
+    const pending = useStore.getState().pendingDoc
+    if (!pending) return
+    useStore.getState().setPendingDoc(null)
+    // 2초 뒤 processFile 호출 — 세션 초기화와 UI 렌더가 모두 끝난 후
+    const t = setTimeout(() => processFile(pending), 2000)
+    return () => clearTimeout(t)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── 상시 받아쓰기 ────────────────────────────────────────
      마이크를 계속 열어 두고, 받아적은 걸 **채팅 입력창에 그대로 쓴다.**
@@ -1335,7 +1352,7 @@ export default function StudyRoomScreen() {
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-warm">
-      <main className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <main className="flex min-h-0 flex-1 flex-col lg:flex-row pb-[92px] lg:pb-0">
         {/* ── 좌 72% 참가자 ── */}
         <section aria-label="참가자" className="min-w-0 flex-1 p-4 lg:p-6 max-h-[60vh] lg:max-h-none">
           <div className="grid h-full grid-cols-2 grid-rows-2 gap-4">
@@ -1370,7 +1387,7 @@ export default function StudyRoomScreen() {
         {/* ── 우 28% 채팅 — 항상 열려 있고 닫기 버튼이 없다 (§6-3) ── */}
         <aside
           aria-label="채팅"
-          className="flex min-h-[40vh] lg:min-h-0 flex-col border-l border-hairline bg-surface w-full lg:w-[28%] lg:min-w-[320px]"
+          className="flex min-h-[40vh] lg:min-h-0 flex-col rounded-lg border border-hairline bg-surface shadow-soft w-full lg:w-[28%] lg:min-w-[320px] m-2 sm:m-3 lg:ml-0 lg:my-3 lg:mr-3 overflow-hidden"
         >
           <header className="flex items-baseline gap-2 border-b border-hairline px-5 py-4">
             <h2 className="t-section">채팅</h2>
