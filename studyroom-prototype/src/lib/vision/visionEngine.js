@@ -244,28 +244,29 @@ export function createVisionLoop({
     if (p95 == null) return
 
     /**
-     * 너무 느려도 **끄지 않고 최대한 늦춘다.**
+     * 버거우면 늦춘다. **끄지는 않는다.**
      *
-     * 예전에는 여기서 stop() 을 불러 통째로 껐고, 되살리는 코드가 없었다.
-     * p95 는 30표본 창이라 GC 한 번, 탭 전환 한 번에도 튄다.
-     * 그 순간의 측정으로 기능을 영구히 죽이는 건 과하다 —
-     * 느린 판정이라도 없는 것보다 낫고, 잠시 뒤 회복될 수도 있다.
+     * 두 가지를 바꿨다.
+     *
+     * 1) 판단 기준을 절대 ms 가 아니라 **점유율**로. 예전엔 `p95 > 60ms` 였는데,
+     *    주기 200ms 에 추론 60ms 면 점유율 30% 로 아주 멀쩡하다. 절대값으로 재면
+     *    주기가 빠를수록 무조건 걸려서 계속 강등됐고, 사용자에게는
+     *    "자꾸 강제로 강하된다"로 보였다. 폰 판정은 이미 점유율로 재고 있었다.
+     *
+     * 2) 한 번에 최대 주기로 떨어뜨리지 않고 **한 단계씩**. 그리고 가장 느린
+     *    주기에서도 버거워도 끄지 않는다. 느린 판정이 없는 판정보다 낫고,
+     *    p95 는 30표본 창이라 GC 한 번·탭 전환 한 번에도 튄다.
+     *    그 순간의 측정으로 기능을 죽이는 건 과하다.
      */
-    if (p95 > DEGRADE.unusableMs) {
+    const duty = p95 / faceInterval
+    if (duty > DEGRADE.faceDutyLimit) {
       if (faceInterval < DEGRADE.maxIntervalMs) {
-        faceInterval = DEGRADE.maxIntervalMs
+        faceInterval = Math.min(DEGRADE.maxIntervalMs, Math.round(faceInterval * DEGRADE.stepUp))
         diag.intervalMs = faceInterval
-        diag.degradeNote = `너무 느려서 주기를 ${faceInterval}ms로 늦췄습니다 (p95 ${p95.toFixed(0)}ms)`
+        diag.degradeNote = `주기를 ${faceInterval}ms로 늦췄습니다 (점유율 ${(duty * 100).toFixed(0)}%)`
         perf.faceMs.length = 0
-        onDegrade({ kind: 'slow', p95, intervalMs: faceInterval, reason: diag.degradeNote })
-        return
+        onDegrade({ kind: 'slow', p95, duty, intervalMs: faceInterval, reason: diag.degradeNote })
       }
-      // 가장 느린 주기에서도 못 버티면 그때 끈다. 이유는 남긴다
-      degraded = true
-      diag.degradeNote = `가장 느린 주기에서도 버거워 껐습니다 (p95 ${p95.toFixed(0)}ms)`
-      onDegrade({ kind: 'off', p95, reason: diag.degradeNote })
-      stop()
-      report(null)
       return
     }
 

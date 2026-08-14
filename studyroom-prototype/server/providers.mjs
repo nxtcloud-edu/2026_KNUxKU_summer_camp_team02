@@ -23,7 +23,14 @@
  *
  * high 는 쓰지 않는다. 예산 2000을 줘도 답변이 끝나기 전에 잘렸고 지연이 7초였다.
  */
-export const THINK_ALLOWANCE = { low: 0, medium: 1800, high: 2600 }
+/**
+ * 사고에 쓸 몫. 답변 몫과 **별도로** 더해진다.
+ *
+ * high 를 2,600 으로 두면 어려운 질문에서 사고하다 답을 못 쓰고 잘린다.
+ * 사고량은 질문마다 크게 달라서(같은 medium 에서 254~1,150토큰) 넉넉히 잡는 편이 낫다 —
+ * 안 쓰면 값이 안 나가고, 모자라면 답이 끊긴다.
+ */
+export const THINK_ALLOWANCE = { low: 0, medium: 1800, high: 6000 }
 
 class HttpError extends Error {
   constructor(status, body) {

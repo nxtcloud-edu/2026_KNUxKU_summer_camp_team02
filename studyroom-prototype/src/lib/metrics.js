@@ -72,9 +72,15 @@ export class MetricsTracker {
   /** 지금 집중 시간이 멈춰 있는가, 그리고 왜 */
   get pausedBy() {
     if (this.isAway) return 'away'
-    // 얼굴이 안 보이면 폰·졸음은 판단할 수 없다. 순서가 곧 우선순위다
-    if (this.vision.absent) return 'absent'
+    /**
+     * 폰이 먼저다.
+     *
+     * 예전엔 absent 를 먼저 봤다. 그런데 **폰을 보려고 고개를 숙이면 얼굴이 사라진다.**
+     * 그래서 폰을 보는 내내 "자리 비움"으로 떴다 — 사용자는 자리에 있는데.
+     * 화면에 폰이 보인다는 건 사람이 거기 있다는 뜻이므로, 폰 신호가 자리 비움보다 정확하다.
+     */
     if (this.vision.phone) return 'phone'
+    if (this.vision.absent) return 'absent'
     if (this.vision.drowsy) return 'drowsy'
     return null
   }

@@ -99,8 +99,22 @@ const PAUSE_LABEL = {
   phone: '휴대폰',
   drowsy: '졸음',
 }
-/** 올린 자료를 가리키는 말 — 이럴 때만 본문을 같이 넘긴다 */
-const DOC_REF_WORDS = /파일|자료|문서|pdf|이거|저거|방금|올린|첨부|요약|정리해|내용/i
+/**
+ * 올린 자료를 가리키는 말.
+ *
+ * ⚠️ 이 목록만 믿으면 안 된다. 실제로 논문을 올려놓고 "이 **논문**에 대해 설명해주라"
+ *    라고 물었는데 `논문` 이 목록에 없어서 PDF 가 안 붙었고, 모델이 제목만 보고
+ *    내용을 지어냈다. 검색은 2회 돌았지만 미공개 투고본이라 웹에 없었다.
+ *    자료가 유일한 근거였는데 그걸 안 준 것이다.
+ *
+ *    그래서 목록을 늘리는 것과 별개로 아래 wantsDoc 에 두 가지 길을 더 뒀다 —
+ *    **자료 제목과 겹치는 말**, 그리고 **앞 turn 이 자료를 썼으면 이어서.**
+ */
+/** 자료를 놓고 하던 얘기가 이만큼 안에 이어지면 같은 자료를 계속 붙인다 */
+const DOC_STICKY_MS = 5 * 60 * 1000
+
+const DOC_REF_WORDS =
+  /파일|자료|문서|pdf|논문|페이퍼|paper|책|교재|강의|슬라이드|ppt|이거|저거|방금|올린|첨부|요약|정리해|내용/i
 
 /** 파일 크기 표기 */
 function fmtBytes(n = 0) {
@@ -919,7 +933,26 @@ export default function StudyRoomScreen() {
         .then(async () => {
           // 올린 자료를 가리키는 질문이면 본문을 같이 넘긴다.
           // 매번 넘기면 토큰이 낭비되고, 안 넘기면 "저 파일 요약해줘"에 엉뚱한 답이 나온다
-          const wantsDoc = docRef.current && DOC_REF_WORDS.test(text)
+          /**
+           * 올린 자료를 붙일 것인가.
+           *
+           * 세 가지 중 하나면 붙인다.
+           *  1) 자료를 가리키는 말이 있다 (DOC_REF_WORDS)
+           *  2) 자료 제목의 낱말이 질문에 들어 있다 — 제목으로 부르는 게 제일 자연스럽다
+           *  3) 앞 turn 이 자료를 썼고 아직 그 대화 중이다 — "좀더 자세하게" 같은
+           *     이어지는 말에는 가리키는 낱말이 아예 없다
+           */
+          const docName = docRef.current?.name || ''
+          const titleHit =
+            !!docName &&
+            docName
+              .replace(/\.[^.]+$/, '')
+              .split(/[\s_\-.]+/)
+              .filter((w) => w.length >= 3)
+              .some((w) => text.toLowerCase().includes(w.toLowerCase()))
+          const stillOnDoc =
+            !!lastTurnRef.current?.withDoc && Date.now() - (lastTurnRef.current?.at || 0) < DOC_STICKY_MS
+          const wantsDoc = !!docRef.current && (DOC_REF_WORDS.test(text) || titleHit || stillOnDoc)
           const docImages = wantsDoc ? docRef.current.images || [] : []
 
           /**
@@ -973,6 +1006,7 @@ export default function StudyRoomScreen() {
           // 죽은 맥락이 되살아난다
           lastTurnRef.current = {
             funcId,
+            withDoc: wantsDoc, // 다음 턴이 "좀더 자세히" 라도 자료를 이어서 쓰게
             at: Date.now(),
             text: (historyRef.current[historyRef.current.length - 1]?.text || '').slice(0, 600),
           }

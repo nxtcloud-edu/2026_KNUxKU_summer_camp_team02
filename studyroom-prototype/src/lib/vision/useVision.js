@@ -106,8 +106,14 @@ export function useVision({ stream, enabled, onSignal, onAlert, onDegrade }) {
         changed = true
       }
 
-      // ── 휴대폰 ── 얼굴이 안 보이면 판단하지 않는다
-      const phoneNow = !cur.absent && !!s.phoneVisible
+      /**
+       * ── 휴대폰 ──
+       *
+       * 예전엔 얼굴이 보일 때만 판정했다. 그런데 폰을 보려면 고개를 숙이고,
+       * 고개를 숙이면 얼굴이 안 잡힌다. **정작 폰을 보는 순간에 판정을 끄고 있었다.**
+       * 폰이 화면에 잡히는 것 자체가 사람이 있다는 신호다.
+       */
+      const phoneNow = !!s.phoneVisible
       if (!cur.phone && mark('phone', phoneNow, now)) {
         cur.phone = true
         since.phoneGone = null
