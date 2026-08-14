@@ -14,7 +14,7 @@ import { PROVIDERS, redact, HttpError } from './providers.mjs'
 import { search, toContext, bankStats } from './retrieve.mjs'
 import { assemble, needsTruncation, splitForSummary, summaryRequest, budgetReport } from './memory.mjs'
 import { buildPrompt } from '../src/lib/agent/prompt.js'
-import { effectiveSpec } from '../src/lib/agent/functions.js'
+import { effectiveSpec, isSmallTalk } from '../src/lib/agent/functions.js'
 import { postprocess } from '../src/lib/agent/postprocess.js'
 import { toneOf } from '../src/lib/agent/tone.js'
 
@@ -66,6 +66,21 @@ const MODELS = {
    */
   pro: env.MODEL_PRO || 'gemini-3.7-flash',
 }
+
+/**
+ * 값싼 모델이 "이건 내 몫이 아니다"라고 말하는 표시.
+ *
+ * 답을 흉내내지 말고 이 다섯 글자만 내라고 시킨다. 짧아야 값싸고,
+ * 평범한 대화에 우연히 섞일 일이 없어야 해서 대괄호를 두 겹 쓴다.
+ */
+const HANDOFF = '[[전공]]'
+const HANDOFF_RE = /\[\[전공\]\]/
+const HANDOFF_RULE =
+  `\n\n[지금 맡은 몫]\n` +
+  `너는 지금 **가벼운 대화만** 맡는다. 인사·맞장구·잡담에는 평소처럼 답한다.\n` +
+  `그런데 이 말이 전공 지식이나 설명·비교·풀이를 요구하는 질문이라면, ` +
+  `**답하려 하지 말고** 다른 말 없이 딱 이것만 출력한다: ${HANDOFF}\n` +
+  `어설프게 아는 대로 답하는 것보다 넘기는 편이 낫다.`
 
 const SECRETS = Object.values(env).filter((v) => v && v.length > 12)
 
@@ -196,8 +211,33 @@ export async function handleChat(body) {
    *  - 자료를 읽거나(extract) 자료를 놓고 묻는 질문(withDoc) → 긴 자료를 정확히 다뤄야 한다
    *  - 그림이 붙음 → 작은 모델에는 버겁다
    */
-  const wantsPro = !!(proPool && (hits.length > 0 || images.length > 0 || spec.wantsPro || withDoc))
-  const attempts = buildAttempts({ wantsPro, sticky: `${seat?.slotNo ?? seat?.name ?? funcId}` })
+  /**
+   * 일상 대화는 값싼 모델에 맡긴다.
+   *
+   * 예전에는 F1 이 라우터의 **기본값**이라 아무 규칙도 안 걸린 말이 전부 F1 이 됐고,
+   * F1 은 spec.wantsPro 가 참이라 "안녕"·"아 배고파"까지 유료 상위 모델로 갔다.
+   * 실측에서 12개 표본 중 11개가 승급됐다 — 바로 위 주석이 "잡담까지 여기로 보내면
+   * 돈이 샌다"고 적어 둔 그 일이 그대로 일어나고 있었다.
+   * 무료 키 5개를 두고 분산하려던 구조인데 T2~T6 이 거의 놀고, S1 이 한도에 걸리면
+   * 그 순간 **모든 대화가 동시에** 값싼 모델로 떨어진다.
+   *
+   * 내려보내는 조건을 좁게 잡는다. 아래 넷을 **전부** 만족해야 한다 —
+   * 하나라도 어긋나면 상위 모델 그대로다. 판정을 놓쳐도 답이 나빠지지 않는 방향이다.
+   */
+  const chitchat =
+    funcId === 'F1' && // 기능이 정해진 말(정리·심화·퀴즈)은 목적이 분명하다
+    !withDoc && // 자료를 놓고 하는 말은 잡담이 아니다
+    !images.length &&
+    hits.length === 0 && // 전공 뱅크가 근거를 찾았으면 전공 질문이다
+    isSmallTalk(message)
+
+  const wantsPro = !!(
+    proPool &&
+    !chitchat &&
+    (hits.length > 0 || images.length > 0 || spec.wantsPro || withDoc)
+  )
+  const stickyKey = `${seat?.slotNo ?? seat?.name ?? funcId}`
+  const attempts = buildAttempts({ wantsPro, sticky: stickyKey })
   if (!attempts.length)
     throw new HttpError(503, { error: '사용 가능한 API 키가 없습니다. .env 를 확인하세요.' })
 
@@ -249,85 +289,120 @@ export async function handleChat(body) {
   const call = PROVIDERS.gemini
   let lastErr = null
 
-  for (const step of attempts) {
-    const k = step.pool.use(step.key)
-    try {
-      const opts = {
-        apiKey: k.key,
-        model: step.model,
-        system: assembled.system,
-        messages: assembled.messages,
-        maxTokens: maxOut,
-        temperature: kind === 'intervention' ? 1.0 : 0.9,
-        thinking,
-        /**
-         * 구글 검색으로 근거를 보탠다.
-         *
-         * **뱅크가 비었을 때만** 켠다. 뱅크에 있는 162항목은 검산까지 마친 자료라
-         * 검색 결과보다 믿을 만하고, 검색은 왕복이 한 번 더 늘어 첫 응답이 눈에 띄게 늦다.
-         * 그래서 "우리가 아는 것에 없을 때"의 마지막 수단이다.
-         *
-         * 유료키(S1)에서만 실제로 동작한다 — 무료키로 켜면 거절당한다.
-         * 그래서 상위 모델로 올라간 호출에만 붙인다.
-         */
-        // 검색은 유료 키에서만 동작한다. 무료로 폴백된 시도에서는 켜지 않는다
-        search: spec.useSearch && step.why === 'pro' && hits.length === 0,
-        jsonSchema: spec.json || null,
-      }
-      let r = await call(opts)
-
-      // 답이 문장 중간에서 끊긴 경우.
-      //
-      // 사고를 끄면 안 된다 — 그건 품질을 깎아 길이를 사는 것이다.
-      // 사고량은 질문마다 크게 달라서(같은 medium 에서 254~1150토큰) 어떤 고정 예산도
-      // 넘길 수 있다. 그러니 **예산만 키워서** 다시 부른다.
-      let widened = 0
-      while (r.finish === 'MAX_TOKENS' && widened < 2 && spec.widen !== false) {
-        widened += 1
-        r = await call({ ...opts, maxTokens: maxOut * (1 + widened) })
-      }
-
-      step.pool.report(k.id, { ok: true })
-      if (!r.text) throw new HttpError(502, { error: `빈 응답 (finish=${r.finish})` })
-
-      // 지시로 못 막는 것만 코드가 확인한다 — 이모지·웃음표기·길이 상한.
-      // 실측에서 상한 120자짜리 기능이 184자로 나왔다. 예산으로는 막을 수 없다
-      // JSON 을 받기로 한 호출은 손대지 않는다. 이모지 제거가 문자열 값 안을 건드리면
-      // 파싱은 되는데 내용이 달라진다 — 눈에 안 띄는 종류의 고장이다
-      const cleaned = spec.json
-        ? { text: r.text, changed: [] }
-        : postprocess(r.text, spec, toneOf(seat || {}))
-
-      return {
-        text: cleaned.text,
-        meta: {
-          funcId,
-          fixed: cleaned.changed, // 후처리가 무엇을 고쳤는지 — 프롬프트 튜닝의 단서
-          searched: r.searched || 0,
-          provider: 'gemini',
+  /**
+   * 주어진 키·모델 차례대로 한 번씩 던져 본다. 첫 성공에서 끝낸다.
+   * 되돌림(값싼 모델 → 상위 모델) 때 두 번 부르려고 함수로 뺐다.
+   */
+  async function runAttempts(list, systemText) {
+    for (const step of list) {
+      const k = step.pool.use(step.key)
+      try {
+        const opts = {
+          apiKey: k.key,
           model: step.model,
-          keyId: k.id,
-          // 왜 이 키·모델이 됐는지. 폴백이 조용히 일어나면 원인을 못 찾는다
-          route: step.why,
-          ms: r.ms,
-          inTok: r.inTok,
-          outTok: r.outTok,
-          truncated,
+          system: systemText,
+          messages: assembled.messages,
+          maxTokens: maxOut,
+          temperature: kind === 'intervention' ? 1.0 : 0.9,
           thinking,
-          widened, // 예산을 키워 다시 부른 횟수 (0이면 한 번에 끝난 것)
-          knowledge: hits.map((h) => ({ id: h.item.id, topic: h.item.topic, score: +h.score.toFixed(2) })),
-          budget: budgetReport(assembled, history),
-        },
+          /**
+           * 구글 검색으로 근거를 보탠다.
+           *
+           * **뱅크가 비었을 때만** 켠다. 뱅크에 있는 162항목은 검산까지 마친 자료라
+           * 검색 결과보다 믿을 만하고, 검색은 왕복이 한 번 더 늘어 첫 응답이 눈에 띄게 늦다.
+           * 그래서 "우리가 아는 것에 없을 때"의 마지막 수단이다.
+           *
+           * 유료키(S1)에서만 실제로 동작한다 — 무료키로 켜면 거절당한다.
+           * 그래서 상위 모델로 올라간 호출에만 붙인다.
+           */
+          // 검색은 유료 키에서만 동작한다. 무료로 폴백된 시도에서는 켜지 않는다
+          search: spec.useSearch && step.why === 'pro' && hits.length === 0,
+          jsonSchema: spec.json || null,
+        }
+        let r = await call(opts)
+
+        // 답이 문장 중간에서 끊긴 경우.
+        //
+        // 사고를 끄면 안 된다 — 그건 품질을 깎아 길이를 사는 것이다.
+        // 사고량은 질문마다 크게 달라서(같은 medium 에서 254~1150토큰) 어떤 고정 예산도
+        // 넘길 수 있다. 그러니 **예산만 키워서** 다시 부른다.
+        let widened = 0
+        while (r.finish === 'MAX_TOKENS' && widened < 2 && spec.widen !== false) {
+          widened += 1
+          r = await call({ ...opts, maxTokens: maxOut * (1 + widened) })
+        }
+
+        step.pool.report(k.id, { ok: true })
+        if (!r.text) throw new HttpError(502, { error: `빈 응답 (finish=${r.finish})` })
+
+        // 지시로 못 막는 것만 코드가 확인한다 — 이모지·웃음표기·길이 상한.
+        // 실측에서 상한 120자짜리 기능이 184자로 나왔다. 예산으로는 막을 수 없다
+        // JSON 을 받기로 한 호출은 손대지 않는다. 이모지 제거가 문자열 값 안을 건드리면
+        // 파싱은 되는데 내용이 달라진다 — 눈에 안 띄는 종류의 고장이다
+        const cleaned = spec.json
+          ? { text: r.text, changed: [] }
+          : postprocess(r.text, spec, toneOf(seat || {}))
+
+        return {
+          text: cleaned.text,
+          meta: {
+            funcId,
+            fixed: cleaned.changed, // 후처리가 무엇을 고쳤는지 — 프롬프트 튜닝의 단서
+            searched: r.searched || 0,
+            provider: 'gemini',
+            model: step.model,
+            keyId: k.id,
+            // 왜 이 키·모델이 됐는지. 폴백이 조용히 일어나면 원인을 못 찾는다
+            route: step.why,
+            ms: r.ms,
+            inTok: r.inTok,
+            outTok: r.outTok,
+            truncated,
+            thinking,
+            widened, // 예산을 키워 다시 부른 횟수 (0이면 한 번에 끝난 것)
+            knowledge: hits.map((h) => ({ id: h.item.id, topic: h.item.topic, score: +h.score.toFixed(2) })),
+            budget: budgetReport(assembled, history),
+          },
+        }
+      } catch (e) {
+        lastErr = e
+        const status = e.status || 500
+        step.pool.report(k.id, { ok: false, status, body: e.body })
+        console.warn(`[key] ${k.id}(${step.why}) ${status} — 다음 키로`)
+        // 400은 우리 요청이 잘못된 것이라 키를 바꿔도 소용없다
+        if (status === 400) break
       }
-    } catch (e) {
-      lastErr = e
-      const status = e.status || 500
-      step.pool.report(k.id, { ok: false, status, body: e.body })
-      console.warn(`[key] ${k.id}(${step.why}) ${status} — 다음 키로`)
-      // 400은 우리 요청이 잘못된 것이라 키를 바꿔도 소용없다
-      if (status === 400) break
+    }
+    return null
+  }
+
+  /**
+   * 값싼 모델이 받아 보고 "이건 내가 답할 게 아니다" 하면 상위 모델로 넘긴다.
+   *
+   * 일상 대화 판정은 코드가 정규식으로 한다. 정규식은 반드시 틀린다 —
+   * "요즘 정렬 뭐가 제일 좋아?" 는 인사도 아니고 물음 신호도 약해서 새어 나갈 수 있다.
+   * 그때 값싼 모델이 어설프게 답해 버리면 사용자는 **틀린 답을 받는다.**
+   *
+   * 그래서 값싼 모델에게 거절할 길을 준다. 전공 질문이면 답하지 말고 표시만 내라고
+   * 일러두고, 그 표시가 오면 상위 모델로 다시 부른다. 판정을 놓쳐도 답은 안 나빠지고,
+   * 대가는 값싼 호출 한 번(2초 안팎)이다.
+   */
+  let out = await runAttempts(attempts, chitchat ? assembled.system + HANDOFF_RULE : assembled.system)
+
+  if (out && chitchat && HANDOFF_RE.test(out.text)) {
+    const proAttempts = buildAttempts({ wantsPro: true, sticky: stickyKey })
+    const again = await runAttempts(proAttempts, assembled.system)
+    if (again) {
+      again.meta.handedOff = true // 값싼 모델이 넘긴 것 — 진단에서 보이게
+      out = again
+    } else {
+      // 상위 모델까지 막혔다. **표시가 사용자에게 새면 안 된다** —
+      // 화면에 "[[전공]]" 이 뜨는 건 우리 속사정이지 답이 아니다
+      out.text = out.text.replace(HANDOFF_RE, '').trim() || '이건 제대로 답해주고 싶은데 지금 잘 안 되네. 잠깐 뒤에 다시 물어봐 줄래?'
+      out.meta.handoffFailed = true
     }
   }
+  if (out) return out
 
   throw new HttpError(lastErr?.status || 502, {
     error: redact(lastErr?.message || '모델 호출 실패', SECRETS),
