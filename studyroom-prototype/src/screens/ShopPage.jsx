@@ -170,7 +170,7 @@ const SECTIONS = [
 
 /* ── 캐릭터 카드 ──────────────────────────────────────────── */
 
-function CharCard({ char, onClick }) {
+function CharCard({ char, onClick, fit = 'cover' }) {
   return (
     <button
       type="button"
@@ -178,13 +178,18 @@ function CharCard({ char, onClick }) {
       className="w-[180px] shrink-0 rounded-lg border border-hairline bg-[var(--hover-bg)] p-4 text-left transition-colors duration-200 hover:bg-white hover:shadow-soft"
     >
       {/* 이미지 — 파일이 있으면 표시, 없으면 ? 플레이스홀더 */}
-      <div className="mb-3 flex h-[120px] w-full items-center justify-center overflow-hidden rounded-md bg-gray-200">
+      <div
+        className={[
+          'mb-3 flex h-[120px] w-full items-center justify-center overflow-hidden rounded-md',
+          fit === 'contain' ? 'bg-white p-3' : 'bg-gray-200',
+        ].join(' ')}
+      >
         {char.image ? (
           <img
             src={char.image}
             alt=""
             draggable={false}
-            className="h-full w-full select-none object-cover"
+            className={`h-full w-full select-none ${fit === 'contain' ? 'object-contain' : 'object-cover'}`}
           />
         ) : (
           <div className="flex select-none flex-col items-center">
@@ -312,13 +317,37 @@ export default function ShopPage({ onBack, category }) {
           {/* 섹션들 */}
           {sections.map((section) => {
             const chars = CHARACTERS[section.key] || []
+            const fit = section.key === 'alongside' ? 'contain' : 'cover'
             return (
               <div key={section.key} className="mb-10 last:mb-0">
                 {!category && <h2 className="t-item font-semibold mb-4">{section.title}</h2>}
+
+                {/* New Collaboration 상단 — 세븐틴 로고 히어로 배너 (Weverse 참고) */}
+                {section.key === 'newCollab' && (
+                  <div className="mb-8 overflow-hidden rounded-md border border-hairline bg-[var(--hover-bg)]">
+                    <img
+                      src={encodeURI('/seventeen logo.jpeg') + '?v=2'}
+                      alt="Seventeen"
+                      draggable={false}
+                      className="block w-full select-none"
+                    />
+                  </div>
+                )}
+
+                {/* 상품 라벨 (레퍼런스의 "Products" 자리 — 좌측 정렬 소제목) */}
+                {section.key === 'newCollab' && (
+                  <p className="t-caption mb-3 text-left font-semibold tracking-wide">Seventeen</p>
+                )}
+
                 {chars.length > 0 ? (
                   <div className="grid grid-cols-5 justify-items-center gap-4">
                     {chars.map((char) => (
-                      <CharCard key={char.id} char={char} onClick={() => setSelectedChar(char)} />
+                      <CharCard
+                        key={char.id}
+                        char={char}
+                        fit={fit}
+                        onClick={() => setSelectedChar(char)}
+                      />
                     ))}
                   </div>
                 ) : (
