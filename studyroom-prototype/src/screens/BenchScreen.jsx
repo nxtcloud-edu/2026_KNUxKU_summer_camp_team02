@@ -33,7 +33,9 @@ export default function BenchScreen() {
   const [allowCpu, setAllowCpu] = useState(false)
   const [bigModel, setBigModel] = useState(true) // 기본이 Lite2다
   const [phoneMs, setPhoneMs] = useState(RATES.phoneMs)
-  const [autoDegrade, setAutoDegrade] = useState(true)
+  // 스터디룸이 강등을 끄고 도니 측정도 같은 조건에서 한다.
+  // 여기 기본값이 방과 다르면 여기서 잰 숫자가 방의 숫자가 아니다
+  const [autoDegrade, setAutoDegrade] = useState(false)
   const [degradeMsg, setDegradeMsg] = useState('')
   const [env] = useState(() => ({ gpu: probeGpu(), cpu: cpuThreadInfo() }))
   const [delegate, setDelegate] = useState('—')

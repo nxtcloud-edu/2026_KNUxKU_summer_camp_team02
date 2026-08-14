@@ -161,7 +161,19 @@ export async function handleChat(body) {
 
   let hits = []
   let knowledge = ''
-  if (spec.useKnowledge && message && !images.length) {
+  /**
+   * **자료를 놓고 묻는 질문에는 뱅크를 넣지 않는다.**
+   *
+   * 실측에서 드러난 고장이다. 사용자가 올린 논문을 놓고 "이 논문 설명해줘"라고 물으면
+   * 질문에 "어텐션"이 들어 있으니 뱅크가 교과서 어텐션 항목을 근거로 물려줬다.
+   * 모델은 읽지도 않은 논문을 그 일반론으로 설명했고, 문장은 그럴듯한데 내용이 틀렸다.
+   *
+   * 게다가 뱅크가 맞으면 아래에서 `hits.length === 0` 이 깨져 **검색까지 꺼졌다.**
+   * 논문이 arXiv 에 공개돼 있어도 찾아볼 길이 그렇게 함께 막혔다.
+   *
+   * 자료가 붙은 턴에서는 그 자료가 유일한 권위다. 일반론은 도움이 아니라 잡음이다.
+   */
+  if (spec.useKnowledge && message && !images.length && !withDoc) {
     hits = search(message, BANK_DIR)
     knowledge = toContext(hits)
   }

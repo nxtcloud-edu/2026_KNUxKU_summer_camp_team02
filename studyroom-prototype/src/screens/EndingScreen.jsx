@@ -37,6 +37,14 @@ import {
 import { useStore, activeSeats } from '../store/useStore'
 import { db, daysAgoKey } from '../store/db'
 import { ensureReview } from '../lib/review'
+import { parseMarkdownBlocks } from '../lib/markdown'
+import {
+  buildSections,
+  buildMarkdown,
+  buildPrintHtml,
+  printAsPdf,
+  downloadMarkdown,
+} from '../lib/summaryDoc'
 import { PRESETS } from '../lib/presets'
 import { computeScore, commentTone, fmtHuman, fmtShort } from '../lib/metrics'
 import { Button, IconBtn, Dialog, CharacterSprite } from '../components/ui'
@@ -86,89 +94,6 @@ const flattenConcepts = (groups = []) =>
       groupLabel: group.label,
     })),
   )
-
-/* ── Markdown Viewer (최소 지원) ─────────────────────────────
-   지원: ### 제목 · 문단 · - 목록 · 1. 번호 목록 · 인라인 코드 · 코드블록 ·
-         공식처럼 보이는 한 줄(문단 전체가 `...`로만 되어 있으면 공식 박스로) · 빈 줄 기준 문단 분리 */
-function parseMarkdownBlocks(md) {
-  const lines = (md || '').replace(/\r\n/g, '\n').split('\n')
-  const blocks = []
-  let i = 0
-
-  const isFence = (l) => l.trim().startsWith('```')
-  const isHeading = (l) => /^###\s+/.test(l)
-  const isBullet = (l) => /^[-*]\s+/.test(l)
-  const isNumbered = (l) => /^\d+\.\s+/.test(l)
-
-  while (i < lines.length) {
-    const line = lines[i]
-
-    if (line.trim() === '') {
-      i++
-      continue
-    }
-
-    if (isFence(line)) {
-      const codeLines = []
-      i++
-      while (i < lines.length && !isFence(lines[i])) {
-        codeLines.push(lines[i])
-        i++
-      }
-      i++ // 닫는 펜스 건너뛰기
-      blocks.push({ type: 'code', content: codeLines.join('\n') })
-      continue
-    }
-
-    if (isHeading(line)) {
-      blocks.push({ type: 'h3', content: line.replace(/^###\s+/, '') })
-      i++
-      continue
-    }
-
-    if (isBullet(line)) {
-      const items = []
-      while (i < lines.length && isBullet(lines[i])) {
-        items.push(lines[i].replace(/^[-*]\s+/, ''))
-        i++
-      }
-      blocks.push({ type: 'ul', items })
-      continue
-    }
-
-    if (isNumbered(line)) {
-      const items = []
-      while (i < lines.length && isNumbered(lines[i])) {
-        items.push(lines[i].replace(/^\d+\.\s+/, ''))
-        i++
-      }
-      blocks.push({ type: 'ol', items })
-      continue
-    }
-
-    // 문단 — 빈 줄이나 다음 블록 시작 전까지 이어붙인다
-    const paraLines = []
-    while (
-      i < lines.length &&
-      lines[i].trim() !== '' &&
-      !isFence(lines[i]) &&
-      !isHeading(lines[i]) &&
-      !isBullet(lines[i]) &&
-      !isNumbered(lines[i])
-    ) {
-      paraLines.push(lines[i].trim())
-      i++
-    }
-    const joined = paraLines.join(' ')
-    if (/^`[^`]+`$/.test(joined)) {
-      blocks.push({ type: 'formula', content: joined.slice(1, -1) })
-    } else {
-      blocks.push({ type: 'p', content: joined })
-    }
-  }
-
-  return blocks
-}
 
 /** 인라인 `코드` 표기를 <code>로 바꿔서 렌더링한다 */
 /**
@@ -459,9 +384,20 @@ function buildFlowSegments(focusSec, awaySec, awayCount) {
   return raw.map((s) => ({ ...s, pct: (s.sec / total) * 100 }))
 }
 
-/** 다운로드용 평문 요약 — 모달의 "내용 요약" 텍스트 그대로 내려받는다 */
-function buildSummaryDownloadText({ startedLabel, topic, summaryText }) {
-  return [`오늘의 공부 요약`, `날짜: ${startedLabel}`, `주제: ${topic.title}`, '', summaryText].join('\n')
+/**
+ * 내려받을 문서의 재료.
+ *
+ * 예전에는 "내용 요약" 한 문단만 담았다. 화면 왼쪽의 개념 해설이 정작 이 세션의
+ * 알맹이인데 파일에는 안 들어갔다. 이제 **화면에 있는 것을 전부** 담고,
+ * 한 문단짜리 요약은 맨 뒤 맺음말로 내린다.
+ */
+function buildSummaryDoc({ startedLabel, topic, review, focusLabel }) {
+  const facts = [
+    { label: '날짜', value: startedLabel },
+    { label: '주제', value: topic?.title || '—' },
+  ]
+  if (focusLabel) facts.push({ label: '집중 시간', value: focusLabel })
+  return { facts, sections: buildSections(review) }
 }
 
 /* ── 작은 부품들 ──────────────────────────────────────────── */
@@ -709,19 +645,29 @@ export default function EndingScreen() {
     ? buildFlowSegments(focusSec, snapshot.awaySec || 0, snapshot.awayCount || 0)
     : null
 
-  const handleDownload = () => {
-    const text = buildSummaryDownloadText({
+  const docTitle = `오늘의 공부 요약 — ${startedLabel}`
+  const summaryDoc = () =>
+    buildSummaryDoc({
       startedLabel,
       topic,
-      summaryText: review?.summaryText || '',
+      review,
+      focusLabel: measured ? fmtHuman(focusSec) : '',
     })
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `study-summary-${session.id}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
+
+  const handlePdf = () => {
+    const { facts, sections } = summaryDoc()
+    printAsPdf({
+      html: buildPrintHtml({ title: '오늘의 공부 요약', facts, sections }),
+      filename: docTitle,
+    })
+  }
+
+  const handleMarkdown = () => {
+    const { facts, sections } = summaryDoc()
+    downloadMarkdown({
+      markdown: buildMarkdown({ facts, sections }),
+      filename: `study-summary-${session.id}.md`,
+    })
   }
 
   return (
@@ -993,11 +939,22 @@ export default function EndingScreen() {
                     <p className="t-body break-words" style={{ lineHeight: 1.7 }}>
                       {review?.summaryText || ''}
                     </p>
-                    <div className="mt-4 flex justify-center">
-                      <Button variant="secondary" onClick={handleDownload}>
-                        <Download size={15} aria-hidden="true" />
-                        요약 다운로드
-                      </Button>
+                    {/* 내려받는 건 이 한 문단이 아니라 **위의 개념 해설까지 전부**다.
+                        버튼 밑에 그렇게 적어 둔다 — 안 그러면 이 문단만 받는 줄 안다 */}
+                    <div className="mt-4 flex flex-col items-center gap-2">
+                      <div className="flex items-center gap-2">
+                        <Button variant="secondary" onClick={handlePdf}>
+                          <Download size={15} aria-hidden="true" />
+                          PDF로 저장
+                        </Button>
+                        <Button variant="ghost" onClick={handleMarkdown}>
+                          <FileText size={15} aria-hidden="true" />
+                          Markdown
+                        </Button>
+                      </div>
+                      <p className="t-caption text-subtle text-center">
+                        공부한 개념 · 심화 포인트 · 퀴즈까지 한 벌로 담깁니다.
+                      </p>
                     </div>
                   </div>
                 </div>

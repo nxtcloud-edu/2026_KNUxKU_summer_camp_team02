@@ -103,8 +103,23 @@ export function createVisionLoop({
   onSample,
   detectPhone = false,
   phoneModelUrl,
-  /** 측정 중에는 꺼서 방해받지 않게 한다 */
-  autoDegrade = true,
+  /**
+   * 버거우면 주기를 늦출 것인가. **기본은 끈다.**
+   *
+   * 아래 driveFrames 를 보면 이 장치가 왜 필요 없는지 알 수 있다. 구동기는
+   * `busy` 가드를 두고 프레임마다 도는데, 추론이 주기보다 오래 걸리면 그 프레임을
+   * 그냥 버린다. 즉 **타이머가 쌓이는 일이 구조적으로 없다.** 느린 기기에서는
+   * 판정 횟수가 저절로 줄 뿐이고, 그게 기기가 낼 수 있는 최대치다.
+   *
+   * 그러니 강등은 멈춤을 막는 안전망이 아니었다. 멀쩡히 돌 수 있는 기기에서
+   * 판정을 스스로 깎는 장치였을 뿐이다. 실제로 사용자에게는 폰·졸음 감지가
+   * 굼떠지는 것으로 나타났다.
+   *
+   * 이 프로그램은 말로 쓰는 물건이라 버튼 반응보다 판정이 도는 게 우선이다.
+   * 그래서 기기 자원을 끝까지 쓰고, 부족하면 구동기가 알아서 덜 돈다.
+   * 측정(diag.p95)은 그대로 남는다 — 끄는 것과 안 보는 것은 다르다.
+   */
+  autoDegrade = false,
   phoneMs = RATES.phoneMs,
   faceMs = RATES.faceMs,
   columnMajor = true,
@@ -236,12 +251,15 @@ export function createVisionLoop({
    * 기기 성능이 제각각이라 한 주기로 고정하면 저사양에서 화면이 끊긴다.
    */
   function maybeDegrade() {
-    if (!autoDegrade || degraded || diag.samples < DEGRADE.warmupSamples) return
+    if (diag.samples < DEGRADE.warmupSamples) return
     if (diag.samples % DEGRADE.warmupSamples !== 0) return
 
+    // 재는 것은 끄지 않는다. 강등을 안 하더라도 이 기기가 얼마나 버거운지는
+    // /api/diag 로 올라가야 한다 — 안 고치는 것과 안 보는 것은 다르다
     const p95 = pct(perf.faceMs, 0.95)
     diag.p95 = p95
     if (p95 == null) return
+    if (!autoDegrade || degraded) return
 
     /**
      * 버거우면 늦춘다. **끄지는 않는다.**
@@ -284,14 +302,14 @@ export function createVisionLoop({
       return
     }
 
-    if (p95 > DEGRADE.slowMs && faceInterval < DEGRADE.maxIntervalMs) {
-      faceInterval = Math.min(DEGRADE.maxIntervalMs, faceInterval * 2)
-      diag.intervalMs = faceInterval
-      diag.degradeNote = `느려서 주기를 ${faceInterval}ms로 늘렸습니다 (p95 ${p95.toFixed(0)}ms)`
-      // 구동기가 주기를 함수로 읽으므로 다시 만들 필요가 없다
-      perf.faceMs.length = 0 // 새 주기로 다시 측정
-      onDegrade({ kind: 'slow', p95, intervalMs: faceInterval })
-    }
+    /*
+     * 여기 절대값 문턱(`p95 > 25ms` → 주기 2배)이 하나 더 있었다.
+     *
+     * 위쪽 점유율 판정을 고쳐 놓고 이건 남겨 뒀는데, 둘은 OR 로 걸린다.
+     * 얼굴 추론은 GPU 에서도 p95 가 25ms 를 예사로 넘기니(실측 CPU p95 72.9ms)
+     * 점유율이 10% 여도 이 줄에서 매번 강등됐다. 사용자가 본
+     * "강제 강하"의 실제 출처가 여기다. 점유율 판정만 남긴다.
+     */
   }
 
   function stepPhone() {
