@@ -2,119 +2,197 @@
  * 상점 페이지 — 캐릭터 판매
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowLeft, X } from 'lucide-react'
 
 /* ── 캐릭터 데이터 ────────────────────────────────────────── */
 
 // 폴더명에 공백·한글이 있어 브라우저 요청 전에 encodeURI로 감싼다
 const shopImg = (name) => encodeURI(`/alongside 상점/${name}.png`)
+const sevImg = (name) => encodeURI(`/alongside 상점/alongside 상점 파일-세븐틴/${name}.png`)
+const iveImg = (name) => encodeURI(`/alongside 상점/alongside 상점 파일-ive/${name}.png`)
+
+/** New Collaboration 하위 그룹 — 히어로 캐러셀 + 탭에서 참조.
+ *  logos 두 장이 슬라이드 하나에 나란히 표시된다 (레퍼런스 위버스 참고). */
+const NEW_COLLAB_GROUPS = [
+  {
+    key: 'seventeen',
+    label: 'Seventeen',
+    logos: ['/seventeen logo.jpeg', '/seventeen logo 2.jpeg'],
+  },
+  {
+    key: 'ive',
+    label: 'IVE',
+    logos: ['/ive logo.jpg', '/ive logo 2.png'],
+  },
+]
+const CAROUSEL_MS = 5000
 
 const CHARACTERS = {
   newCollab: [
+    // ── Seventeen — 멤버 사진 4명 ────────────────────────────
     {
-      id: 'collab-2',
+      id: 'sev-esk-p',
+      group: 'seventeen',
+      type: 'person',
       name: '에스쿱스',
-      image: shopImg('에스쿱스'),
-      desc: '조용한 미남',
+      image: sevImg('에스쿱스'),
+      desc: '든든한 팀의 리더',
       personality: '따뜻하고 포용력 있다',
       message: '네 속도대로 가면 돼, 내가 옆에 있을게.',
     },
     {
-      id: 'collab-1',
+      id: 'sev-jun-p',
+      group: 'seventeen',
+      type: 'person',
       name: '준',
-      image: shopImg('준'),
-      desc: '카리스마 넘치는 리더',
+      image: sevImg('준'),
+      desc: '조용하지만 다재다능한 매력',
       personality: '책임감 강하고 카리스마 있다',
       message: '목표를 정했으면 끝까지 가는 거야.',
     },
     {
-      id: 'collab-3',
-      name: '민규',
-      image: shopImg('민규'),
-      desc: '다재다능한 만능형',
-      personality: '호기심 많고 열정적이다',
-      message: '새로운 걸 배우는 건 언제나 즐거워!',
-    },
-    {
-      id: 'collab-4',
+      id: 'sev-wonwoo-p',
+      group: 'seventeen',
+      type: 'person',
       name: '원우',
-      image: shopImg('원우'),
-      desc: '분석적인 두뇌파',
+      image: sevImg('원우'),
+      desc: '허당미 가득한 반전 매력',
       personality: '냉철하고 논리적이다',
       message: '문제를 쪼개서 하나씩 풀어보자.',
     },
     {
-      id: 'collab-5',
-      name: '도겸',
-      image: shopImg('도겸'),
-      desc: '밝은 에너지 충전기',
-      personality: '밝고 긍정적이다',
-      message: '힘들 때일수록 웃으면서 하는 거야!',
-    },
-    {
-      id: 'collab-6',
-      name: '승관',
-      image: shopImg('승관'),
-      desc: '유쾌한 분위기 메이커',
-      personality: '재치 있고 유머러스하다',
-      message: '지루할 틈 없이 같이 달려보자!',
-    },
-    {
-      id: 'collab-7',
-      name: '우지',
-      image: shopImg('우지'),
-      desc: '완벽주의 장인',
-      personality: '꼼꼼하고 집중력이 높다',
-      message: '디테일이 결과를 만든다, 조금만 더 파고들자.',
-    },
-    {
-      id: 'collab-8',
-      name: '디에잇',
-      image: shopImg('디에잇'),
-      desc: '감성적인 예술가',
-      personality: '섬세하고 창의적이다',
-      message: '공부도 하나의 작품이야, 정성을 들여보자.',
-    },
-    {
-      id: 'collab-9',
-      name: '버논',
-      image: shopImg('버논'),
-      desc: '쿨한 자유영혼',
-      personality: '여유롭고 독립적이다',
-      message: '너만의 방식으로 하면 돼, 정답은 없어.',
-    },
-    {
-      id: 'collab-10',
-      name: '디노',
-      image: shopImg('디노'),
-      desc: '열정 가득 막내',
-      personality: '열정적이고 도전적이다',
-      message: '오늘도 어제보다 한 발짝 더 나가자!',
-    },
-    {
-      id: 'collab-11',
-      name: '조슈아',
-      image: shopImg('조슈아'),
-      desc: '젠틀한 매너왕',
-      personality: '상냥하고 배려심 깊다',
-      message: '천천히 해도 괜찮아, 꾸준함이 답이야.',
-    },
-    {
-      id: 'collab-12',
+      id: 'sev-hoshi-p',
+      group: 'seventeen',
+      type: 'person',
       name: '호시',
-      image: shopImg('호시'),
+      image: sevImg('호시'),
       desc: '폭발적 에너지',
       personality: '열정적이고 추진력 있다',
       message: '자, 불태우자! 오늘 끝장 보는 거야!',
     },
+    // ── Seventeen — 캐릭터 4개 ───────────────────────────────
     {
-      id: 'collab-13',
-      name: '정한',
-      image: shopImg('정한'),
-      desc: '우아한 조력자',
-      personality: '차분하고 세심하다',
-      message: '조급해할 필요 없어, 네 페이스대로 가면 돼.',
+      id: 'sev-esk-c',
+      group: 'seventeen',
+      type: 'character',
+      name: '쵯체리',
+      image: sevImg('쵯체리_에스쿱스'),
+      desc: '',
+      personality: '따뜻하고 다정하다',
+      message: '천천히, 같이 가자.',
+    },
+    {
+      id: 'sev-jun-c',
+      group: 'seventeen',
+      type: 'character',
+      name: '열닫잠',
+      image: sevImg('열닫잠_준'),
+      desc: '',
+      personality: '든든하고 다재다능하다',
+      message: '오늘도 열심히 해보자!',
+    },
+    {
+      id: 'sev-wonwoo-c',
+      group: 'seventeen',
+      type: 'character',
+      name: '폭덩이',
+      image: sevImg('폭덩이_원우'),
+      desc: '',
+      personality: '조용하지만 강단있다',
+      message: '하나씩 풀어가면 돼.',
+    },
+    {
+      id: 'sev-hoshi-c',
+      group: 'seventeen',
+      type: 'character',
+      name: '탐탐',
+      image: sevImg('탐탐_호시'),
+      desc: '',
+      personality: '에너제틱하고 즐겁다',
+      message: '오늘도 화이팅!',
+    },
+    // ── IVE — 멤버 사진 4명 ──────────────────────────────────
+    {
+      id: 'ive-yujin-p',
+      group: 'ive',
+      type: 'person',
+      name: '안유진',
+      image: iveImg('안유진'),
+      desc: '댕댕미 폭발하는 리더',
+      personality: '차분하고 든든하다',
+      message: '천천히 하나씩 해나가자.',
+    },
+    {
+      id: 'ive-rei-p',
+      group: 'ive',
+      type: 'person',
+      name: '레이',
+      image: iveImg('레이'),
+      desc: '다정한 매력',
+      personality: '따뜻하고 세심하다',
+      message: '무리하지 말고 편하게 해요.',
+    },
+    {
+      id: 'ive-wony-p',
+      group: 'ive',
+      type: 'person',
+      name: '장원영',
+      image: iveImg('장원영'),
+      desc: '완벽 그 자체의 미녀',
+      personality: '밝고 자신감 있다',
+      message: '오늘도 반짝반짝 빛나요!',
+    },
+    {
+      id: 'ive-liz-p',
+      group: 'ive',
+      type: 'person',
+      name: '리즈',
+      image: iveImg('리즈'),
+      desc: '감성 가득한 메인보컬',
+      personality: '발랄하고 유쾌하다',
+      message: '함께 즐겁게 해봐요!',
+    },
+    // ── IVE — 캐릭터 4개 ────────────────────────────────────
+    {
+      id: 'ive-yujin-c',
+      group: 'ive',
+      type: 'character',
+      name: '강안지',
+      image: iveImg('강안지-안유진'),
+      desc: '',
+      personality: '차분하고 든든하다',
+      message: '함께라면 든든하죠.',
+    },
+    {
+      id: 'ive-rei-c',
+      group: 'ive',
+      type: 'character',
+      name: '나오리',
+      image: iveImg('나오리-레이'),
+      desc: '',
+      personality: '다정하고 따뜻하다',
+      message: '천천히 함께해요.',
+    },
+    {
+      id: 'ive-wony-c',
+      group: 'ive',
+      type: 'character',
+      name: '체리',
+      image: iveImg('체리-장원영'),
+      desc: '',
+      personality: '반짝이고 활기차다',
+      message: '반짝이는 하루 만들어요!',
+    },
+    {
+      id: 'ive-liz-c',
+      group: 'ive',
+      type: 'character',
+      name: '치즈',
+      image: iveImg('치즈-리즈'),
+      desc: '',
+      personality: '유쾌하고 발랄하다',
+      message: '재밌게 가자!',
     },
   ],
   alongside: [
@@ -199,7 +277,7 @@ function CharCard({ char, onClick, fit = 'cover' }) {
         )}
       </div>
       <div className="t-item font-semibold">{char.name}</div>
-      <div className="t-caption mt-1">{char.desc}</div>
+      {char.desc && <div className="t-caption mt-1">{char.desc}</div>}
     </button>
   )
 }
@@ -241,7 +319,7 @@ function CharDetailPopup({ char, onClose }) {
         </div>
 
         <h2 className="t-section text-center mb-2">{char.name}</h2>
-        <p className="t-help text-center mb-4">{char.desc}</p>
+        {char.desc && <p className="t-help text-center mb-4">{char.desc}</p>}
 
         <div className="rounded-sm border border-hairline bg-[var(--hover-bg)] px-5 py-4 mb-3">
           <h3 className="t-caption font-semibold mb-1">성격</h3>
@@ -276,6 +354,18 @@ function CharDetailPopup({ char, onClose }) {
 export default function ShopPage({ onBack, category }) {
   const [showBasicPopup, setShowBasicPopup] = useState(false)
   const [selectedChar, setSelectedChar] = useState(null)
+  // New Collaboration: 하위 그룹 탭 + 히어로 캐러셀
+  const [activeGroup, setActiveGroup] = useState(NEW_COLLAB_GROUPS[0].key)
+  const [carouselIdx, setCarouselIdx] = useState(0)
+
+  const showsNewCollab = !category || category === 'newCollab'
+  useEffect(() => {
+    if (!showsNewCollab) return
+    const id = setInterval(() => {
+      setCarouselIdx((i) => (i + 1) % NEW_COLLAB_GROUPS.length)
+    }, CAROUSEL_MS)
+    return () => clearInterval(id)
+  }, [showsNewCollab])
 
   const sections = category
     ? SECTIONS.filter((s) => s.key === category)
@@ -317,35 +407,96 @@ export default function ShopPage({ onBack, category }) {
           {/* 섹션들 */}
           {sections.map((section) => {
             const chars = CHARACTERS[section.key] || []
-            const fit = section.key === 'alongside' ? 'contain' : 'cover'
+            const filteredChars =
+              section.key === 'newCollab' ? chars.filter((c) => c.group === activeGroup) : chars
+            const fitFor = (char) => {
+              if (char.type === 'character') return 'contain'
+              if (section.key === 'alongside') return 'contain'
+              return 'cover'
+            }
             return (
               <div key={section.key} className="mb-10 last:mb-0">
                 {!category && <h2 className="t-item font-semibold mb-4">{section.title}</h2>}
 
-                {/* New Collaboration 상단 — 세븐틴 로고 히어로 배너 (Weverse 참고) */}
+                {/* New Collaboration 상단 — 그룹 로고 캐러셀 (5초마다 그룹 전환, 슬라이드 트랙) */}
                 {section.key === 'newCollab' && (
-                  <div className="mb-8 overflow-hidden rounded-md border border-hairline bg-[var(--hover-bg)]">
-                    <img
-                      src={encodeURI('/seventeen logo.jpeg') + '?v=2'}
-                      alt="Seventeen"
-                      draggable={false}
-                      className="block w-full select-none"
-                    />
-                  </div>
+                  <>
+                    <div className="relative mb-8 h-[260px] overflow-hidden rounded-md border border-hairline bg-[var(--hover-bg)]">
+                      <div
+                        className="flex h-full transition-transform duration-700 ease-in-out"
+                        style={{
+                          width: `${NEW_COLLAB_GROUPS.length * 100}%`,
+                          transform: `translateX(-${carouselIdx * (100 / NEW_COLLAB_GROUPS.length)}%)`,
+                        }}
+                      >
+                        {NEW_COLLAB_GROUPS.map((g) => (
+                          <div
+                            key={g.key}
+                            className="flex h-full shrink-0 gap-4 p-4"
+                            style={{ width: `${100 / NEW_COLLAB_GROUPS.length}%` }}
+                          >
+                            {g.logos.map((logo, i) => (
+                              <div
+                                key={i}
+                                className="flex flex-1 items-center justify-center overflow-hidden rounded-md bg-white"
+                              >
+                                <img
+                                  src={encodeURI(logo)}
+                                  alt={g.label}
+                                  draggable={false}
+                                  className="h-full w-full select-none object-contain"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* 페이지 인디케이터 — 현재 슬라이드만 진하게 */}
+                      <div className="absolute inset-x-0 bottom-2 flex justify-center gap-1.5">
+                        {NEW_COLLAB_GROUPS.map((g, i) => (
+                          <span
+                            key={g.key}
+                            className={[
+                              'h-1 w-6 rounded-full transition-colors',
+                              i === carouselIdx ? 'bg-[var(--text-strong)]' : 'bg-hairline',
+                            ].join(' ')}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Products 라벨 (좌측 정렬 소제목) */}
+                    <h3 className="t-section mb-4 text-left font-bold">Products</h3>
+
+                    {/* 하위 그룹 탭 */}
+                    <div className="mb-5 flex items-center gap-2">
+                      {NEW_COLLAB_GROUPS.map((g) => (
+                        <button
+                          key={g.key}
+                          type="button"
+                          onClick={() => setActiveGroup(g.key)}
+                          className={[
+                            'rounded-full px-4 py-1.5 t-caption font-semibold transition-colors',
+                            activeGroup === g.key
+                              ? 'bg-[var(--text-strong)] !text-white'
+                              : 'border border-hairline text-subtle hover:bg-[var(--hover-bg)]',
+                          ].join(' ')}
+                        >
+                          {g.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 )}
 
-                {/* 상품 라벨 (레퍼런스의 "Products" 자리 — 좌측 정렬 소제목) */}
-                {section.key === 'newCollab' && (
-                  <p className="t-caption mb-3 text-left font-semibold tracking-wide">Seventeen</p>
-                )}
-
-                {chars.length > 0 ? (
+                {filteredChars.length > 0 ? (
                   <div className="grid grid-cols-5 justify-items-center gap-4">
-                    {chars.map((char) => (
+                    {filteredChars.map((char) => (
                       <CharCard
                         key={char.id}
                         char={char}
-                        fit={fit}
+                        fit={fitFor(char)}
                         onClick={() => setSelectedChar(char)}
                       />
                     ))}
