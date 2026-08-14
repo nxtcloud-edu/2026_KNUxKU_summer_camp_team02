@@ -125,6 +125,75 @@ if (targetSid) ok('새로고침해도 요약이 남아 있다', db.getReview(tar
   ok('configOf 가 이름도 돌려준다', /displayName/.test(cfg), 'seats·settings 만 돌려준다')
 }
 
+/* ══ 7. 설정·캐릭터·공부 시간·목표가 계정마다 따로인가 ═══════ */
+{
+  // 사용자가 실제로 궁금해하는 것: "설정도 다 개인화돼서 자동으로 불러와지나?
+  // 이전에 공부한 시간이나 목표도 남나?" — 말이 아니라 검사로 답한다.
+  const 쓰기 = (who, mark) => {
+    AUTH.saveAccount(who)
+    db.useAccount(AUTH.accountKeyOf(who))
+    db.saveConfig(
+      [{ slotNo: 1, name: `${mark}미나`, tone: 'T1' }, { slotNo: 2, name: '테오' }, { slotNo: 3, name: '유리' }],
+      { replyLength: mark === 'A' ? 'detailed' : 'brief', idleMin: mark === 'A' ? 7 : 21 },
+    )
+    const id = db.startSession()
+    db.setGoal(id, `${mark}의 목표 — 자료구조 3장`)
+    db.heartbeat(id, { study_sec: mark === 'A' ? 3600 : 600, focus_sec: mark === 'A' ? 3000 : 500 })
+    db.endSession(id, {})
+    return id
+  }
+  const 읽기 = (who) => {
+    AUTH.saveAccount(who)
+    db.useAccount(AUTH.accountKeyOf(who))
+    const cfg = db.loadConfig()
+    // ⚠️ 총합을 보면 안 된다. 새 계정마다 seedIfEmpty() 가 27일치 **데모 기록**을 넣는다
+    //    (db.js:129 "데모에서 통계가 비어 보이지 않도록"). 오늘 것만 봐야 진짜 기록이다.
+    const 오늘 = (db.getDailyStats() || []).find((x) => x.date === new Date().toISOString().slice(0, 10))
+    return {
+      자리이름: cfg.seats?.[0]?.name,
+      길이설정: cfg.settings?.replyLength,
+      무입력분: cfg.settings?.idleMin,
+      오늘초: 오늘?.total_study_sec || 0,
+      목표: db.getSession(sidA)?.goal ?? null,
+    }
+  }
+
+  const sidA = 쓰기(지수, 'A')
+  const sidB = 쓰기(민호, 'B')
+
+  const a = 읽기(지수)
+  ok('설정이 계정마다 따로다', a.길이설정 === 'detailed' && a.무입력분 === 7, JSON.stringify(a))
+  ok('캐릭터 이름도 따로다', a.자리이름 === 'A미나', a.자리이름)
+  ok('공부 시간이 남는다', a.오늘초 >= 3600, `${a.오늘초}초`)
+  ok('목표가 세션에 남는다', /A의 목표/.test(a.목표 || ''), String(a.목표))
+
+  const b = 읽기(민호)
+  ok('다른 계정의 설정이 안 섞인다', b.길이설정 === 'brief' && b.무입력분 === 21, JSON.stringify(b))
+  ok('다른 계정의 시간이 안 섞인다', b.오늘초 === 600, `${b.오늘초}초`)
+  ok('다른 계정의 목표가 안 보인다', b.목표 == null, String(b.목표))
+
+  /* 새로고침해도 그대로인가 — 여기가 "자동으로 불러와지나"의 답이다 */
+  db = await reboot()
+  const a2 = 읽기(지수)
+  ok('새로고침 뒤 설정이 돌아온다', a2.길이설정 === 'detailed' && a2.무입력분 === 7, JSON.stringify(a2))
+  ok('새로고침 뒤 캐릭터 이름이 돌아온다', a2.자리이름 === 'A미나', a2.자리이름)
+  ok('새로고침 뒤 공부 시간이 남아 있다', a2.오늘초 >= 3600, `${a2.오늘초}초`)
+  ok('새로고침 뒤 목표가 남아 있다', /A의 목표/.test(a2.목표 || ''), String(a2.목표))
+  ok('지난 기록을 날짜로 찾을 수 있다', typeof db.getReviewByDay === 'function')
+
+  /**
+   * ⚠️ 새 계정에는 **데모 기록 27일치**가 미리 들어간다 (db.js seedIfEmpty).
+   * 통계 화면이 비어 보이지 않게 하려는 것이지만, 처음 로그인한 사람은
+   * 자기가 공부한 적 없는 기록을 보게 된다. 지우려면 db.js:129~147 이다.
+   * 여기서는 **그런 동작이라는 사실**을 못박아 둔다 — 모르고 있다가 놀라지 않게.
+   */
+  const 신규 = { provider: 'google', sub: '999', name: '새사람' }
+  AUTH.saveAccount(신규)
+  db.useAccount(AUTH.accountKeyOf(신규))
+  const seeded = (db.getDailyStats() || []).length
+  ok('새 계정에 데모 기록이 들어간다 (의도된 동작)', seeded > 10, `${seeded}일치`)
+}
+
 rmSync(tmp, { recursive: true, force: true })
 
 console.log(`\n계정별 개인화 ${pass}/${pass + fails.length} 통과`)
