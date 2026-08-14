@@ -6,6 +6,13 @@ const R = '/Users/sinsuhyeong/Downloads/aws프로젝트/studyroom-prototype'
 const { PROVIDERS } = await import(R + '/server/providers.mjs')
 const { handleChat, loadEnv } = await import(R + '/server/chat.mjs')
 
+/**
+ * 상위 모델 이름을 여기에 박아 두지 않는다.
+ * 예전엔 'gemini-3.6-flash' 라고 적어 뒀는데, 모델을 3.7 로 올리자 **이 검사만** 빨갛게 됐다.
+ * 검사가 확인해야 할 것은 "어떤 모델이냐"가 아니라 **"상위 자리에 상위 모델이 오느냐"** 다.
+ */
+const PRO_MODEL = (loadEnv().MODEL_PRO || 'gemini-3.7-flash')
+
 const env = loadEnv()
 const byKey = new Map()
 for (const [n, v] of Object.entries(env)) if (v && v.length > 20) byKey.set(v, n)
@@ -62,7 +69,8 @@ console.log('[4] 지능이 필요한 자리 — 처음부터 S1 + 3.6-flash')
 mock([])
 r = await ask('F6')
 T('첫 시도가 S1', log[0].split('/')[0], 'S1')
-T('상위 모델', log[0].split('/')[1], 'gemini-3.6-flash')
+// 값을 박아 두면 모델을 올릴 때마다 여기서 걸린다. chat.mjs 의 기본값을 그대로 읽는다
+T('상위 모델', log[0].split('/')[1], PRO_MODEL)
 T('지능 승급 표시', r.meta.route, 'pro')
 
 console.log('[5] 유료까지 막히면 무료로라도 답한다 (침묵보다 낫다)')
